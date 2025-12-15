@@ -1,0 +1,4 @@
+# Patch series for ruby-sfml-audio on Android
+
+# Rename Init_SFMLAudio to Init_libSFMLAudio for proper Ruby extension loading
+prefix_with_lib.patch

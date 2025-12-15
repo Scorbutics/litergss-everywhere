@@ -1,0 +1,23 @@
+services:
+  init:
+    image: eeacms/rsync
+    volumes:
+      - .:/src:ro # Your editable source code on host
+      - currentdata:/opt/current # Named volume for build
+    command: rsync -a --delete --exclude "target/" --exclude "build/" /src/ /opt/current/src/
+    # --delete removes files in the named volume that were deleted in src
+
+  litergss-dev:
+    build:
+      context: docker/
+    container_name: litergss-everywhere_dev
+    volumes:
+      - currentdata:/opt/current
+    working_dir: /opt/current/
+    entrypoint: bash
+    tty: true # Allows interactive debugging
+    depends_on:
+      - init
+
+volumes:
+  currentdata:

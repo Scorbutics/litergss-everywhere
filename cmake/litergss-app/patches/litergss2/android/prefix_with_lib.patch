@@ -1,0 +1,11 @@
+--- a/ext/LiteRGSS/LiteRGSS.cpp
++++ b/ext/LiteRGSS/LiteRGSS.cpp
+@@ -35,7 +35,7 @@ VALUE rb_mConfig = Qnil;
+ VALUE rb_eRGSSError = Qnil;
+
+ extern "C" {
+-	void Init_LiteRGSS() {
++	void Init_libLiteRGSS() {
+ 		rb_mLiteRGSS = rb_define_module("LiteRGSS");
+ 		rb_mConfig = rb_define_module_under(rb_mLiteRGSS, "Config");
+ 		rb_eRGSSError = rb_define_class_under(rb_mLiteRGSS, "Error", rb_eStandardError);

@@ -1,0 +1,11 @@
+--- a/ext/SFMLAudio/SFMLAudio.cpp
++++ b/ext/SFMLAudio/SFMLAudio.cpp
+@@ -3,7 +3,7 @@
+ VALUE rb_mSFMLAudio = Qnil;
+
+ extern "C" {
+-  void Init_SFMLAudio() {
++  void Init_libSFMLAudio() {
+     rb_mSFMLAudio = rb_define_module("SFMLAudio");
+
+     InitInputSoundFile(rb_mSFMLAudio);

@@ -1,0 +1,627 @@
+#!/bin/sh
+#
+# Configure script for LiteRGSS-Everywhere Build System
+# Generates a Makefile for building LiteRGSS with optional Docker support
+#
+
+set -e
+
+# Get the root directory
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Ensure cmake/core symlink exists (points to ruby-for-android submodule)
+if [ ! -L "$ROOT_DIR/cmake/core" ]; then
+	echo "Creating symlink: cmake/core -> external/ruby-for-android/cmake/core"
+	ln -s ../external/ruby-for-android/cmake/core "$ROOT_DIR/cmake/core"
+fi
+
+# Verify submodule is initialized
+if [ ! -f "$ROOT_DIR/external/ruby-for-android/CMakeLists.txt" ]; then
+	echo "Error: ruby-for-android submodule not initialized"
+	echo "Run: git submodule update --init --recursive"
+	exit 1
+fi
+
+# Default values
+USE_DOCKER=1
+TOOLCHAIN_PARAMS="toolchain-params/arm64-v8a-android-toolchain.params"
+PREFIX="/usr/local"
+BUILD_DIR="build"
+
+# Parse command-line arguments
+show_help() {
+	cat << EOF
+Usage: ./configure [OPTIONS]
+
+Configuration Options:
+  --without-docker          Build without Docker (requires local toolchain setup)
+  --with-docker             Build with Docker (default)
+  --with-toolchain-params=FILE
+                            Specify toolchain parameters file
+                            (default: toolchain-params/arm64-v8a-android-toolchain.params)
+  --prefix=PREFIX           Installation prefix (default: /usr/local)
+  --build-dir=DIR           Build directory (default: build)
+  --help                    Display this help message
+
+Examples:
+  ./configure
+  ./configure --without-docker --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params
+  ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params
+
+Environment Variables:
+  ANDROID_NDK              Path to Android NDK (for Android builds)
+  TOOLCHAIN_PARAMS         Toolchain parameters file (overridden by --with-toolchain-params)
+
+EOF
+	exit 0
+}
+
+# Parse options
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--without-docker)
+			USE_DOCKER=0
+			shift
+			;;
+		--with-docker)
+			USE_DOCKER=1
+			shift
+			;;
+		--with-toolchain-params=*)
+			TOOLCHAIN_PARAMS="${1#*=}"
+			shift
+			;;
+		--prefix=*)
+			PREFIX="${1#*=}"
+			shift
+			;;
+		--build-dir=*)
+			BUILD_DIR="${1#*=}"
+			shift
+			;;
+		--help|-h)
+			show_help
+			;;
+		*)
+			echo "Error: Unknown option '$1'"
+			echo "Run './configure --help' for usage information"
+			exit 1
+			;;
+	esac
+done
+
+# Validation
+if [ ! -f "$ROOT_DIR/$TOOLCHAIN_PARAMS" ]; then
+	echo "Error: Toolchain parameters file not found: $TOOLCHAIN_PARAMS"
+	echo "Available toolchain files:"
+	ls -1 "$ROOT_DIR"/toolchain-params/*.params 2>/dev/null || echo "  (none found)"
+	exit 1
+fi
+
+# Check Docker availability if Docker build is requested
+if [ $USE_DOCKER -eq 1 ]; then
+	if ! command -v docker >/dev/null 2>&1; then
+		echo "Error: Docker is not installed or not in PATH"
+		echo "Install Docker or use --without-docker flag"
+		exit 1
+	fi
+
+	if ! docker info >/dev/null 2>&1; then
+		echo "Error: Docker daemon is not running"
+		echo "Start Docker or use --without-docker flag"
+		exit 1
+	fi
+
+	echo "Docker build: enabled"
+else
+	echo "Docker build: disabled (local build)"
+
+	# Check for required tools for local build
+	for tool in cmake make; do
+		if ! command -v $tool >/dev/null 2>&1; then
+			echo "Error: Required tool '$tool' not found in PATH"
+			exit 1
+		fi
+	done
+
+	# Ruby 3.0.0+ is needed by the 'make install' step (via ruby-for-android)
+	if ! command -v ruby >/dev/null 2>&1; then
+		echo "Warning: Ruby not found in PATH (required for ruby-for-android build)"
+		echo "Install Ruby 3.0.0+ on the host system"
+	fi
+
+	# Check for Android NDK if this is an Android build
+	if grep -q "DANDROID_ABI=" "$ROOT_DIR/$TOOLCHAIN_PARAMS"; then
+		if [ -z "$ANDROID_NDK" ]; then
+			NDK_BASE="$HOME/Android/Sdk/ndk"
+			if [ -d "$NDK_BASE" ]; then
+				ANDROID_NDK="$NDK_BASE/$(ls "$NDK_BASE" | tail -n 1)"
+			fi
+		fi
+
+		if [ ! -d "$ANDROID_NDK" ]; then
+			echo "Error: ANDROID_NDK not set or directory not found"
+			echo "Set ANDROID_NDK environment variable or install Android NDK"
+			exit 1
+		fi
+
+		echo "Android NDK: $ANDROID_NDK"
+	fi
+fi
+
+echo "Toolchain: $TOOLCHAIN_PARAMS"
+echo "Prefix: $PREFIX"
+echo "Build directory: $BUILD_DIR"
+
+# Generate Makefile
+echo "Generating Makefile..."
+
+cat > "$ROOT_DIR/Makefile" << 'MAKEFILE_EOF'
+# Generated Makefile - DO NOT EDIT
+# Run ./configure to regenerate this file
+
+# Use bash instead of sh for bash-specific syntax (e.g., here-strings <<<)
+SHELL := /bin/bash
+
+# Configuration
+USE_DOCKER=@USE_DOCKER@
+TOOLCHAIN_PARAMS=@TOOLCHAIN_PARAMS@
+PREFIX=@PREFIX@
+BUILD_DIR=@BUILD_DIR@
+ROOT_DIR=@ROOT_DIR@
+PROJECT_NAME=litergss-everywhere
+CONTAINER=$(PROJECT_NAME)_dev
+DOCKER_WORKDIR=/opt/current
+DOCKER_BUILD_DIR=$(DOCKER_WORKDIR)/build
+
+.PHONY: all build configure-cmake install clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync
+
+# Default target
+all: build
+
+help:
+	@echo "Available targets:"
+	@echo "  all (default)      - Build the project"
+	@echo "  build              - Build the project (same as 'all')"
+	@echo "  sync               - Force sync of source files to Docker (Docker mode only)"
+	@echo "  configure-cmake    - Run CMake configuration"
+	@echo "  install            - Install/export build artifacts"
+	@echo "  clean              - Clean build artifacts (keeps downloads)"
+	@echo "  clean-libs         - Clean library build directories"
+	@echo "  clean-downloads    - Remove downloaded source archives"
+	@echo "  clean-artifacts    - Remove target directory"
+	@echo "  clean-all          - Clean everything (libs + downloads + artifacts)"
+	@echo "  clean-<package>    - Clean specific package (e.g., clean-ruby-for-android)"
+	@echo "  logs-<package>-<step> - Show log for package build step (download/configure/build/install)"
+
+ifeq ($(USE_DOCKER),1)
+
+# ============================================================================
+# Docker Mode Targets
+# ============================================================================
+
+# Check if container is running
+docker-check-running:
+	@if ! docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
+		echo "Container $(CONTAINER) is not running"; \
+		exit 1; \
+	fi
+
+# Check if volume exists
+docker-check-volume:
+	@if ! docker volume ls --format "{{.Name}}" 2>/dev/null | grep -q "^$(PROJECT_NAME)_currentdata$$"; then \
+		echo "Volume $(PROJECT_NAME)_currentdata does not exist, will create"; \
+	fi
+
+# Sync sources to Docker volume
+docker-sync: docker-check-volume
+	@echo "Synchronizing source files to Docker volume..."
+	@if docker compose run --rm --remove-orphans init >/dev/null 2>&1; then \
+		echo "Source synchronization complete"; \
+	else \
+		echo "Error: Failed to synchronize sources"; \
+		exit 1; \
+	fi
+
+# Force sync (removes init containers and performs fresh sync)
+sync:
+	@echo "Forcing fresh synchronization of source files..."
+	@echo "Removing any orphaned init containers..."
+	@docker compose rm -f -s -v init 2>/dev/null || true
+	@$(MAKE) docker-sync
+
+# Start the development container
+docker-start:
+	@echo "Starting development container..."
+	@if docker compose up -d litergss-dev 2>&1 | grep -q "Started\|Running"; then \
+		echo "Development container started"; \
+	else \
+		if docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
+			echo "Development container already running"; \
+		else \
+			echo "Error: Failed to start development container"; \
+			exit 1; \
+		fi \
+	fi
+	@echo "Waiting for container to be ready..."
+	@max_attempts=30; attempt=0; \
+	while [ $$attempt -lt $$max_attempts ]; do \
+		if docker exec $(CONTAINER) echo "ready" >/dev/null 2>&1; then \
+			echo "Container is ready"; \
+			break; \
+		fi; \
+		attempt=$$((attempt + 1)); \
+		sleep 1; \
+	done; \
+	if [ $$attempt -eq $$max_attempts ]; then \
+		echo "Error: Container failed to become ready"; \
+		exit 1; \
+	fi
+
+# Initialize Docker environment (sync + start)
+docker-init:
+	@if docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
+		echo "Container already running, skipping sync"; \
+	else \
+		$(MAKE) docker-sync; \
+		$(MAKE) docker-start; \
+	fi
+
+# CMake configuration in Docker
+configure-cmake: docker-init
+	@echo "Configuring with CMake (Docker mode)..."
+	@docker exec $(CONTAINER) mkdir -p $(DOCKER_BUILD_DIR)
+	@docker exec $(CONTAINER) sh -c 'cd $(DOCKER_BUILD_DIR) && \
+		export SOURCE_DIR=$(DOCKER_WORKDIR)/src && \
+		TOOLCHAIN_PARAMS_FILE=$$SOURCE_DIR/$(TOOLCHAIN_PARAMS) && \
+		if [ ! -f "$$TOOLCHAIN_PARAMS_FILE" ]; then \
+			echo "Error: Toolchain parameters file not found: $$TOOLCHAIN_PARAMS_FILE"; \
+			exit 1; \
+		fi && \
+		echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
+		rm -f CMakeCache.txt && \
+		if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
+			NDK_BASE=/opt/android-ndk && \
+			export ANDROID_NDK=$$NDK_BASE && \
+			if [ ! -d "$$ANDROID_NDK" ]; then \
+				echo "Error: ANDROID_NDK not found"; \
+				exit 1; \
+			fi && \
+			echo "Android NDK: $$ANDROID_NDK" && \
+			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$$SOURCE_DIR; \
+		else \
+			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$$SOURCE_DIR; \
+		fi'
+
+# Build in Docker
+build: configure-cmake
+	@echo "Building project (Docker mode)..."
+	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR)
+
+# Install/export from Docker
+install: docker-check-running
+	@echo "Exporting build artifacts from Docker..."
+	@rm -rf target
+	@mkdir -p target
+	@# Get staging directory from CMake cache
+	@BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+	if [ -z "$$BUILD_STAGING_DIR" ]; then \
+		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
+		exit 1; \
+	fi; \
+	echo "Staging directory: $$BUILD_STAGING_DIR"; \
+	TARGET_ARCHIVES=$$(docker exec $(CONTAINER) grep -E "TARGET_ARCHIVES:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+	if [ -z "$$TARGET_ARCHIVES" ]; then \
+		echo "Warning: No archives registered in TARGET_ARCHIVES"; \
+		docker exec $(CONTAINER) tar -czf - -C $(DOCKER_BUILD_DIR)/target . 2>/dev/null | tar -xzf - -C target 2>/dev/null || true; \
+	else \
+		echo "Found registered archives: $$TARGET_ARCHIVES"; \
+		FAILED=0; \
+		IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
+		for archive in "$${ARCHIVES[@]}"; do \
+			if [ -z "$$archive" ]; then continue; fi; \
+			ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
+			echo "Checking archive: $$archive"; \
+			if docker exec $(CONTAINER) test -f "$$ARCHIVE_PATH"; then \
+				echo "  Copying $$archive..."; \
+				docker cp $(CONTAINER):"$$ARCHIVE_PATH" target/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+			else \
+				echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
+				FAILED=1; \
+			fi; \
+		done; \
+		if [ $$FAILED -eq 1 ]; then \
+			echo "Error: One or more archives are missing or failed to copy"; \
+			exit 1; \
+		fi; \
+	fi
+	@echo "Build artifacts exported to: ./target"
+	@ls -lh target/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+
+# Clean targets in Docker
+clean: docker-init
+	@echo "Cleaning build artifacts (Docker mode)..."
+	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean 2>/dev/null || true
+
+clean-libs: docker-init
+	@echo "Cleaning library builds (Docker mode)..."
+	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-libs 2>/dev/null || true
+
+clean-downloads: docker-init
+	@echo "Cleaning downloads (Docker mode)..."
+	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-downloads 2>/dev/null || true
+
+clean-artifacts: docker-init
+	@echo "Cleaning artifacts (Docker mode)..."
+	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-artifacts 2>/dev/null || true
+	@rm -rf target
+
+clean-all: clean-libs clean-downloads clean-artifacts
+	@echo "Full clean complete (Docker mode)"
+
+# Package-specific clean targets (Docker mode)
+@PACKAGE_CLEAN_TARGETS_DOCKER@
+
+# Package-specific log extraction targets (Docker mode)
+@PACKAGE_LOG_TARGETS_DOCKER@
+
+else
+
+# ============================================================================
+# Local Mode Targets (without Docker)
+# ============================================================================
+
+configure-cmake:
+	@echo "Configuring with CMake (local mode)..."
+	@mkdir -p $(BUILD_DIR)
+	@cd $(BUILD_DIR) && \
+		export TOOLCHAIN_PARAMS=../$(TOOLCHAIN_PARAMS) && \
+		TOOLCHAIN_PARAMS_FILE="$$TOOLCHAIN_PARAMS" && \
+		if [ ! -f "$$TOOLCHAIN_PARAMS_FILE" ]; then \
+			echo "Error: Toolchain parameters file not found: $$TOOLCHAIN_PARAMS_FILE"; \
+			exit 1; \
+		fi && \
+		echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
+		rm -f CMakeCache.txt && \
+		if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
+			NDK_BASE=$$HOME/Android/Sdk/ndk && \
+			export ANDROID_NDK=$${ANDROID_NDK:-$$NDK_BASE/$$(ls $$NDK_BASE | tail -n 1)} && \
+			if [ ! -d "$$ANDROID_NDK" ]; then \
+				echo "Error: ANDROID_NDK not found"; \
+				exit 1; \
+			fi && \
+			echo "Android NDK: $$ANDROID_NDK" && \
+			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				..; \
+		else \
+			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				..; \
+		fi
+
+build: configure-cmake
+	@echo "Building project (local mode)..."
+	@cmake --build $(BUILD_DIR)
+
+install:
+	@echo "Installing build artifacts (local mode)..."
+	@if [ ! -d "$(BUILD_DIR)" ]; then \
+		echo "Error: Build directory not found. Run 'make build' first."; \
+		exit 1; \
+	fi
+	@rm -rf target
+	@mkdir -p target
+	@# Get staging directory from CMake cache
+	@BUILD_STAGING_DIR=$$(grep -E "BUILD_STAGING_DIR:" $(BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+	if [ -z "$$BUILD_STAGING_DIR" ]; then \
+		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
+		exit 1; \
+	fi; \
+	echo "Staging directory: $$BUILD_STAGING_DIR"; \
+	TARGET_ARCHIVES=$$(grep -E "TARGET_ARCHIVES:" $(BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+	if [ -z "$$TARGET_ARCHIVES" ]; then \
+		echo "Warning: No archives registered in TARGET_ARCHIVES"; \
+		if [ -d "$(BUILD_DIR)/target" ]; then \
+			cp -r $(BUILD_DIR)/target/* target/ 2>/dev/null || true; \
+		fi; \
+	else \
+		echo "Found registered archives: $$TARGET_ARCHIVES"; \
+		FAILED=0; \
+		IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
+		for archive in "$${ARCHIVES[@]}"; do \
+			if [ -z "$$archive" ]; then continue; fi; \
+			ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
+			echo "Checking archive: $$archive"; \
+			if [ -f "$$ARCHIVE_PATH" ]; then \
+				echo "  Copying $$archive..."; \
+				cp "$$ARCHIVE_PATH" target/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+			else \
+				echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
+				FAILED=1; \
+			fi; \
+		done; \
+		if [ $$FAILED -eq 1 ]; then \
+			echo "Error: One or more archives are missing or failed to copy"; \
+			exit 1; \
+		fi; \
+	fi
+	@echo "Build artifacts installed to: ./target"
+	@ls -lh target/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+
+clean:
+	@echo "Cleaning build artifacts (local mode)..."
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		cmake --build $(BUILD_DIR) --target clean 2>/dev/null || true; \
+	fi
+
+clean-libs:
+	@echo "Cleaning library builds (local mode)..."
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		cmake --build $(BUILD_DIR) --target clean-libs 2>/dev/null || true; \
+	fi
+
+clean-downloads:
+	@echo "Cleaning downloads (local mode)..."
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		cmake --build $(BUILD_DIR) --target clean-downloads 2>/dev/null || true; \
+	fi
+
+clean-artifacts:
+	@echo "Cleaning artifacts (local mode)..."
+	@if [ -d "$(BUILD_DIR)" ]; then \
+		cmake --build $(BUILD_DIR) --target clean-artifacts 2>/dev/null || true; \
+	fi
+	@rm -rf target
+
+clean-all: clean-libs clean-downloads clean-artifacts
+	@echo "Full clean complete (local mode)"
+	@rm -rf $(BUILD_DIR)
+
+# Package-specific clean targets (Local mode)
+@PACKAGE_CLEAN_TARGETS_LOCAL@
+
+# Package-specific log extraction targets (Local mode)
+@PACKAGE_LOG_TARGETS_LOCAL@
+
+sync:
+	@echo "Warning: 'sync' target only works in Docker mode"
+	@echo "Source files are already in the current directory (local mode)"
+
+endif
+
+MAKEFILE_EOF
+
+# Extract package list from CMakeLists.txt to generate clean targets
+PACKAGES=""
+if [ -f "$ROOT_DIR/CMakeLists.txt" ]; then
+	PACKAGES=$(grep -E 'APP_DEPENDENCIES\s+"' "$ROOT_DIR/CMakeLists.txt" | sed -E 's/.*APP_DEPENDENCIES\s+"([^"]+)".*/\1/' | tr ';' ' ')
+fi
+
+# Generate package-specific clean targets for Docker mode
+PACKAGE_CLEAN_DOCKER=""
+if [ -n "$PACKAGES" ]; then
+	for pkg in $PACKAGES; do
+		PACKAGE_CLEAN_DOCKER="${PACKAGE_CLEAN_DOCKER}
+clean-${pkg}: docker-init
+	@echo \"Cleaning ${pkg} (Docker mode)...\"
+	@docker exec \$(CONTAINER) cmake --build \$(DOCKER_BUILD_DIR) --target ${pkg}_clean 2>/dev/null || true
+
+"
+	done
+fi
+
+# Generate package-specific clean targets for Local mode
+PACKAGE_CLEAN_LOCAL=""
+if [ -n "$PACKAGES" ]; then
+	for pkg in $PACKAGES; do
+		PACKAGE_CLEAN_LOCAL="${PACKAGE_CLEAN_LOCAL}
+clean-${pkg}:
+	@echo \"Cleaning ${pkg} (local mode)...\"
+	@if [ -d \"\$(BUILD_DIR)\" ]; then \\
+		cmake --build \$(BUILD_DIR) --target ${pkg}_clean 2>/dev/null || true; \\
+	fi
+
+"
+	done
+fi
+
+# Generate package-specific log extraction targets for Docker mode
+PACKAGE_LOG_DOCKER=""
+if [ -n "$PACKAGES" ]; then
+	for pkg in $PACKAGES; do
+		for step in download configure build install; do
+			PACKAGE_LOG_DOCKER="${PACKAGE_LOG_DOCKER}
+logs-${pkg}-${step}: docker-check-running
+	@echo \"=== ${pkg} ${step} logs ===\"
+	@docker exec \$(CONTAINER) sh -c \"cat \$(DOCKER_BUILD_DIR)/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null\" || echo \"No ${step} logs found for ${pkg}\"
+
+"
+		done
+	done
+fi
+
+# Generate package-specific log extraction targets for Local mode
+PACKAGE_LOG_LOCAL=""
+if [ -n "$PACKAGES" ]; then
+	for pkg in $PACKAGES; do
+		for step in download configure build install; do
+			PACKAGE_LOG_LOCAL="${PACKAGE_LOG_LOCAL}
+logs-${pkg}-${step}:
+	@echo \"=== ${pkg} ${step} logs ===\"
+	@cat \$(BUILD_DIR)/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null || echo \"No ${step} logs found for ${pkg}\"
+
+"
+		done
+	done
+fi
+
+# Create temporary files with the package clean targets
+cat > "$ROOT_DIR/Makefile.tmp" << EOF
+$PACKAGE_CLEAN_DOCKER
+EOF
+
+cat > "$ROOT_DIR/Makefile.local.tmp" << EOF
+$PACKAGE_CLEAN_LOCAL
+EOF
+
+# Create temporary files with the package log targets
+cat > "$ROOT_DIR/Makefile.log.tmp" << EOF
+$PACKAGE_LOG_DOCKER
+EOF
+
+cat > "$ROOT_DIR/Makefile.log.local.tmp" << EOF
+$PACKAGE_LOG_LOCAL
+EOF
+
+# Substitute configuration values
+sed \
+	-e "s|@USE_DOCKER@|$USE_DOCKER|g" \
+	-e "s|@TOOLCHAIN_PARAMS@|$TOOLCHAIN_PARAMS|g" \
+	-e "s|@PREFIX@|$PREFIX|g" \
+	-e "s|@BUILD_DIR@|$BUILD_DIR|g" \
+	-e "s|@ROOT_DIR@|$ROOT_DIR|g" \
+	"$ROOT_DIR/Makefile" > "$ROOT_DIR/Makefile.new"
+
+# Insert package clean and log targets
+awk '
+	/@PACKAGE_CLEAN_TARGETS_DOCKER@/ {
+		while ((getline line < "'"$ROOT_DIR"'/Makefile.tmp") > 0)
+			print line
+		next
+	}
+	/@PACKAGE_CLEAN_TARGETS_LOCAL@/ {
+		while ((getline line < "'"$ROOT_DIR"'/Makefile.local.tmp") > 0)
+			print line
+		next
+	}
+	/@PACKAGE_LOG_TARGETS_DOCKER@/ {
+		while ((getline line < "'"$ROOT_DIR"'/Makefile.log.tmp") > 0)
+			print line
+		next
+	}
+	/@PACKAGE_LOG_TARGETS_LOCAL@/ {
+		while ((getline line < "'"$ROOT_DIR"'/Makefile.log.local.tmp") > 0)
+			print line
+		next
+	}
+	{ print }
+' "$ROOT_DIR/Makefile.new" > "$ROOT_DIR/Makefile.final"
+
+mv "$ROOT_DIR/Makefile.final" "$ROOT_DIR/Makefile"
+rm -f "$ROOT_DIR/Makefile.new" "$ROOT_DIR/Makefile.tmp" "$ROOT_DIR/Makefile.local.tmp" "$ROOT_DIR/Makefile.log.tmp" "$ROOT_DIR/Makefile.log.local.tmp"
+
+echo ""
+echo "Configuration complete!"
+echo ""
+echo "Next steps:"
+echo "  make           # Build the project"
+echo "  make install   # Export/install build artifacts"
+echo ""
+echo "Run 'make help' to see all available targets."

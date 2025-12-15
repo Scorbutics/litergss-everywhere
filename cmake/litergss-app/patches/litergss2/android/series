@@ -1,0 +1,4 @@
+# Patch series for LiteRGSS2 on Android
+
+# Rename Init_LiteRGSS to Init_libLiteRGSS for proper Ruby extension loading
+prefix_with_lib.patch

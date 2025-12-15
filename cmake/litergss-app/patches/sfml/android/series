@@ -1,0 +1,6 @@
+# Patch series for SFML on Android
+# Patches are applied in order listed here
+
+# Disable Android-specific InputStreamFromAssets loading
+# LiteRGSS loads files from filesystem, not APK assets
+dont_load_from_inputstream_android.patch

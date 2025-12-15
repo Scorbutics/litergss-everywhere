@@ -1,0 +1,25 @@
+# Build directories
+build/
+target/
+
+# Symlinks
+/cmake/core
+
+# Generated Makefile
+Makefile
+Makefile.bak
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
