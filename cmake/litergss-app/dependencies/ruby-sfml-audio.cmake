@@ -7,11 +7,11 @@ set(RUBY_SFML_AUDIO_GIT_TAG "HEAD")
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
-# Get Ruby arch and set include/lib paths
+# Get Ruby arch and set include/lib paths from embedded-ruby-vm
 get_ruby_arch(RUBY_ARCH "ruby-sfml-audio")
 set(RUBY_MINOR_VERSION "3.1.0")
-set(RUBY_INCLUDE_DIR_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION} -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/${RUBY_ARCH}/")
-set(RUBY_LIB_DIR_LFLAGS "-L${BUILD_STAGING_DIR}/usr/local/lib/ruby/${RUBY_MINOR_VERSION}/${RUBY_ARCH}/")
+# RUBY_INCLUDE_DIR_CFLAGS and RUBY_LIB_DIR_LFLAGS are already set by embedded-ruby-vm.cmake
+# No need to override them here
 
 # Source directory for install command reference
 set(RUBY_SFML_AUDIO_SOURCE_DIR "${CMAKE_BINARY_DIR}/ruby-sfml-audio/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/ruby-sfml-audio-${RUBY_SFML_AUDIO_VERSION}")
@@ -41,7 +41,7 @@ if(BUILD_SHARED_LIBS)
         COMMAND ${BUILD_STAGING_DIR}/../host/usr/local/bin/patchelf --set-soname libSFMLAudio.so ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.so
         COMMAND ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.so ${BUILD_STAGING_DIR}/usr/local/lib/
     )
-    set(RUBY_SFML_AUDIO_DEPENDS sfml ruby-for-android patchelf)
+    set(RUBY_SFML_AUDIO_DEPENDS sfml embedded-ruby-vm patchelf)
 
     # Use Android patches (Init function renaming)
     set(RUBY_SFML_AUDIO_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/ruby-sfml-audio/android)
@@ -50,7 +50,7 @@ else()
     set(RUBY_SFML_AUDIO_INSTALL_CMD
         ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.a ${BUILD_STAGING_DIR}/usr/local/lib/
     )
-    set(RUBY_SFML_AUDIO_DEPENDS sfml ruby-for-android)
+    set(RUBY_SFML_AUDIO_DEPENDS sfml embedded-ruby-vm)
 
     # Use static patches (empty - no Init function renaming needed)
     set(RUBY_SFML_AUDIO_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/ruby-sfml-audio/static)

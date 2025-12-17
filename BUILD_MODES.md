@@ -2,6 +2,16 @@
 
 LiteRGSS-Everywhere supports both static and dynamic linking modes, configurable via the standard CMake `BUILD_SHARED_LIBS` option.
 
+## Ruby Runtime from embedded-ruby-vm
+
+LiteRGSS-Everywhere now depends on **embedded-ruby-vm** for the Ruby runtime instead of building ruby-for-android directly. This provides:
+- Complete Ruby 3.1.1 interpreter
+- Kotlin Multiplatform classes for Ruby VM control
+- Pre-built Ruby runtime artifacts
+- Consistent Ruby version across all projects
+
+embedded-ruby-vm is included as a symlink/submodule at `external/embedded-ruby-vm`. The Ruby runtime is redistributed in the final litergss-{platform}-{arch}.zip archive along with LiteRGSS extensions.
+
 ## Quick Start
 
 ### Static Linking (Default)
@@ -42,8 +52,14 @@ make install
 - All dependencies as `.a` files (SFML, freetype, ogg, vorbis, FLAC, openal)
 
 **Archives Generated:**
-- `ruby_full-{platform}-{arch}.zip` - Contains `.a` files and headers
-- `litergss-{platform}-{arch}.zip` - Contains `.a` files and headers
+- `litergss-{platform}-{arch}.zip` - **Self-contained distribution** containing:
+  - Ruby runtime from embedded-ruby-vm (libruby-static.a + dependencies)
+  - LiteRGSS extensions (libLiteRGSS.a, libSFMLAudio.a)
+  - SFML and audio libraries
+  - Ruby headers
+  - Kotlin Multiplatform artifacts from embedded-ruby-vm
+
+Note: `ruby_full-{platform}-{arch}.zip` is no longer generated - Ruby runtime is included in litergss archive
 
 **Extension Loading:**
 Uses `rb_provide()` mechanism - extensions must be initialized via `ruby_init_litergss_extensions()` before use.
@@ -57,8 +73,14 @@ Uses `rb_provide()` mechanism - extensions must be initialized via `ruby_init_li
 - All dependencies as `.so` files
 
 **Archives Generated:**
-- `ruby_full-{platform}-{arch}.zip` - Contains `.so` files and headers
-- `litergss-{platform}-{arch}.zip` - Contains `.so` files and headers
+- `litergss-{platform}-{arch}.zip` - **Self-contained distribution** containing:
+  - Ruby runtime from embedded-ruby-vm (libruby.so + dependencies)
+  - LiteRGSS extensions (libLiteRGSS.so, libSFMLAudio.so)
+  - SFML and audio libraries
+  - Ruby headers
+  - Kotlin Multiplatform artifacts from embedded-ruby-vm
+
+Note: `ruby_full-{platform}-{arch}.zip` is no longer generated - Ruby runtime is included in litergss archive
 
 **Extension Loading:**
 Uses standard Ruby `require` - extensions are dynamically loaded at runtime.

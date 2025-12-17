@@ -7,11 +7,11 @@ set(LITERGSS2_GIT_TAG "development")
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
-# Get Ruby arch and set include/lib paths
+# Get Ruby arch and set include/lib paths from embedded-ruby-vm
 get_ruby_arch(RUBY_ARCH "litergss2")
 set(RUBY_MINOR_VERSION "3.1.0")
-set(RUBY_INCLUDE_DIR_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION} -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/${RUBY_ARCH}/")
-set(RUBY_LIB_DIR_LFLAGS "-L${BUILD_STAGING_DIR}/usr/local/lib/ruby/${RUBY_MINOR_VERSION}/${RUBY_ARCH}/")
+# RUBY_INCLUDE_DIR_CFLAGS and RUBY_LIB_DIR_LFLAGS are already set by embedded-ruby-vm.cmake
+# No need to override them here
 
 # Build directory for install command reference
 set(LITERGSS2_BUILD_DIR "${CMAKE_BINARY_DIR}/litergss2/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/litergss2-${LITERGSS2_VERSION}")
@@ -43,7 +43,7 @@ if(BUILD_SHARED_LIBS)
         COMMAND ${CMAKE_COMMAND} -E copy ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.so ${BUILD_STAGING_DIR}/usr/local/lib/
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c ${BUILD_STAGING_DIR}/extension-init.c
     )
-    set(LITERGSS2_DEPENDS litecgss ruby-for-android patchelf)
+    set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm patchelf)
 
     # Use Android patches (Init function renaming)
     set(LITERGSS2_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/litergss2/android)
@@ -53,7 +53,7 @@ else()
         ${CMAKE_COMMAND} -E copy ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.a ${BUILD_STAGING_DIR}/usr/local/lib/
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c ${BUILD_STAGING_DIR}/extension-init.c
     )
-    set(LITERGSS2_DEPENDS litecgss ruby-for-android)
+    set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm)
 
     # Use static patches (empty - no Init function renaming needed)
     set(LITERGSS2_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/litergss2/static)
@@ -94,21 +94,50 @@ else()
     set(LITERGSS_LIB_EXTENSION "a")
 endif()
 
+# Prepare Ruby runtime files for packaging
+# Copy Ruby libraries from embedded-ruby-vm to staging directory
+file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/lib/ruby")
+file(GLOB RUBY_LIBS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/libruby*.${LITERGSS_LIB_EXTENSION}*")
+file(GLOB RUBY_DEPS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/lib*.${LITERGSS_LIB_EXTENSION}*")
+foreach(lib ${RUBY_LIBS} ${RUBY_DEPS})
+    file(COPY ${lib} DESTINATION "${BUILD_STAGING_DIR}/usr/local/lib/ruby/")
+endforeach()
+
+# Copy Ruby headers for consumers
+file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/include")
+foreach(include_dir ${EMBEDDED_RUBY_VM_INCLUDE_DIRS})
+    if(EXISTS "${include_dir}")
+        file(COPY "${include_dir}/" DESTINATION "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/")
+    endif()
+endforeach()
+
 create_archive_target(
     NAME litergss_archive
     OUTPUT ${LITERGSS_ARCHIVE_NAME}
     INCLUDES
+        # Extension initialization
         extension-init.c
-        usr/local/lib/libsfml*.${LITERGSS_LIB_EXTENSION}
+
+        # Ruby runtime from embedded-ruby-vm (CRITICAL - needed by final app!)
+        usr/local/lib/ruby/libruby*.${LITERGSS_LIB_EXTENSION}*
+        usr/local/lib/ruby/libssl*.${LITERGSS_LIB_EXTENSION}*
+        usr/local/lib/ruby/libcrypto*.${LITERGSS_LIB_EXTENSION}*
+        usr/local/lib/ruby/lib*.${LITERGSS_LIB_EXTENSION}*
+        usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+
+        # LiteRGSS extensions
         usr/local/lib/libLiteRGSS.${LITERGSS_LIB_EXTENSION}
         usr/local/lib/libSFMLAudio.${LITERGSS_LIB_EXTENSION}
+
+        # SFML and audio dependencies
+        usr/local/lib/libsfml*.${LITERGSS_LIB_EXTENSION}
         usr/local/lib/libogg.${LITERGSS_LIB_EXTENSION}
         usr/local/lib/libvorbis*.${LITERGSS_LIB_EXTENSION}
         usr/local/lib/libFLAC*.${LITERGSS_LIB_EXTENSION}
         usr/local/lib/libfreetype.${LITERGSS_LIB_EXTENSION}
         usr/lib/libopenal.${LITERGSS_LIB_EXTENSION}
         usr/local/include/SFML/
-    DEPENDS litergss2_external ruby-sfml-audio_external
+    DEPENDS litergss2_external ruby-sfml-audio_external embedded-ruby-vm
 )
 
 # Make litergss2 target include archive creation
