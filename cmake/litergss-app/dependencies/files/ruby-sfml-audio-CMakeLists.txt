@@ -21,8 +21,14 @@ file(GLOB_RECURSE SOURCES
 
 string(REGEX REPLACE "[^;]*CMakeFiles/[^;]+;?" "" SOURCES "${SOURCES}")
 
+# Build library - type determined by BUILD_SHARED_LIBS option
 add_library(SFMLAudio ${SOURCES})
 
-set_target_properties(SFMLAudio PROPERTIES PREFIX "")
+# Remove PREFIX only for shared libraries to get SFMLAudio.so (not libSFMLAudio.so)
+# Static libraries keep standard naming: libSFMLAudio.a
+if(BUILD_SHARED_LIBS)
+    set_target_properties(SFMLAudio PROPERTIES PREFIX "")
+endif()
+
 set(TARGET_LIBS sfml-audio sfml-system ruby)
 target_link_libraries(SFMLAudio ${TARGET_LIBS})

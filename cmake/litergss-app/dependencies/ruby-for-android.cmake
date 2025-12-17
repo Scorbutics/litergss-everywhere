@@ -5,8 +5,50 @@ set(RUBY_FOR_ANDROID_DIR "${CMAKE_SOURCE_DIR}/external/ruby-for-android")
 set(RUBY_MINOR_VERSION "3.1.0")
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
-set(RUBY_INCLUDE_DIR_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION} -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/${HOST}-${PLATFORM_LOWER}/")
-set(RUBY_LIB_DIR_LFLAGS "-L${BUILD_STAGING_DIR}/usr/local/lib/ruby/${RUBY_MINOR_VERSION}/${HOST}-${PLATFORM_LOWER}/")
+
+# Function to get Ruby architecture (either from cache or fallback)
+# Usage: get_ruby_arch(OUTPUT_VAR [LOG_PREFIX])
+function(get_ruby_arch OUTPUT_VAR)
+    set(LOG_PREFIX "${ARGV1}")
+    if(NOT LOG_PREFIX)
+        set(LOG_PREFIX "Ruby")
+    endif()
+
+    # Try to read cached Ruby arch from previous build
+    set(DETECTED_ARCH "")
+    if(EXISTS "${CMAKE_BINARY_DIR}/ruby_arch.txt")
+        file(READ "${CMAKE_BINARY_DIR}/ruby_arch.txt" DETECTED_ARCH)
+        string(STRIP "${DETECTED_ARCH}" DETECTED_ARCH)
+        message(STATUS "${LOG_PREFIX}: Using cached Ruby arch: ${DETECTED_ARCH}")
+    else()
+        # Fallback: construct arch from HOST and PLATFORM_LOWER if Ruby not built yet
+        if(HOST)
+            set(DETECTED_ARCH "${HOST}-${PLATFORM_LOWER}")
+        else()
+            set(DETECTED_ARCH "${TARGET_ARCH}-${PLATFORM_LOWER}")
+        endif()
+        message(STATUS "${LOG_PREFIX}: Ruby arch cache not found, using fallback: ${DETECTED_ARCH}")
+    endif()
+
+    # Return value to parent scope
+    set(${OUTPUT_VAR} "${DETECTED_ARCH}" PARENT_SCOPE)
+endfunction()
+
+# Create script to extract Ruby's arch from rbconfig.rb after installation
+file(WRITE "${CMAKE_BINARY_DIR}/extract_ruby_arch.cmake" "
+# Extract Ruby arch from installed rbconfig.rb
+file(GLOB RUBY_ARCH_DIRS \"${BUILD_STAGING_DIR}/usr/local/lib/ruby/${RUBY_MINOR_VERSION}/*\")
+foreach(ARCH_DIR IN LISTS RUBY_ARCH_DIRS)
+    if(IS_DIRECTORY \"\${ARCH_DIR}\")
+        get_filename_component(ARCH_NAME \"\${ARCH_DIR}\" NAME)
+        if(EXISTS \"\${ARCH_DIR}/rbconfig.rb\")
+            file(WRITE \"${CMAKE_BINARY_DIR}/ruby_arch.txt\" \"\${ARCH_NAME}\")
+            message(STATUS \"Extracted Ruby arch: \${ARCH_NAME}\")
+            break()
+        endif()
+    endif()
+endforeach()
+")
 
 # Verify submodule exists
 if(NOT EXISTS "${RUBY_FOR_ANDROID_DIR}/CMakeLists.txt")
@@ -54,6 +96,7 @@ ExternalProject_Add(ruby-for-android_external
                         COMMAND ${CMAKE_COMMAND} -E make_directory ${BUILD_STAGING_DIR}
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RUBY_OUTPUT_DIR}/ruby_full-${HOST_SHORT}.zip ${BUILD_STAGING_DIR}/
                         COMMAND ${CMAKE_COMMAND} -E chdir ${BUILD_STAGING_DIR} unzip -o ruby_full-${HOST_SHORT}.zip
+                        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/extract_ruby_arch.cmake
 
     LOG_CONFIGURE       TRUE
     LOG_BUILD           TRUE

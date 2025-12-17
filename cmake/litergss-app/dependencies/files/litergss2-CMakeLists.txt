@@ -21,8 +21,14 @@ file(GLOB_RECURSE SOURCES
 
 string(REGEX REPLACE "[^;]*CMakeFiles/[^;]+;?" "" SOURCES "${SOURCES}")
 
+# Build library - type determined by BUILD_SHARED_LIBS option
 add_library(LiteRGSS ${SOURCES})
 
-set_target_properties(LiteRGSS PROPERTIES PREFIX "")
+# Remove PREFIX only for shared libraries to get LiteRGSS.so (not libLiteRGSS.so)
+# Static libraries keep standard naming: libLiteRGSS.a
+if(BUILD_SHARED_LIBS)
+    set_target_properties(LiteRGSS PROPERTIES PREFIX "")
+endif()
+
 set(TARGET_LIBS LiteCGSS_engine sfml-graphics sfml-window sfml-system ruby physfs skalog)
 target_link_libraries(LiteRGSS ${TARGET_LIBS})

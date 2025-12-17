@@ -27,6 +27,7 @@ USE_DOCKER=1
 TOOLCHAIN_PARAMS="toolchain-params/arm64-v8a-android-toolchain.params"
 PREFIX="/usr/local"
 BUILD_DIR="build"
+EXTRA_CMAKE_ARGS=""
 
 # Parse command-line arguments
 show_help() {
@@ -39,14 +40,17 @@ Configuration Options:
   --with-toolchain-params=FILE
                             Specify toolchain parameters file
                             (default: toolchain-params/arm64-v8a-android-toolchain.params)
+  --enable-shared           Build shared libraries (.so files)
+  --enable-static           Build static libraries (.a files) - default
   --prefix=PREFIX           Installation prefix (default: /usr/local)
   --build-dir=DIR           Build directory (default: build)
   --help                    Display this help message
 
 Examples:
   ./configure
-  ./configure --without-docker --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params
-  ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params
+  ./configure --enable-shared
+  ./configure --without-docker --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params --enable-static
+  ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params --enable-shared
 
 Environment Variables:
   ANDROID_NDK              Path to Android NDK (for Android builds)
@@ -69,6 +73,14 @@ while [ $# -gt 0 ]; do
 			;;
 		--with-toolchain-params=*)
 			TOOLCHAIN_PARAMS="${1#*=}"
+			shift
+			;;
+		--enable-shared)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DBUILD_SHARED_LIBS=ON"
+			shift
+			;;
+		--enable-static)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF"
 			shift
 			;;
 		--prefix=*)
@@ -152,6 +164,13 @@ fi
 echo "Toolchain: $TOOLCHAIN_PARAMS"
 echo "Prefix: $PREFIX"
 echo "Build directory: $BUILD_DIR"
+if echo "$EXTRA_CMAKE_ARGS" | grep -q "BUILD_SHARED_LIBS=ON"; then
+	echo "Build mode: Shared libraries (.so)"
+elif echo "$EXTRA_CMAKE_ARGS" | grep -q "BUILD_SHARED_LIBS=OFF"; then
+	echo "Build mode: Static libraries (.a)"
+else
+	echo "Build mode: Static libraries (.a) - default"
+fi
 
 # Generate Makefile
 echo "Generating Makefile..."
@@ -169,6 +188,7 @@ TOOLCHAIN_PARAMS=@TOOLCHAIN_PARAMS@
 PREFIX=@PREFIX@
 BUILD_DIR=@BUILD_DIR@
 ROOT_DIR=@ROOT_DIR@
+EXTRA_CMAKE_ARGS=@EXTRA_CMAKE_ARGS@
 PROJECT_NAME=litergss-everywhere
 CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current
@@ -291,10 +311,12 @@ configure-cmake: docker-init
 			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
 				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$(EXTRA_CMAKE_ARGS) \
 				$$SOURCE_DIR; \
 		else \
 			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$(EXTRA_CMAKE_ARGS) \
 				$$SOURCE_DIR; \
 		fi'
 
@@ -399,10 +421,12 @@ configure-cmake:
 			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
 				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$(EXTRA_CMAKE_ARGS) \
 				..; \
 		else \
 			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+				$(EXTRA_CMAKE_ARGS) \
 				..; \
 		fi
 
@@ -587,6 +611,7 @@ sed \
 	-e "s|@PREFIX@|$PREFIX|g" \
 	-e "s|@BUILD_DIR@|$BUILD_DIR|g" \
 	-e "s|@ROOT_DIR@|$ROOT_DIR|g" \
+	-e "s|@EXTRA_CMAKE_ARGS@|$EXTRA_CMAKE_ARGS|g" \
 	"$ROOT_DIR/Makefile" > "$ROOT_DIR/Makefile.new"
 
 # Insert package clean and log targets

@@ -34,7 +34,14 @@ RUN apk update && \
     g++ \
     gettext \
 # some dependencies might need patches
-    patch
+    patch \
+# X11 development libraries required for SFML on Linux desktop
+    libx11-dev \
+    libxrandr-dev \
+    libxcursor-dev \
+    libxi-dev \
+    mesa-dev \
+    eudev-dev
 
 # Add NDK to PATH
 ENV PATH $PATH:$ANDROID_NDK_HOME

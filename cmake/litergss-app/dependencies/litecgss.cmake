@@ -10,6 +10,10 @@ string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 # Determine source directory for install command
 set(LITECGSS_SOURCE_DIR "${CMAKE_BINARY_DIR}/litecgss/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/litecgss-${LITECGSS_VERSION}")
 
+message(STATUS "LiteCGSS will use SFML from: ${SFML_DIR}")
+message(STATUS "  TARGET_ARCH: ${TARGET_ARCH}")
+message(STATUS "  PLATFORM_LOWER: ${PLATFORM_LOWER}")
+
 # Create install script for headers
 file(WRITE "${CMAKE_BINARY_DIR}/litecgss_install_headers.cmake" "
 file(GLOB_RECURSE HEADER_FILES \"${LITECGSS_SOURCE_DIR}/src/src/LiteCGSS/*.h\")
@@ -24,15 +28,18 @@ endforeach()
 # LiteCGSS configure command (CMake-based)
 set(LITECGSS_CONFIGURE_CMD
     ${CMAKE_COMMAND}
-    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_ANDROID_NDK}/build/cmake/android.toolchain.cmake
+    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
     -DANDROID_ABI=${ANDROID_ABI}
     -DANDROID_PLATFORM=${ANDROID_PLATFORM}
     -DCMAKE_BUILD_TYPE=Release
     "-DCMAKE_CXX_FLAGS=${CXXFLAGS} -std=c++17"
+    -DCMAKE_POLICY_DEFAULT_CMP0074=NEW
     -DLITECGSS_NO_TEST=TRUE
     -DLITECGSS_USE_PHYSFS=TRUE
     -DSFML_DIR=${SFML_DIR}
-    -DBUILD_SHARED_LIBS=FALSE
+    -DSFML_ROOT=${SFML_DIR}
+    -DSFML_STATIC_LIBRARIES=TRUE
+    -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
     .
 )
 
