@@ -10,8 +10,8 @@ set -e
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Ensure cmake/core symlink exists (points to ruby-for-android submodule)
-if [ ! -L "$ROOT_DIR/cmake/core" ]; then
-	echo "Creating symlink: cmake/core -> external/ruby-for-android/cmake/core"
+if [ ! -d "$ROOT_DIR/cmake/core" ]; then
+	echo "Creating symlink: $ROOT_DIR/cmake/core -> external/ruby-for-android/cmake/core"
 	ln -s ../external/ruby-for-android/cmake/core "$ROOT_DIR/cmake/core"
 fi
 

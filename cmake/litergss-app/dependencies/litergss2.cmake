@@ -5,6 +5,8 @@ set(LITERGSS2_VERSION "2.0.0")
 set(LITERGSS2_GIT_URL "https://gitlab.com/pokemonsdk/litergss2.git")
 set(LITERGSS2_GIT_TAG "development")
 
+option(BUILD_SHARED_WRAPPER "Build single shared library wrapper (rgss_runtime) instead of archive" OFF)
+
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
 # Get Ruby arch and set include/lib paths from embedded-ruby-vm
@@ -18,7 +20,8 @@ set(LITERGSS2_BUILD_DIR "${CMAKE_BINARY_DIR}/litergss2/build_dir/${TARGET_ARCH}-
 set(LITERGSS2_EXTRA_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/LiteCGSS -DLITECGSS_USE_PHYSFS ${RUBY_INCLUDE_DIR_CFLAGS}")
 
 # litergss2 configure command (CMake-based)
-# Note: Now builds as static library for all platforms
+# Note: Now builds as static library for all platforms internally
+# We force BUILD_SHARED_LIBS=OFF for the inner library to ensure we get a static .a to link
 set(LITERGSS2_CONFIGURE_CMD
     ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/litergss2-CMakeLists.txt ${LITERGSS2_BUILD_DIR}/CMakeLists.txt
     COMMAND ${CMAKE_COMMAND}
@@ -30,34 +33,17 @@ set(LITERGSS2_CONFIGURE_CMD
     "-DCMAKE_CXX_FLAGS=${CXXFLAGS} ${LITERGSS2_EXTRA_CFLAGS}"
     "-DCMAKE_EXE_LINKER_FLAGS=${LDFLAGS} ${RUBY_LIB_DIR_LFLAGS}"
     "-DCMAKE_SHARED_LINKER_FLAGS=${LDFLAGS} ${RUBY_LIB_DIR_LFLAGS}"
-    -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+    -DBUILD_SHARED_LIBS=OFF 
     .
 )
 
-# Set install command and patch directory based on build mode
-if(BUILD_SHARED_LIBS)
-    # Dynamic build: rename .so, use patchelf, then copy
-    set(LITERGSS2_INSTALL_CMD
-        ${CMAKE_COMMAND} -E rename ${LITERGSS2_BUILD_DIR}/lib/LiteRGSS.so ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.so
-        COMMAND ${BUILD_STAGING_DIR}/../host/usr/local/bin/patchelf --set-soname libLiteRGSS.so ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.so
-        COMMAND ${CMAKE_COMMAND} -E copy ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.so ${BUILD_STAGING_DIR}/usr/local/lib/
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c ${BUILD_STAGING_DIR}/extension-init.c
-    )
-    set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm patchelf)
-
-    # Use Android patches (Init function renaming)
-    set(LITERGSS2_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/litergss2/android)
-else()
-    # Static build: just copy .a file
-    set(LITERGSS2_INSTALL_CMD
-        ${CMAKE_COMMAND} -E copy ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.a ${BUILD_STAGING_DIR}/usr/local/lib/
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c ${BUILD_STAGING_DIR}/extension-init.c
-    )
-    set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm)
-
-    # Use static patches (empty - no Init function renaming needed)
-    set(LITERGSS2_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/litergss2/static)
-endif()
+# Static build: just copy .a file
+set(LITERGSS2_INSTALL_CMD
+    ${CMAKE_COMMAND} -E copy ${LITERGSS2_BUILD_DIR}/lib/libLiteRGSS.a ${BUILD_STAGING_DIR}/usr/local/lib/
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c ${BUILD_STAGING_DIR}/extension-init.c
+)
+set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm)
+set(LITERGSS2_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches/litergss2/static)
 
 add_external_dependency(
     NAME                litergss2
@@ -79,68 +65,132 @@ add_external_dependency(
 )
 
 # ============================================================================
-# FINAL APPLICATION ARCHIVE
+# FINAL OUTPUT
 # ============================================================================
 
-# Create final application archive containing all LiteRGSS components
-set(LITERGSS_ARCHIVE_NAME "litergss-${PLATFORM_LOWER}-${TARGET_ARCH}.zip")
+if(BUILD_SHARED_WRAPPER)
+    # ------------------------------------------------------------------------
+    # SHARED WRAPPER MODE (rgss_runtime.so)
+    # ------------------------------------------------------------------------
+    message(STATUS "LiteRGSS: Configuring shared wrapper build (rgss_runtime)")
+    
+    # Create the shared library target
+    add_library(rgss_runtime SHARED ${CMAKE_CURRENT_LIST_DIR}/files/dummy.c)
 
-# Include appropriate library files based on BUILD_SHARED_LIBS
-if(BUILD_SHARED_LIBS)
-    # Dynamic build: include .so files
-    set(LITERGSS_LIB_EXTENSION "so")
-else()
-    # Static build: include .a files
-    set(LITERGSS_LIB_EXTENSION "a")
-endif()
-
-# Prepare Ruby runtime files for packaging
-# Copy Ruby libraries from embedded-ruby-vm to staging directory
-file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/lib/ruby")
-file(GLOB RUBY_LIBS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/libruby*.${LITERGSS_LIB_EXTENSION}*")
-file(GLOB RUBY_DEPS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/lib*.${LITERGSS_LIB_EXTENSION}*")
-foreach(lib ${RUBY_LIBS} ${RUBY_DEPS})
-    file(COPY ${lib} DESTINATION "${BUILD_STAGING_DIR}/usr/local/lib/ruby/")
-endforeach()
-
-# Copy Ruby headers for consumers
-file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/include")
-foreach(include_dir ${EMBEDDED_RUBY_VM_INCLUDE_DIRS})
-    if(EXISTS "${include_dir}")
-        file(COPY "${include_dir}/" DESTINATION "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/")
+    # Determine extension for static libs to link
+    # The inner libs are FORCED static by our changes, except if BUILD_SHARED_LIBS was passed globally?
+    # Wait, we forced LITERGSS2 to OFF above.
+    # Other deps respect global BUILD_SHARED_LIBS.
+    # The user requirements said: "build all the dependencies and the litergss2 as individual internal static libraries"
+    # So we assume they are static .a files.
+    # If global BUILD_SHARED_LIBS is ON, our dependencies (sfml, etc) built shared.
+    # But litergss2 build command above forces OFF.
+    # Let's assume we link against whatever was built.
+    
+    if(BUILD_SHARED_LIBS)
+        set(DEP_EXT "so")
+    else()
+        set(DEP_EXT "a")
     endif()
-endforeach()
 
-create_archive_target(
-    NAME litergss_archive
-    OUTPUT ${LITERGSS_ARCHIVE_NAME}
-    INCLUDES
-        # Extension initialization
-        extension-init.c
+    # Define the list of library files to link
+    # Using full paths to staging dir
+    set(LIBS_TO_LINK
+        "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a" # Always static as per above
+        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-graphics.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-window.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-network.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a" # LiteCGSS setup usually static
+        "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libogg.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisenc.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisfile.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libFLAC.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/lib/libopenal.${DEP_EXT}"
+    )
+    
+    # embedded-ruby-vm libraries
+    # Since we used add_subdirectory, we can access targets or files directly.
+    # But for safety and consistency with "combining into dynamic library", we should link the artifacts.
+    # target_link_libraries(rgss_runtime embedded-ruby) would work if embedded-ruby encapsulates everything.
+    # But we want to bundle everything.
+    
+    if(UNIX AND NOT APPLE AND NOT BUILD_SHARED_LIBS)
+        # Linux Static Link -> Shared Lib: Use --whole-archive
+        target_link_libraries(rgss_runtime PRIVATE
+            -Wl,--whole-archive
+            embedded-ruby # Is a target, CMake resolves it
+            ${LIBS_TO_LINK}
+            -Wl,--no-whole-archive
+        )
+    else()
+        # Shared dependencies or non-Linux: Normal linking
+        target_link_libraries(rgss_runtime PRIVATE
+            embedded-ruby
+            ${LIBS_TO_LINK}
+        )
+    endif()
 
-        # Ruby runtime from embedded-ruby-vm (CRITICAL - needed by final app!)
-        usr/local/lib/ruby/libruby*.${LITERGSS_LIB_EXTENSION}*
-        usr/local/lib/ruby/libssl*.${LITERGSS_LIB_EXTENSION}*
-        usr/local/lib/ruby/libcrypto*.${LITERGSS_LIB_EXTENSION}*
-        usr/local/lib/ruby/lib*.${LITERGSS_LIB_EXTENSION}*
-        usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+    # Add dependencies ensuring they are built before linking
+    add_dependencies(rgss_runtime
+        litergss2
+        sfml litecgss openal-soft flac libogg libvorbis freetype
+    )
+    
+    # We also need rubysfml-audio if used
+    # Assuming it is part of the request (not explicitly listed but usually required)
+    # If so, add it to LIBS_TO_LINK
+    
+    install(TARGETS rgss_runtime DESTINATION lib)
 
-        # LiteRGSS extensions
-        usr/local/lib/libLiteRGSS.${LITERGSS_LIB_EXTENSION}
-        usr/local/lib/libSFMLAudio.${LITERGSS_LIB_EXTENSION}
+else()
+    # ------------------------------------------------------------------------
+    # ARCHIVE MODE (Static Wrapper / Archive)
+    # ------------------------------------------------------------------------
+    # Create final application archive containing all LiteRGSS components
+    set(LITERGSS_ARCHIVE_NAME "litergss-${PLATFORM_LOWER}-${TARGET_ARCH}.zip")
+    
+    # Include appropriate library files based on BUILD_SHARED_LIBS
+    if(BUILD_SHARED_LIBS)
+        set(LITERGSS_LIB_EXTENSION "so")
+    else()
+        set(LITERGSS_LIB_EXTENSION "a")
+    endif()
 
-        # SFML and audio dependencies
-        usr/local/lib/libsfml*.${LITERGSS_LIB_EXTENSION}
-        usr/local/lib/libogg.${LITERGSS_LIB_EXTENSION}
-        usr/local/lib/libvorbis*.${LITERGSS_LIB_EXTENSION}
-        usr/local/lib/libFLAC*.${LITERGSS_LIB_EXTENSION}
-        usr/local/lib/libfreetype.${LITERGSS_LIB_EXTENSION}
-        usr/lib/libopenal.${LITERGSS_LIB_EXTENSION}
-        usr/local/include/SFML/
-    DEPENDS litergss2_external ruby-sfml-audio_external embedded-ruby-vm
-)
+    # Prepare Ruby runtime files for packaging
+    # Copy Ruby libraries from embedded-ruby-vm to staging directory
+    file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/lib/ruby")
+    file(GLOB RUBY_LIBS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/libruby*.${LITERGSS_LIB_EXTENSION}*")
+    file(GLOB RUBY_DEPS "${EMBEDDED_RUBY_VM_RUBY_NATIVE_LIBS}/lib*.${LITERGSS_LIB_EXTENSION}*")
+    foreach(lib ${RUBY_LIBS} ${RUBY_DEPS})
+        file(COPY ${lib} DESTINATION "${BUILD_STAGING_DIR}/usr/local/lib/ruby/")
+    endforeach()
 
-# Make litergss2 target include archive creation
-add_dependencies(litergss2 litergss_archive)
+    # Copy Ruby headers for consumers
+    file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/include")
+    foreach(include_dir ${EMBEDDED_RUBY_VM_INCLUDE_DIRS})
+        if(EXISTS "${include_dir}")
+            file(COPY "${include_dir}/" DESTINATION "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/")
+        endif()
+    endforeach()
 
-message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
+    create_archive_target(
+        NAME litergss_archive
+        OUTPUT ${LITERGSS_ARCHIVE_NAME}
+        INCLUDES
+            extension-init.c
+            usr/local/lib/lib*.${LITERGSS_LIB_EXTENSION}
+            usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+            usr/lib/lib*.${LITERGSS_LIB_EXTENSION}
+            usr/local/include/SFML/
+        DEPENDS litergss2_external embedded-ruby-vm
+    )
+    
+    add_dependencies(litergss2 litergss_archive)
+    message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
+endif()

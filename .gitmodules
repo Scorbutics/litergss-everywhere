@@ -1,3 +1,6 @@
 [submodule "external/ruby-for-android"]
 	path = external/ruby-for-android
 	url = https://github.com/Scorbutics/ruby-for-android.git
+[submodule "external/embedded-ruby-vm"]
+	path = external/embedded-ruby-vm
+	url = https://github.com/Scorbutics/embedded-ruby-vm.git

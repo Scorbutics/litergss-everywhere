@@ -38,10 +38,17 @@ set(LITECGSS_CONFIGURE_CMD
     -DLITECGSS_USE_PHYSFS=TRUE
     -DSFML_DIR=${SFML_DIR}
     -DSFML_ROOT=${SFML_DIR}
-    -DSFML_STATIC_LIBRARIES=TRUE
+    -DSFML_STATIC_LIBRARIES=$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>
     -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+    -DCMAKE_PREFIX_PATH=${BUILD_STAGING_DIR}/usr/local
     .
 )
+
+if(BUILD_SHARED_LIBS)
+    set(LITECGSS_LIB_EXT "so")
+else()
+    set(LITECGSS_LIB_EXT "a")
+endif()
 
 add_external_dependency(
     NAME                    litecgss
@@ -53,13 +60,15 @@ add_external_dependency(
     
     CONFIGURE_COMMAND       ${LITECGSS_CONFIGURE_CMD}
     
+    PATCH_COMMAND           sed -i "s/assert(d != nullptr)//" src/src/LiteCGSS/Views/View.h
+    
     BUILD_COMMAND           ${CMAKE_COMMAND} -E env ${BUILD_ENV}
                             ${CMAKE_COMMAND} --build .
     
     INSTALL_COMMAND         ${CMAKE_COMMAND} -E make_directory ${BUILD_STAGING_DIR}/usr/local/lib/
-                            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libLiteCGSS_engine.a ${BUILD_STAGING_DIR}/usr/local/lib/
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libLiteCGSS_engine.${LITECGSS_LIB_EXT} ${BUILD_STAGING_DIR}/usr/local/lib/
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libphysfs.a ${BUILD_STAGING_DIR}/usr/local/lib/
-                            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libskalog.a ${BUILD_STAGING_DIR}/usr/local/lib/
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libskalog.${LITECGSS_LIB_EXT} ${BUILD_STAGING_DIR}/usr/local/lib/
                             COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/litecgss_install_headers.cmake
                             COMMAND ${CMAKE_COMMAND} -E copy_directory ${LITECGSS_SOURCE_DIR}/external/skalog/src/src/ ${BUILD_STAGING_DIR}/usr/local/include/
     

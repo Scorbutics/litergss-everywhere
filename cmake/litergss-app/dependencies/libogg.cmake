@@ -11,7 +11,15 @@ set(LIBOGG_CONFIGURE_CMD
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
     --with-gnu-ld
-    --enable-shared
+)
+
+if(BUILD_SHARED_LIBS)
+    list(APPEND LIBOGG_CONFIGURE_CMD --enable-shared --disable-static)
+else()
+    list(APPEND LIBOGG_CONFIGURE_CMD --enable-static --disable-shared)
+endif()
+
+list(APPEND LIBOGG_CONFIGURE_CMD
     --prefix=/usr/local
 )
 

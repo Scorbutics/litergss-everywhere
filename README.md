@@ -237,6 +237,37 @@ patch-1.patch
 patch-2.patch
 ```
 
+## Ruby Integration
+
+LiteRGSS-Everywhere uses the **Embedded Ruby VM** to provide a complete Ruby runtime. Extensions like `LiteRGSS` and `SFMLAudio` are statically linked into the application and initialized via a callback mechanism.
+
+### Initializing Extensions
+
+To use the extensions in your application, you must register the initialization callback before creating the Ruby interpreter:
+
+```c
+#include "ruby-api-loader.h"
+
+// Callback provided by the library (extension-init.c)
+extern void initialize_litergss_extensions(void);
+
+int main(void) {
+    RubyAPI api;
+    ruby_api_load(NULL, &api);
+
+    // Register callback BEFORE creating interpreter
+    // This makes "require 'LiteRGSS'" work in your scripts
+    api.set_custom_ext_init(initialize_litergss_extensions);
+
+    // Create interpreter
+    RubyInterpreter* vm = api.interpreter.create(".", "./ruby", "./lib", listener);
+
+    // ... execute scripts ...
+}
+```
+
+See `examples/litergss_ruby_example.c` for a complete example.
+
 ## Troubleshooting
 
 ### Docker Issues

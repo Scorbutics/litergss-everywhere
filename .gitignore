@@ -15,6 +15,7 @@ Makefile.bak
 *.swp
 *.swo
 *~
+.claude/
 
 # OS files
 .DS_Store

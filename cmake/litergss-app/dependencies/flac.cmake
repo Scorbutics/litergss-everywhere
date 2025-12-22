@@ -10,7 +10,15 @@ set(FLAC_CONFIGURE_CMD
     ./configure
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
-    --enable-shared
+)
+
+if(BUILD_SHARED_LIBS)
+    list(APPEND FLAC_CONFIGURE_CMD --enable-shared --disable-static)
+else()
+    list(APPEND FLAC_CONFIGURE_CMD --enable-static --disable-shared)
+endif()
+
+list(APPEND FLAC_CONFIGURE_CMD
     --prefix=/usr/local
 )
 
