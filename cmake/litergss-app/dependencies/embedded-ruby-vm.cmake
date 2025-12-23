@@ -223,9 +223,9 @@ ExternalProject_Add(embedded-ruby-vm-build
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/lib/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/core ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/assets ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/core ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/assets ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/assets
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/
         
     BUILD_ALWAYS 1
 )

@@ -185,6 +185,9 @@ else()
     if(NOT BUILD_SHARED_LIBS)
         include(${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibrary.cmake)
 
+        # Configurable fat library name (default: rgss_runtime)
+        set(FAT_LIBRARY_NAME "rgss_runtime" CACHE STRING "Name of the fat library (without lib prefix or extension)")
+        
         # Define the list of static libraries to combine
         set(STATIC_LIBS_TO_COMBINE
             # This repository dependencies
@@ -230,7 +233,7 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a"
         )
 
-        set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/librgss_runtime.a")
+        set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/lib${FAT_LIBRARY_NAME}.a")
         set(FAT_LIBRARY_WORKDIR "${CMAKE_BINARY_DIR}/fat_library_workdir")
 
         # Create custom command that calls the combine function
@@ -245,7 +248,7 @@ else()
                 "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
             DEPENDS litergss2_external embedded-ruby-vm
-            COMMENT "Creating fat static library librgss_runtime.a"
+            COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )
 
@@ -258,21 +261,48 @@ else()
             sfml litecgss openal-soft flac libogg libvorbis freetype
         )
 
-        message(STATUS "Fat library will be created at: ${FAT_LIBRARY_OUTPUT}")
+        # Copy fat library to JNI structure for Android integration
+        if(TARGET_PLATFORM STREQUAL "android")
+            if(TARGET_ARCH STREQUAL "arm64")
+                set(ANDROID_ABI "arm64-v8a")
+            elseif(TARGET_ARCH STREQUAL "x86_64")
+                set(ANDROID_ABI "x86_64")
+            elseif(TARGET_ARCH STREQUAL "x86")
+                set(ANDROID_ABI "x86")
+            elseif(TARGET_ARCH STREQUAL "arm")
+                set(ANDROID_ABI "armeabi-v7a")
+            endif()
+            
+            set(JNI_OUTPUT_DIR "${CMAKE_BINARY_DIR}/jni-libs")
+            set(JNI_ABI_DIR "${JNI_OUTPUT_DIR}/${ANDROID_ABI}")
+            
+            add_custom_command(
+                TARGET rgss_fat_library POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${JNI_ABI_DIR}
+                COMMAND ${CMAKE_COMMAND} -E copy ${FAT_LIBRARY_OUTPUT} ${JNI_ABI_DIR}/
+                COMMENT "Copying fat library to JNI directory: ${JNI_ABI_DIR}"
+            )
+            
+            message(STATUS "Fat library will be copied to: ${JNI_ABI_DIR}/lib${FAT_LIBRARY_NAME}.a")
+        endif()
+
+        message(STATUS "Fat library configuration:")
+        message(STATUS "  Name: lib${FAT_LIBRARY_NAME}.a")
+        message(STATUS "  Output: ${FAT_LIBRARY_OUTPUT}")
     endif()
 
+    # Create distribution archive with headers and fat library
     create_archive_target(
         NAME litergss_archive
         OUTPUT ${LITERGSS_ARCHIVE_NAME}
         INCLUDES
-            extension-init.c
-            usr/local/lib/lib*.${LITERGSS_LIB_EXTENSION}
-            usr/local/include/ruby-${RUBY_MINOR_VERSION}/
-            usr/lib/lib*.${LITERGSS_LIB_EXTENSION}
             usr/local/include/SFML/
-        DEPENDS litergss2_external embedded-ruby-vm
+            usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+            usr/local/include/
+            usr/local/lib/lib${FAT_LIBRARY_NAME}.a
+        DEPENDS litergss2_external embedded-ruby-vm rgss_fat_library
     )
 
-    add_dependencies(litergss2 litergss_archive)
+    add_dependencies(litergss2 litergss_archive rgss_fat_library)
     message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
 endif()
