@@ -154,7 +154,7 @@ else()
     # ------------------------------------------------------------------------
     # Create final application archive containing all LiteRGSS components
     set(LITERGSS_ARCHIVE_NAME "litergss-${PLATFORM_LOWER}-${TARGET_ARCH}.zip")
-    
+
     # Include appropriate library files based on BUILD_SHARED_LIBS
     if(BUILD_SHARED_LIBS)
         set(LITERGSS_LIB_EXTENSION "so")
@@ -179,6 +179,88 @@ else()
         endif()
     endforeach()
 
+    # ========================================================================
+    # Create "fat" static library combining all dependencies
+    # ========================================================================
+    if(NOT BUILD_SHARED_LIBS)
+        include(${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibrary.cmake)
+
+        # Define the list of static libraries to combine
+        set(STATIC_LIBS_TO_COMBINE
+            # This repository dependencies
+            "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libSFMLAudio.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-graphics-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-window-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-network-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libogg.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisenc.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisfile.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libFLAC.a"
+            "${BUILD_STAGING_DIR}/usr/lib/libopenal.a"
+            # Ruby's dependencies (non-debug variants only, no _g versions)
+            # Make sure the libruby-ext.a goes first because it will define Init_ext, as libruby-static.a does,
+            # and we only keep the first found symbol in case of duplicates.
+            "${BUILD_STAGING_DIR}/usr/local/lib/libruby-ext.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libruby-static.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libreadline.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libncurses.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libpanel.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libmenu.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libform.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libgdbm.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libgdbm_compat.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libssl.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libcrypto.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libgmp.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libcrypt.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libbsd.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libmd.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libz.a"
+            # Final libs
+            "${BUILD_STAGING_DIR}/usr/local/lib/libminizip.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libassets.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a"
+        )
+
+        set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/librgss_runtime.a")
+        set(FAT_LIBRARY_WORKDIR "${CMAKE_BINARY_DIR}/fat_library_workdir")
+
+        # Create custom command that calls the combine function
+        add_custom_command(
+            OUTPUT ${FAT_LIBRARY_OUTPUT}
+            COMMAND ${CMAKE_COMMAND}
+                -DCOMBINE_OUTPUT=${FAT_LIBRARY_OUTPUT}
+                -DCOMBINE_WORKDIR=${FAT_LIBRARY_WORKDIR}
+                -DCOMBINE_AR=${CMAKE_AR}
+                -DCOMBINE_RANLIB=${CMAKE_RANLIB}
+                -DCOMBINE_NM=${CMAKE_NM}
+                "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
+                -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
+            DEPENDS litergss2_external embedded-ruby-vm
+            COMMENT "Creating fat static library librgss_runtime.a"
+            VERBATIM
+        )
+
+        add_custom_target(rgss_fat_library ALL
+            DEPENDS ${FAT_LIBRARY_OUTPUT}
+        )
+
+        add_dependencies(rgss_fat_library
+            litergss2
+            sfml litecgss openal-soft flac libogg libvorbis freetype
+        )
+
+        message(STATUS "Fat library will be created at: ${FAT_LIBRARY_OUTPUT}")
+    endif()
+
     create_archive_target(
         NAME litergss_archive
         OUTPUT ${LITERGSS_ARCHIVE_NAME}
@@ -190,7 +272,7 @@ else()
             usr/local/include/SFML/
         DEPENDS litergss2_external embedded-ruby-vm
     )
-    
+
     add_dependencies(litergss2 litergss_archive)
     message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
 endif()
