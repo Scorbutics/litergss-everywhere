@@ -247,18 +247,13 @@ else()
                 -DCOMBINE_NM=${CMAKE_NM}
                 "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external embedded-ruby-vm
+            DEPENDS litergss2_external
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )
 
         add_custom_target(rgss_fat_library ALL
             DEPENDS ${FAT_LIBRARY_OUTPUT}
-        )
-
-        add_dependencies(rgss_fat_library
-            litergss2
-            sfml litecgss openal-soft flac libogg libvorbis freetype
         )
 
         # Copy fat library to JNI structure for Android integration
