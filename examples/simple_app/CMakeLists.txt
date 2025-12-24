@@ -3,13 +3,15 @@ project(LiteRGSSSimpleApp C)
 
 set(CMAKE_C_STANDARD 11)
 
+set(ARCH x86_64-linux)
+
 # Path to the fat library (adjust this to point to your build output)
 # This should be the path where librgss_runtime.a is located after building litergss-everywhere
-set(RGSS_RUNTIME_LIB "${CMAKE_SOURCE_DIR}/../../build/staging/usr/local/lib/librgss_runtime.a"
+set(RGSS_RUNTIME_LIB "${CMAKE_SOURCE_DIR}/../../../build/target/${ARCH}/usr/local/lib/librgss_runtime.a"
     CACHE FILEPATH "Path to the fat librgss_runtime.a library")
 
 # Path to the Ruby headers (adjust this to point to your build output)
-set(RGSS_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../../build/staging/usr/local/include"
+set(RGSS_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/../../../build/target/${ARCH}/usr/local/include"
     CACHE PATH "Path to the Ruby and LiteRGSS headers")
 
 # Verify the library exists

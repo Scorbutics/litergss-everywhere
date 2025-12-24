@@ -186,6 +186,7 @@ include(ExternalProject)
 set(EMBEDDED_RUBY_VM_INSTALL_DIR "${BUILD_STAGING_DIR}/usr/local")
 file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib")
 file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/include")
+file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm")
 
 # Define ExternalProject
 ExternalProject_Add(embedded-ruby-vm-build
@@ -223,12 +224,10 @@ ExternalProject_Add(embedded-ruby-vm-build
     # Manual Install Command (since embedded-ruby-vm has no install rule)
     INSTALL_COMMAND 
         ${CMAKE_COMMAND} -E copy_directory <BINARY_DIR>/lib ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib 
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/public ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/private ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/lib/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/core ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
-        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/assets ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/assets
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/embedded-ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm/ruby-api-loader.h
         
     BUILD_ALWAYS 1
 )

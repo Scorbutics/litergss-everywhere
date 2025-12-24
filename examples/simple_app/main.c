@@ -20,8 +20,8 @@
 
 // Include the Ruby API Loader from embedded-ruby-vm
 #include "embedded-ruby-vm/ruby-api-loader.h"
-#include "embedded-ruby-vm/assets/install.h"
-#include "embedded-ruby-vm/assets/assets-error.h"
+#include "embedded-ruby-vm/install.h"
+#include "embedded-ruby-vm/assets-error.h"
 #include "ruby/ruby.h"
 
 // Extension initializer provided by LiteRGSS

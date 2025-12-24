@@ -12,7 +12,7 @@
 // Include the Ruby API Loader (from embedded-ruby-vm)
 // In a real project, point this to where the header is installed
 #include "ruby-api-loader.h"
-#include "install.h"
+#include "assets-install.h"
 #include "assets-error.h"
 
 // Forward declaration of the extension initializer
