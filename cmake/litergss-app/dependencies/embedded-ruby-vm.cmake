@@ -226,6 +226,8 @@ ExternalProject_Add(embedded-ruby-vm-build
         ${CMAKE_COMMAND} -E copy_directory <BINARY_DIR>/lib ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib 
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/public ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/private ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
+        COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE}  ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/lib/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib
         COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/embedded-ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm/ruby-api-loader.h
         
