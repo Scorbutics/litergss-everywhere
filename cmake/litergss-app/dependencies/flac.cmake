@@ -10,6 +10,7 @@ set(FLAC_CONFIGURE_CMD
     ./configure
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
+    --with-pic
 )
 
 if(BUILD_SHARED_LIBS)

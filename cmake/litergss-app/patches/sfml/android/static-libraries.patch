@@ -1,0 +1,66 @@
+diff -Naur a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -57,7 +57,7 @@ else()
+     if(SFML_OS_IOS)
+         set(BUILD_SHARED_LIBS FALSE)
+     elseif(SFML_OS_ANDROID)
+-        set(BUILD_SHARED_LIBS TRUE)
++        set(BUILD_SHARED_LIBS FALSE)
+     endif()
+ endif()
+
+diff -Naur a/src/SFML/Main/CMakeLists.txt b/src/SFML/Main/CMakeLists.txt
+--- a/src/SFML/Main/CMakeLists.txt
++++ b/src/SFML/Main/CMakeLists.txt
+@@ -35,5 +35,5 @@ set_target_properties(sfml-main PROPERTIES
+ # from depending on shared libraries), we need a boostrap activity which
+ # will load our shared libraries manually
+ if(SFML_OS_ANDROID)
+-    sfml_add_library(sfml-activity SOURCES ${SRCROOT}/SFMLActivity.cpp)
++    sfml_add_library(sfml-activity STATIC SOURCES ${SRCROOT}/SFMLActivity.cpp)
+ endif()
+diff -Naur a/cmake/SFMLConfigDependencies.cmake.in b/cmake/SFMLConfigDependencies.cmake.in
+--- a/cmake/SFMLConfigDependencies.cmake.in
++++ b/cmake/SFMLConfigDependencies.cmake.in
+@@ -8,6 +8,8 @@ if(SFML_STATIC_LIBRARIES)
+     # detect the OS
+     if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+         set(FIND_SFML_OS_WINDOWS 1)
++    elseif(${CMAKE_SYSTEM_NAME} MATCHES "Android")
++        set(FIND_SFML_OS_ANDROID 1)
+     elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+         set(FIND_SFML_OS_LINUX 1)
+
+@@ -36,7 +38,7 @@ if(SFML_STATIC_LIBRARIES)
+ 
+         # No lookup in environment variables (PATH on Windows), as they may contain wrong library versions
+         find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
+-                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH)
++                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_FIND_ROOT_PATH)
+         mark_as_advanced(${THIS_FRIENDLY_NAME}_LIB)
+         if(${THIS_FRIENDLY_NAME}_LIB)
+             set_property(TARGET ${THIS_TARGET} APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${${THIS_FRIENDLY_NAME}_LIB}")
+@@ -66,7 +68,10 @@ if(SFML_STATIC_LIBRARIES)
+ 
+         if (FIND_SFML_OS_WINDOWS)
+             set_property(TARGET OpenGL APPEND PROPERTY INTERFACE_LINK_LIBRARIES "OpenGL32")
+-        elseif(NOT FIND_SFML_OS_IOS)
++        elseif(FIND_SFML_OS_ANDROID)
++            # Android uses OpenGL ES, which is part of the system - no need to search
++            message(STATUS "FIND_SFML_PATHS: ${FIND_SFML_PATHS}")
++        elseif(NOT FIND_SFML_OS_IOS)
+             sfml_bind_dependency(TARGET OpenGL FRIENDLY_NAME "OpenGL" SEARCH_NAMES "OpenGL" "GL")
+         endif()
+     endif()
+diff -Naur a/cmake/SFMLConfig.cmake.in b/cmake/SFMLConfig.cmake.in
+--- a/cmake/SFMLConfig.cmake.in
++++ b/cmake/SFMLConfig.cmake.in
+@@ -65,6 +65,7 @@ endif()
+
+ set(FIND_SFML_PATHS
+     "${CMAKE_CURRENT_LIST_DIR}/../.."
++    ${CUSTOM_LIB_PATH}
+     ${SFML_ROOT}
+     $ENV{SFML_ROOT}
+     ~/Library/Frameworks

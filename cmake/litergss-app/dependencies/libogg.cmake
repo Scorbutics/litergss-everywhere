@@ -11,6 +11,7 @@ set(LIBOGG_CONFIGURE_CMD
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
     --with-gnu-ld
+    --with-pic
 )
 
 if(BUILD_SHARED_LIBS)

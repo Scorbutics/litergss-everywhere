@@ -4,3 +4,9 @@
 # Disable Android-specific InputStreamFromAssets loading
 # LiteRGSS loads files from filesystem, not APK assets
 dont_load_from_inputstream_android.patch
+
+# Force static library compilation on Android
+# Adds Android OS detection for dependency resolution
+# Skips desktop OpenGL search (uses built-in OpenGL ES)
+# Adds CMAKE_PREFIX_PATH to dependency search paths
+static-libraries.patch

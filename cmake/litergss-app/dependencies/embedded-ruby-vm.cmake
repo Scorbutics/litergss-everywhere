@@ -202,7 +202,7 @@ ExternalProject_Add(embedded-ruby-vm-build
         -DBUILD_WRAPPER_SHARED=${BUILD_WRAPPER_SHARED}
         -DBUILD_JNI=${BUILD_JNI}
         -DBUILD_TESTS=${BUILD_TESTS}
-        
+
         # Toolchain / Cross-compilation propagation
         -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
         -DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
@@ -210,7 +210,10 @@ ExternalProject_Add(embedded-ruby-vm-build
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_AR=${CMAKE_AR}
         -DCMAKE_RANLIB=${CMAKE_RANLIB}
-        
+
+        # Pass HOST triplet if defined (from toolchain params)
+        $<$<BOOL:${HOST}>:-DHOST=${HOST}>
+
         # Flags (quoted to handle spaces)
         "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}"
         "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
@@ -249,7 +252,10 @@ if(NOT TARGET embedded-ruby-vm)
     )
     
     # Also add clean target (best effort)
-    add_custom_target(embedded-ruby-vm_clean 
-        COMMAND ${CMAKE_COMMAND} --build "${CMAKE_BINARY_DIR}/embedded-ruby-vm-build/build" --target clean
+    # Use distclean to remove CMake cache and force reconfiguration
+    add_custom_target(embedded-ruby-vm_clean
+        COMMAND ${CMAKE_COMMAND} --build "${CMAKE_BINARY_DIR}/embedded-ruby-vm-build/build" --target distclean
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_BINARY_DIR}/embedded-ruby-vm-build"
+        COMMENT "Deep cleaning embedded-ruby-vm (removing cache and build artifacts)"
     )
 endif()

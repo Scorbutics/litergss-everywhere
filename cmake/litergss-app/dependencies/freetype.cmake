@@ -12,6 +12,7 @@ set(FREETYPE_CONFIGURE_CMD
     --target=${HOST_TRIPLET}
     --with-png=no
     --prefix=/usr/local
+    --with-pic
 )
 
 # Build FreeType

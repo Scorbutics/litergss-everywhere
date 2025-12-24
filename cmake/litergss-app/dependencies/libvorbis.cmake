@@ -11,6 +11,7 @@ set(LIBVORBIS_CONFIGURE_CMD
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
     --prefix=/usr/local
+    --with-pic
 )
 
 # Build libvorbis

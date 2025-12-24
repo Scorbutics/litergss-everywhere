@@ -49,7 +49,8 @@ set(SFML_CONFIGURE_CMD
     -DFLAC_LIBRARY=${BUILD_STAGING_DIR}/usr/local/lib/libFLAC${LIB_EXT}
     -DFLAC_INCLUDE_DIR=${BUILD_STAGING_DIR}/usr/local/include
     -DFREETYPE_LIBRARY=${BUILD_STAGING_DIR}/usr/local/lib/libfreetype${LIB_EXT}
-    -DFREETYPE_INCLUDE_DIR=${BUILD_STAGING_DIR}/usr/local/include/freetype2
+    -DFREETYPE_INCLUDE_DIRS=${BUILD_STAGING_DIR}/usr/local/include/
+    -DCUSTOM_LIB_PATH=${BUILD_STAGING_DIR}/usr/local
     .
 )
 
@@ -59,7 +60,10 @@ add_external_dependency(
     GIT_REPOSITORY      ${SFML_GIT_URL}
     GIT_TAG             ${SFML_GIT_TAG}
     GIT_SHALLOW         TRUE
-    
+
+    PATCH_COMMAND       patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/litergss-app/patches/sfml/android/dont_load_from_inputstream_android.patch
+                        COMMAND patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/litergss-app/patches/sfml/android/static-libraries.patch
+
     CONFIGURE_COMMAND   ${SFML_CONFIGURE_CMD}
     
     BUILD_COMMAND       ${CMAKE_COMMAND} -E env ${BUILD_ENV}
