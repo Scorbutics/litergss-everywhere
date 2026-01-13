@@ -12,10 +12,12 @@ Makefile.bak
 # IDE and editor files
 .vscode/
 .idea/
+.gradle/
 *.swp
 *.swo
 *~
 .claude/
+examples/android-integration/local.properties
 
 # OS files
 .DS_Store
