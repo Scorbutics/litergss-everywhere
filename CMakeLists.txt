@@ -21,6 +21,8 @@ endif()
 # ============================================================================
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/core")
 
+message(STATUS "Root build system is in ${CMAKE_SOURCE_DIR}/cmake/core")
+
 include(Main)
 
 # ============================================================================

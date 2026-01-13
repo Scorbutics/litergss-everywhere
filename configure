@@ -194,7 +194,7 @@ CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current
 DOCKER_BUILD_DIR=$(DOCKER_WORKDIR)/build
 
-.PHONY: all build configure-cmake install clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync
+.PHONY: all build configure-cmake install publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install
 
 # Default target
 all: build
@@ -205,7 +205,11 @@ help:
 	@echo "  build              - Build the project (same as 'all')"
 	@echo "  sync               - Force sync of source files to Docker (Docker mode only)"
 	@echo "  configure-cmake    - Run CMake configuration"
-	@echo "  install            - Install/export build artifacts"
+	@echo "  install            - Install/export build artifacts and publish KMP module"
+	@echo "  publish-kmp        - Publish KMP module to Maven Local (called by install)"
+	@echo "  android-example-build - Build the Android example app (assembleDebug)"
+	@echo "  android-example-install - Build and install the Android example app on device"
+	@echo "  android-example    - Alias for android-example-install"
 	@echo "  clean              - Clean build artifacts (keeps downloads)"
 	@echo "  clean-libs         - Clean library build directories"
 	@echo "  clean-downloads    - Remove downloaded source archives"
@@ -364,6 +368,124 @@ install: docker-check-running
 	fi
 	@echo "Build artifacts exported to: ./target"
 	@ls -lh target/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+	@$(MAKE) publish-kmp
+
+# Publish KMP module to Maven Local
+publish-kmp: docker-check-running
+	@echo ""
+	@echo "=========================================="
+	@echo "Publishing KMP module to Maven Local..."
+	@echo "=========================================="
+	@# Get the staging directory and detect the target ABI
+	@BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+	if [ -z "$$BUILD_STAGING_DIR" ]; then \
+		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
+		exit 1; \
+	fi; \
+	echo "Staging directory: $$BUILD_STAGING_DIR"; \
+	TARGET_ABI=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
+	echo "Detected target ABI: $$TARGET_ABI"; \
+	FAT_LIB_SO="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.so"; \
+	FAT_LIB_A="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
+	if docker exec $(CONTAINER) test -f "$$FAT_LIB_SO"; then \
+		FAT_LIB_PATH="$$FAT_LIB_SO"; \
+		echo "Found fat library (shared) at: $$FAT_LIB_PATH"; \
+	elif docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
+		FAT_LIB_PATH="$$FAT_LIB_A"; \
+		echo "Found fat library (static) at: $$FAT_LIB_PATH"; \
+	else \
+		echo "Warning: Fat library not found at $$FAT_LIB_SO or $$FAT_LIB_A"; \
+		echo "Skipping KMP module publishing"; \
+		exit 0; \
+	fi; \
+	if [ -n "$$FAT_LIB_PATH" ]; then \
+		echo "Using simplified publishing project..."; \
+		docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish; \
+		docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp; \
+		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
+		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/; \
+		if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
+			docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
+		fi; \
+		echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
+		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
+		echo "Publishing with target ABI: $$TARGET_ABI"; \
+		if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew publishToMavenLocal -PnativeLibraryName=rgss_runtime -PtargetArch=$$TARGET_ABI" 2>&1; then \
+			echo ""; \
+			echo "✓ KMP module published successfully!"; \
+			echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
+			echo "  Target ABI: $$TARGET_ABI"; \
+			echo "  Maven Local: ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/"; \
+			echo ""; \
+		else \
+			echo ""; \
+			echo "✗ Gradle publish failed - see error output above"; \
+			exit 1; \
+		fi; \
+	fi
+
+# Build Android example app
+android-example-build: docker-check-running
+	@echo ""
+	@echo "=========================================="
+	@echo "Building Android example app..."
+	@echo "=========================================="
+	@# Sync the example project to the container
+	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/examples/android-integration
+	@docker cp $(ROOT_DIR)/examples/android-integration/. $(CONTAINER):$(DOCKER_WORKDIR)/examples/android-integration/
+	@# Set up local.properties for Android SDK
+	@echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/examples/android-integration/local.properties
+	@docker cp $(ROOT_DIR)/examples/android-integration/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/examples/android-integration/local.properties
+	@# Build the app
+	@if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/examples/android-integration && ./gradlew assembleDebug" 2>&1; then \
+		echo ""; \
+		echo "✓ Android example app built successfully!"; \
+		echo "  APK location (in container): $(DOCKER_WORKDIR)/examples/android-integration/app/build/outputs/apk/debug/app-debug.apk"; \
+		docker exec $(CONTAINER) ls -lh $(DOCKER_WORKDIR)/examples/android-integration/app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || true; \
+		echo ""; \
+		echo "To copy APK to host:"; \
+		echo "  docker cp $(CONTAINER):$(DOCKER_WORKDIR)/examples/android-integration/app/build/outputs/apk/debug/app-debug.apk ./"; \
+		echo ""; \
+	else \
+		echo ""; \
+		echo "✗ Android example build failed - see error output above"; \
+		exit 1; \
+	fi
+
+# Build and install Android example app on device
+android-example-install: docker-check-running
+	@echo ""
+	@echo "=========================================="
+	@echo "Building and installing Android example..."
+	@echo "=========================================="
+	@# Sync the example project to the container
+	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/examples/android-integration
+	@docker cp $(ROOT_DIR)/examples/android-integration/. $(CONTAINER):$(DOCKER_WORKDIR)/examples/android-integration/
+	@# Set up local.properties for Android SDK
+	@echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/examples/android-integration/local.properties
+	@docker cp $(ROOT_DIR)/examples/android-integration/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/examples/android-integration/local.properties
+	@# Build and install the app
+	@echo "NOTE: This requires an Android device or emulator connected via ADB"
+	@echo "      Make sure ADB is accessible from the container"
+	@echo ""
+	@if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/examples/android-integration && ./gradlew installDebug" 2>&1; then \
+		echo ""; \
+		echo "✓ Android example app installed successfully!"; \
+		echo "  App package: com.example.rgss"; \
+		echo ""; \
+		echo "To launch the app from command line:"; \
+		echo "  adb shell am start -n com.example.rgss/.MainActivity"; \
+		echo ""; \
+	else \
+		echo ""; \
+		echo "✗ Android example installation failed"; \
+		echo "  Make sure an Android device/emulator is connected"; \
+		echo "  Check ADB connectivity: adb devices"; \
+		exit 1; \
+	fi
+
+# Alias for android-example-install
+android-example: android-example-install
 
 # Clean targets in Docker
 clean: docker-init

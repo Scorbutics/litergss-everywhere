@@ -286,18 +286,34 @@ else()
         message(STATUS "  Output: ${FAT_LIBRARY_OUTPUT}")
     endif()
 
-    # Create distribution archive with headers and fat library
-    create_archive_target(
-        NAME litergss_archive
-        OUTPUT ${LITERGSS_ARCHIVE_NAME}
-        INCLUDES
-            usr/local/include/SFML/
-            usr/local/include/ruby-${RUBY_MINOR_VERSION}/
-            usr/local/include/
-            usr/local/lib/lib${FAT_LIBRARY_NAME}.a
-        DEPENDS litergss2_external embedded-ruby-vm rgss_fat_library
-    )
+    # Create distribution archive with headers and library
+    if(NOT BUILD_SHARED_LIBS)
+        # Static library build - include fat library in archive
+        create_archive_target(
+            NAME litergss_archive
+            OUTPUT ${LITERGSS_ARCHIVE_NAME}
+            INCLUDES
+                usr/local/include/SFML/
+                usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+                usr/local/include/
+                usr/local/lib/lib${FAT_LIBRARY_NAME}.a
+            DEPENDS litergss2_external embedded-ruby-vm rgss_fat_library
+        )
+        add_dependencies(litergss2 litergss_archive rgss_fat_library)
+    else()
+        # Shared library build - include .so files in archive
+        create_archive_target(
+            NAME litergss_archive
+            OUTPUT ${LITERGSS_ARCHIVE_NAME}
+            INCLUDES
+                usr/local/include/SFML/
+                usr/local/include/ruby-${RUBY_MINOR_VERSION}/
+                usr/local/include/
+                usr/local/lib/
+            DEPENDS litergss2_external embedded-ruby-vm
+        )
+        add_dependencies(litergss2 litergss_archive)
+    endif()
 
-    add_dependencies(litergss2 litergss_archive rgss_fat_library)
     message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
 endif()

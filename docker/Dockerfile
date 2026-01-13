@@ -41,4 +41,23 @@ RUN mkdir /tmp/android-ndk && \
 ENV PATH $PATH:$ANDROID_NDK_HOME
 ENV ANDROID_NDK $ANDROID_NDK_HOME
 
+# Install Android SDK command-line tools
+ENV ANDROID_SDK_HOME /opt/android-sdk
+ENV ANDROID_HOME ${ANDROID_SDK_HOME}
+ENV ANDROID_SDK_ROOT ${ANDROID_SDK_HOME}
+
+RUN mkdir -p ${ANDROID_SDK_HOME}/cmdline-tools && \
+    cd ${ANDROID_SDK_HOME}/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip && \
+    unzip -q commandlinetools-linux-11076708_latest.zip && \
+    mv cmdline-tools latest && \
+    rm commandlinetools-linux-11076708_latest.zip
+
+# Add Android SDK tools to PATH
+ENV PATH ${PATH}:${ANDROID_SDK_HOME}/cmdline-tools/latest/bin:${ANDROID_SDK_HOME}/platform-tools
+
+# Accept Android SDK licenses and install required components
+RUN yes | sdkmanager --licenses && \
+    sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
 WORKDIR /opt/current
