@@ -198,6 +198,8 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-network-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-activity-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-main.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
@@ -236,7 +238,19 @@ else()
         set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/lib${FAT_LIBRARY_NAME}.a")
         set(FAT_LIBRARY_WORKDIR "${CMAKE_BINARY_DIR}/fat_library_workdir")
 
+        # Filter library list to only include files that exist (at configure time)
+        # This handles platform differences (e.g., Android doesn't have libcrypt.a)
+        set(EXISTING_LIBS_TO_COMBINE)
+        foreach(lib ${STATIC_LIBS_TO_COMBINE})
+            if(EXISTS "${lib}")
+                list(APPEND EXISTING_LIBS_TO_COMBINE "${lib}")
+            else()
+                message(STATUS "Skipping non-existent library: ${lib}")
+            endif()
+        endforeach()
+
         # Create custom command that calls the combine function
+        # Note: We depend on the actual library files so the fat library rebuilds if they change
         add_custom_command(
             OUTPUT ${FAT_LIBRARY_OUTPUT}
             COMMAND ${CMAKE_COMMAND}
@@ -245,15 +259,22 @@ else()
                 -DCOMBINE_AR=${CMAKE_AR}
                 -DCOMBINE_RANLIB=${CMAKE_RANLIB}
                 -DCOMBINE_NM=${CMAKE_NM}
-                "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
+                "-DCOMBINE_LIBS=${EXISTING_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external
+            DEPENDS litergss2_external ${EXISTING_LIBS_TO_COMBINE}
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )
 
         add_custom_target(rgss_fat_library ALL
             DEPENDS ${FAT_LIBRARY_OUTPUT}
+        )
+
+        # Add clean target for fat library
+        add_custom_target(rgss_fat_library_clean
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${FAT_LIBRARY_OUTPUT}
+            COMMAND ${CMAKE_COMMAND} -E rm -rf ${JNI_OUTPUT_DIR}
+            COMMENT "Cleaning fat library and JNI output directories"
         )
 
         # Copy fat library to JNI structure for Android integration

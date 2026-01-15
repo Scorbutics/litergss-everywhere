@@ -42,6 +42,8 @@ Configuration Options:
                             (default: toolchain-params/arm64-v8a-android-toolchain.params)
   --enable-shared           Build shared libraries (.so files)
   --enable-static           Build static libraries (.a files) - default
+  --enable-debug            Build with debug symbols and logging (CMAKE_BUILD_TYPE=Debug)
+  --enable-release          Build with optimizations (CMAKE_BUILD_TYPE=Release)
   --prefix=PREFIX           Installation prefix (default: /usr/local)
   --build-dir=DIR           Build directory (default: build)
   --help                    Display this help message
@@ -49,8 +51,9 @@ Configuration Options:
 Examples:
   ./configure
   ./configure --enable-shared
+  ./configure --enable-debug
   ./configure --without-docker --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params --enable-static
-  ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params --enable-shared
+  ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params --enable-shared --enable-debug
 
 Environment Variables:
   ANDROID_NDK              Path to Android NDK (for Android builds)
@@ -81,6 +84,14 @@ while [ $# -gt 0 ]; do
 			;;
 		--enable-static)
 			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DBUILD_SHARED_LIBS=OFF"
+			shift
+			;;
+		--enable-debug)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug"
+			shift
+			;;
+		--enable-release)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release"
 			shift
 			;;
 		--prefix=*)
@@ -171,6 +182,13 @@ elif echo "$EXTRA_CMAKE_ARGS" | grep -q "BUILD_SHARED_LIBS=OFF"; then
 else
 	echo "Build mode: Static libraries (.a) - default"
 fi
+if echo "$EXTRA_CMAKE_ARGS" | grep -q "CMAKE_BUILD_TYPE=Debug"; then
+	echo "Build type: Debug (with debug symbols and logging)"
+elif echo "$EXTRA_CMAKE_ARGS" | grep -q "CMAKE_BUILD_TYPE=Release"; then
+	echo "Build type: Release (optimized)"
+else
+	echo "Build type: Default (unspecified)"
+fi
 
 # Generate Makefile
 echo "Generating Makefile..."
@@ -215,6 +233,7 @@ help:
 	@echo "  clean-downloads    - Remove downloaded source archives"
 	@echo "  clean-artifacts    - Remove target directory"
 	@echo "  clean-all          - Clean everything (libs + downloads + artifacts)"
+	@echo "  clean-rgss_fat_library - Clean the fat library and JNI output directories"
 	@echo "  clean-<package>    - Clean specific package (e.g., clean-ruby-for-android)"
 	@echo "  logs-<package>-<step> - Show log for package build step (download/configure/build/install)"
 
@@ -415,7 +434,19 @@ publish-kmp: docker-check-running
 			echo "✓ KMP module published successfully!"; \
 			echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
 			echo "  Target ABI: $$TARGET_ABI"; \
-			echo "  Maven Local: ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/"; \
+			echo "  Maven Local (in container): ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/"; \
+			echo ""; \
+			echo "Copying Maven artifacts to host target directory..."; \
+			mkdir -p target/maven; \
+			if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android; then \
+				mkdir -p target/maven/com/scorbutics/rubyvm/; \
+				docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android target/maven/com/scorbutics/rubyvm/; \
+				echo "✓ Maven artifacts exported to: ./target/maven/kmp-publish-android"; \
+				ls -lh target/maven/kmp-publish-android/1.0.0-SNAPSHOT/*.aar 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No AAR files found"; \
+				ls -lh target/maven/kmp-publish-android/1.0.0-SNAPSHOT/*.pom 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No POM files found"; \
+			else \
+				echo "Warning: Maven artifacts not found in container"; \
+			fi; \
 			echo ""; \
 		else \
 			echo ""; \
@@ -507,6 +538,11 @@ clean-artifacts: docker-init
 
 clean-all: clean-libs clean-downloads clean-artifacts
 	@echo "Full clean complete (Docker mode)"
+
+# Clean fat library target (Docker mode)
+clean-rgss_fat_library: docker-init
+	@echo "Cleaning fat library (Docker mode)..."
+	@docker exec \$(CONTAINER) cmake --build \$(DOCKER_BUILD_DIR) --target rgss_fat_library_clean 2>/dev/null || true
 
 # Package-specific clean targets (Docker mode)
 @PACKAGE_CLEAN_TARGETS_DOCKER@
@@ -629,6 +665,13 @@ clean-artifacts:
 clean-all: clean-libs clean-downloads clean-artifacts
 	@echo "Full clean complete (local mode)"
 	@rm -rf $(BUILD_DIR)
+
+# Clean fat library target (local mode)
+clean-rgss_fat_library:
+	@echo "Cleaning fat library (local mode)..."
+	@if [ -d "\$(BUILD_DIR)" ]; then \\
+		cmake --build \$(BUILD_DIR) --target rgss_fat_library_clean 2>/dev/null || true; \\
+	fi
 
 # Package-specific clean targets (Local mode)
 @PACKAGE_CLEAN_TARGETS_LOCAL@

@@ -26,6 +26,12 @@ set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # AND PRE-CONFIGURE flags for embedded-ruby-vm build
 # ============================================================================
 
+# Set HOST from HOST_TRIPLET if available (from platform config for cross-compilation)
+if(DEFINED HOST_TRIPLET AND NOT DEFINED HOST)
+    set(HOST "${HOST_TRIPLET}")
+    message(STATUS "Setting HOST from HOST_TRIPLET: ${HOST}")
+endif()
+
 # Platform detection logic (replicated from EmbeddedRubyVMConfig.cmake for consistency)
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCH_LOWER)
 string(TOLOWER "${CMAKE_SYSTEM_NAME}" PLATFORM_LOWER)
@@ -188,49 +194,95 @@ file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib")
 file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/include")
 file(MAKE_DIRECTORY "${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm")
 
+# Prepare CMAKE_ARGS list
+set(EMBEDDED_RUBY_VM_CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX=${EMBEDDED_RUBY_VM_INSTALL_DIR}
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+    -DBUILD_WRAPPER_SHARED=${BUILD_WRAPPER_SHARED}
+    -DBUILD_JNI=${BUILD_JNI}
+    -DBUILD_TESTS=${BUILD_TESTS}
+)
+
+# Propagate toolchain file if cross-compiling (Android, iOS, etc.)
+if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_TOOLCHAIN_FILE STREQUAL "")
+    list(APPEND EMBEDDED_RUBY_VM_CMAKE_ARGS "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+    message(STATUS "Propagating toolchain file to embedded-ruby-vm: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
+# For Android builds, propagate Android-specific variables
+if(ANDROID)
+    list(APPEND EMBEDDED_RUBY_VM_CMAKE_ARGS
+        -DANDROID=1
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DCMAKE_ANDROID_NDK=${CMAKE_ANDROID_NDK}
+    )
+    message(STATUS "Propagating Android build configuration:")
+    message(STATUS "  ANDROID_PLATFORM=${ANDROID_PLATFORM}")
+    message(STATUS "  ANDROID_ABI=${ANDROID_ABI}")
+    message(STATUS "  CMAKE_ANDROID_NDK=${CMAKE_ANDROID_NDK}")
+endif()
+
+# Propagate compiler settings for all builds
+list(APPEND EMBEDDED_RUBY_VM_CMAKE_ARGS
+    # Toolchain / Cross-compilation propagation
+    -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
+    -DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_AR=${CMAKE_AR}
+    -DCMAKE_RANLIB=${CMAKE_RANLIB}
+
+    # Flags (quoted to handle spaces)
+    "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}"
+    "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
+    "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+    "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS}"
+)
+
+# Pass HOST triplet if defined (set from HOST_TRIPLET for cross-compilation)
+# Use :STRING to force it into cache and prevent compiler detection from overwriting it
+if(DEFINED HOST AND NOT HOST STREQUAL "")
+    list(APPEND EMBEDDED_RUBY_VM_CMAKE_ARGS "-DHOST:STRING=${HOST}")
+    message(STATUS "Passing HOST to embedded-ruby-vm: ${HOST}")
+endif()
+
+# Convert CMAKE_C_FLAGS string to a list for use in COMMAND
+separate_arguments(CMAKE_C_FLAGS_LIST NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+
 # Define ExternalProject
 ExternalProject_Add(embedded-ruby-vm-build
     SOURCE_DIR "${EMBEDDED_RUBY_VM_DIR}"
     PREFIX "${CMAKE_BINARY_DIR}/embedded-ruby-vm-build"
     BINARY_DIR "${CMAKE_BINARY_DIR}/embedded-ruby-vm-build/build"
     INSTALL_DIR "${EMBEDDED_RUBY_VM_INSTALL_DIR}"
-    
+
     # Propagate CMake arguments
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX=${EMBEDDED_RUBY_VM_INSTALL_DIR}
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
-        -DBUILD_WRAPPER_SHARED=${BUILD_WRAPPER_SHARED}
-        -DBUILD_JNI=${BUILD_JNI}
-        -DBUILD_TESTS=${BUILD_TESTS}
-
-        # Toolchain / Cross-compilation propagation
-        -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
-        -DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
-        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_AR=${CMAKE_AR}
-        -DCMAKE_RANLIB=${CMAKE_RANLIB}
-
-        # Pass HOST triplet if defined (from toolchain params)
-        $<$<BOOL:${HOST}>:-DHOST=${HOST}>
-
-        # Flags (quoted to handle spaces)
-        "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}"
-        "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
-        "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
-        "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS}"
+    CMAKE_ARGS ${EMBEDDED_RUBY_VM_CMAKE_ARGS}
 
     # Manual Install Command (since embedded-ruby-vm has no install rule)
-    INSTALL_COMMAND 
-        ${CMAKE_COMMAND} -E copy_directory <BINARY_DIR>/lib ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib 
+    INSTALL_COMMAND
+        ${CMAKE_COMMAND} -E copy_directory <BINARY_DIR>/lib ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/public ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/include/private ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/include/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE}  ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include
         COMMAND ${CMAKE_COMMAND} -E copy_directory <SOURCE_DIR>/external/lib/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib
         COMMAND ${CMAKE_COMMAND} -E copy_if_different <BINARY_DIR>/core/ruby-vm/embedded-ruby-vm/ruby-api-loader.h ${EMBEDDED_RUBY_VM_INSTALL_DIR}/include/embedded-ruby-vm/ruby-api-loader.h
-        
+        # Compile extension-init.c and add to libembedded-ruby.a
+        # This registers the LiteRGSS extensions automatically via constructor attribute
+        # Note: -fPIC is required since CMAKE_POSITION_INDEPENDENT_CODE doesn't add it to CMAKE_C_FLAGS
+        COMMAND ${CMAKE_C_COMPILER} -c -fPIC ${CMAKE_C_FLAGS_LIST}
+            -I<SOURCE_DIR>/include/public
+            -I<SOURCE_DIR>/include/private
+            -I<SOURCE_DIR>/external/include
+            -I<SOURCE_DIR>/external/include/${EMBEDDED_RUBY_VM_HOST}/${EMBEDDED_RUBY_VM_LIB_TYPE}
+            -o <BINARY_DIR>/extension-init.o
+            ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c
+        COMMAND ${CMAKE_AR} r ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib/libembedded-ruby.a <BINARY_DIR>/extension-init.o
+        COMMAND ${CMAKE_RANLIB} ${EMBEDDED_RUBY_VM_INSTALL_DIR}/lib/libembedded-ruby.a
+
     BUILD_ALWAYS 1
 )
 

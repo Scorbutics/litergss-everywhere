@@ -10,10 +10,7 @@
  */
 
 #include "ruby.h"
-
-/* Forward declarations of extension initialization functions */
-extern void Init_LiteRGSS(void);
-extern void Init_SFMLAudio(void);
+#include "embedded-ruby-vm/ruby-custom-ext.h"
 
 /**
  * Initialize all LiteRGSS Ruby extensions.
@@ -28,14 +25,30 @@ extern void Init_SFMLAudio(void);
  *   require 'LiteRGSS'
  *   require 'SFMLAudio'
  */
+/* Forward declarations of extension initialization functions */
+extern void Init_LiteRGSS(void);
+extern void Init_SFMLAudio(void);
+
 void initialize_litergss_extensions(void) {
     /* Initialize LiteRGSS extension */
     Init_LiteRGSS();
+    rb_provide("LiteRGSS");
 
     /* Initialize SFMLAudio extension */
     Init_SFMLAudio();
+    rb_provide("SFMLAudio");
+}
 
-    /* Note: No need for rb_provide() - the statically linked extensions
-     * are automatically resolvable via Ruby's require mechanism.
-     */
+/**
+ * Auto-register LiteRGSS extensions callback.
+ *
+ * This constructor function runs automatically when the library loads,
+ * before main() is called. It registers the extension initializer with
+ * the embedded-ruby-vm so extensions are available when Ruby starts.
+ *
+ * Works on: GCC, Clang (Linux, macOS, Android, iOS)
+ */
+__attribute__((constructor))
+static void auto_register_litergss_extensions(void) {
+    ruby_set_custom_ext_init(initialize_litergss_extensions);
 }
