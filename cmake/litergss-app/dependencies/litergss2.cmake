@@ -198,7 +198,6 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-network-s.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-activity-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-main.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
