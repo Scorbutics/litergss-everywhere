@@ -251,6 +251,14 @@ endif()
 # Convert CMAKE_C_FLAGS string to a list for use in COMMAND
 separate_arguments(CMAKE_C_FLAGS_LIST NATIVE_COMMAND "${CMAKE_C_FLAGS}")
 
+# Build target flag for direct compiler invocations (e.g., extension-init.c).
+# The Android NDK toolchain sets CMAKE_C_COMPILER_TARGET but does not add --target=
+# to CMAKE_C_FLAGS, so bare clang invocations default to the host architecture.
+set(COMPILER_TARGET_FLAG "")
+if(CMAKE_C_COMPILER_TARGET)
+    set(COMPILER_TARGET_FLAG "--target=${CMAKE_C_COMPILER_TARGET}")
+endif()
+
 # Define ExternalProject
 ExternalProject_Add(embedded-ruby-vm-build
     SOURCE_DIR "${EMBEDDED_RUBY_VM_DIR}"
@@ -273,7 +281,7 @@ ExternalProject_Add(embedded-ruby-vm-build
         # Compile extension-init.c and add to libembedded-ruby.a
         # This registers the LiteRGSS extensions automatically via constructor attribute
         # Note: -fPIC is required since CMAKE_POSITION_INDEPENDENT_CODE doesn't add it to CMAKE_C_FLAGS
-        COMMAND ${CMAKE_C_COMPILER} -c -fPIC ${CMAKE_C_FLAGS_LIST}
+        COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
             -I<SOURCE_DIR>/include/public
             -I<SOURCE_DIR>/include/private
             -I<SOURCE_DIR>/external/include

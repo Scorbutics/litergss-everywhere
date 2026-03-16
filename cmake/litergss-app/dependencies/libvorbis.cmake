@@ -10,8 +10,17 @@ set(LIBVORBIS_CONFIGURE_CMD
     ./configure
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
-    --prefix=/usr/local
     --with-pic
+)
+
+if(BUILD_SHARED_LIBS)
+    list(APPEND LIBVORBIS_CONFIGURE_CMD --enable-shared --disable-static)
+else()
+    list(APPEND LIBVORBIS_CONFIGURE_CMD --enable-static --disable-shared)
+endif()
+
+list(APPEND LIBVORBIS_CONFIGURE_CMD
+    --prefix=/usr/local
 )
 
 # Build libvorbis

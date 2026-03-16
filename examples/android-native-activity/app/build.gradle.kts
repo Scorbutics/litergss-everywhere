@@ -13,6 +13,17 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        ndk {
+            abiFilters += listOf("x86_64", "arm64-v8a")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // NativeActivity needs .so files extracted to disk (not compressed in APK)
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {

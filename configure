@@ -390,6 +390,8 @@ install: docker-check-running
 	@$(MAKE) publish-kmp
 
 # Publish KMP module to Maven Local
+# This target accumulates native libraries across builds: each invocation adds its ABI's
+# .so to the jniLibs staging directory, preserving previously built ABIs.
 publish-kmp: docker-check-running
 	@echo ""
 	@echo "=========================================="
@@ -402,57 +404,99 @@ publish-kmp: docker-check-running
 		exit 1; \
 	fi; \
 	echo "Staging directory: $$BUILD_STAGING_DIR"; \
-	TARGET_ABI=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
-	echo "Detected target ABI: $$TARGET_ABI"; \
-	FAT_LIB_SO="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.so"; \
+	TARGET_ARCH=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
+	echo "Detected target arch: $$TARGET_ARCH"; \
+	case "$$TARGET_ARCH" in \
+		arm64|arm64-v8a) ANDROID_ABI="arm64-v8a"; NDK_TRIPLE="aarch64-linux-android" ;; \
+		arm|armeabi-v7a) ANDROID_ABI="armeabi-v7a"; NDK_TRIPLE="arm-linux-androideabi" ;; \
+		x86_64)          ANDROID_ABI="x86_64"; NDK_TRIPLE="x86_64-linux-android" ;; \
+		x86)             ANDROID_ABI="x86"; NDK_TRIPLE="i686-linux-android" ;; \
+		*) echo "Error: Unknown target arch: $$TARGET_ARCH"; exit 1 ;; \
+	esac; \
+	echo "Android ABI: $$ANDROID_ABI"; \
 	FAT_LIB_A="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
-	if docker exec $(CONTAINER) test -f "$$FAT_LIB_SO"; then \
-		FAT_LIB_PATH="$$FAT_LIB_SO"; \
-		echo "Found fat library (shared) at: $$FAT_LIB_PATH"; \
-	elif docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
-		FAT_LIB_PATH="$$FAT_LIB_A"; \
-		echo "Found fat library (static) at: $$FAT_LIB_PATH"; \
-	else \
-		echo "Warning: Fat library not found at $$FAT_LIB_SO or $$FAT_LIB_A"; \
+	if ! docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
+		echo "Warning: Fat library not found at $$FAT_LIB_A"; \
 		echo "Skipping KMP module publishing"; \
 		exit 0; \
 	fi; \
-	if [ -n "$$FAT_LIB_PATH" ]; then \
-		echo "Using simplified publishing project..."; \
-		docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish; \
-		docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp; \
-		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
-		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/; \
-		if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
-			docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
-		fi; \
-		echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
-		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
-		echo "Publishing with target ABI: $$TARGET_ABI"; \
-		if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew publishToMavenLocal -PnativeLibraryName=rgss_runtime -PtargetArch=$$TARGET_ABI" 2>&1; then \
+	echo "Found fat library at: $$FAT_LIB_A"; \
+	echo ""; \
+	echo "--- Building shared library for $$ANDROID_ABI ---"; \
+	NDK_HOME=$$(docker exec $(CONTAINER) bash -c 'ls -d /opt/android-sdk/ndk/*/ 2>/dev/null | head -1 | sed "s|/$$||"'); \
+	if [ -z "$$NDK_HOME" ]; then \
+		echo "Error: Could not find Android NDK in container"; \
+		exit 1; \
+	fi; \
+	echo "NDK: $$NDK_HOME"; \
+	CMAKE_BUILD_DIR="$(DOCKER_BUILD_DIR)/kmp-publish-cmake/$$ANDROID_ABI"; \
+	docker exec $(CONTAINER) mkdir -p "$$CMAKE_BUILD_DIR"; \
+	docker exec $(CONTAINER) cmake \
+		-S $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/wrapper \
+		-B "$$CMAKE_BUILD_DIR" \
+		-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/build/cmake/android.toolchain.cmake" \
+		-DANDROID_ABI="$$ANDROID_ABI" \
+		-DANDROID_PLATFORM=android-26 \
+		-DANDROID_STL=c++_shared \
+		-DTARGET_ABI="$$ANDROID_ABI" \
+		-DTARGET_ARCH="$$TARGET_ARCH" \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+	docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; \
+	echo ""; \
+	echo "--- Staging .so into host jniLibs/$$ANDROID_ABI/ ---"; \
+	JNILIBS_DIR="$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/$$ANDROID_ABI"; \
+	mkdir -p "$$JNILIBS_DIR"; \
+	docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; \
+	LIBCXX=$$(docker exec $(CONTAINER) find "$$NDK_HOME/toolchains/llvm/prebuilt" -path "*$$NDK_TRIPLE/libc++_shared.so" 2>/dev/null | head -1); \
+	if [ -n "$$LIBCXX" ]; then \
+		docker cp $(CONTAINER):"$$LIBCXX" "$$JNILIBS_DIR/libc++_shared.so"; \
+	else \
+		echo "Warning: libc++_shared.so not found for $$NDK_TRIPLE"; \
+	fi; \
+	echo "Staged files for $$ANDROID_ABI:"; \
+	ls -lh "$$JNILIBS_DIR/"*.so 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}'; \
+	echo ""; \
+	echo "All accumulated ABIs:"; \
+	for abi_dir in $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/*/; do \
+		abi_name=$$(basename "$$abi_dir"); \
+		echo "  $$abi_name: $$(ls "$$abi_dir"*.so 2>/dev/null | wc -l) libraries"; \
+	done; \
+	echo ""; \
+	echo "--- Publishing AAR with all accumulated ABIs ---"; \
+	docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish; \
+	docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp; \
+	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
+	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/; \
+	if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
+		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
+	fi; \
+	echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
+	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
+	if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew clean publishToMavenLocal -PnativeLibraryName=rgss_runtime" 2>&1; then \
+		echo ""; \
+		echo "✓ KMP module published successfully!"; \
+		echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
+		echo ""; \
+		echo "Copying Maven artifacts to host..."; \
+		mkdir -p target/maven; \
+		if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android; then \
+			mkdir -p target/maven/com/scorbutics/rubyvm/; \
+			docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android target/maven/com/scorbutics/rubyvm/; \
+			echo "✓ Maven artifacts exported to: ./target/maven/"; \
+			mkdir -p $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
+			cp -r target/maven/com/scorbutics/rubyvm/kmp-publish-android $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
+			echo "✓ Maven artifacts installed to: ~/.m2/repository/"; \
 			echo ""; \
-			echo "✓ KMP module published successfully!"; \
-			echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
-			echo "  Target ABI: $$TARGET_ABI"; \
-			echo "  Maven Local (in container): ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/"; \
-			echo ""; \
-			echo "Copying Maven artifacts to host target directory..."; \
-			mkdir -p target/maven; \
-			if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android; then \
-				mkdir -p target/maven/com/scorbutics/rubyvm/; \
-				docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android target/maven/com/scorbutics/rubyvm/; \
-				echo "✓ Maven artifacts exported to: ./target/maven/kmp-publish-android"; \
-				ls -lh target/maven/kmp-publish-android/1.0.0-SNAPSHOT/*.aar 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No AAR files found"; \
-				ls -lh target/maven/kmp-publish-android/1.0.0-SNAPSHOT/*.pom 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No POM files found"; \
-			else \
-				echo "Warning: Maven artifacts not found in container"; \
-			fi; \
-			echo ""; \
+			echo "AAR contents:"; \
+			unzip -l $(HOME)/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/kmp-publish-android-1.0.0-SNAPSHOT.aar 2>/dev/null | grep -E "\.so|jni/" | awk '{print "  " $$4}'; \
 		else \
-			echo ""; \
-			echo "✗ Gradle publish failed - see error output above"; \
-			exit 1; \
+			echo "Warning: Maven artifacts not found in container"; \
 		fi; \
+		echo ""; \
+	else \
+		echo ""; \
+		echo "✗ Gradle publish failed - see error output above"; \
+		exit 1; \
 	fi
 
 # Build Android example app

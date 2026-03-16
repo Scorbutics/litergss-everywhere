@@ -11,8 +11,17 @@ set(FREETYPE_CONFIGURE_CMD
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
     --with-png=no
-    --prefix=/usr/local
     --with-pic
+)
+
+if(BUILD_SHARED_LIBS)
+    list(APPEND FREETYPE_CONFIGURE_CMD --enable-shared --disable-static)
+else()
+    list(APPEND FREETYPE_CONFIGURE_CMD --enable-static --disable-shared)
+endif()
+
+list(APPEND FREETYPE_CONFIGURE_CMD
+    --prefix=/usr/local
 )
 
 # Build FreeType

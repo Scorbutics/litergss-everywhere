@@ -258,6 +258,7 @@ else()
                 -DCOMBINE_AR=${CMAKE_AR}
                 -DCOMBINE_RANLIB=${CMAKE_RANLIB}
                 -DCOMBINE_NM=${CMAKE_NM}
+                -DCOMBINE_OBJCOPY=${CMAKE_OBJCOPY}
                 "-DCOMBINE_LIBS=${EXISTING_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
             DEPENDS litergss2_external ${EXISTING_LIBS_TO_COMBINE}
