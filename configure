@@ -441,12 +441,19 @@ publish-kmp: docker-check-running
 		-DTARGET_ABI="$$ANDROID_ABI" \
 		-DTARGET_ARCH="$$TARGET_ARCH" \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
-	docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; \
+	if ! docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; then \
+		echo ""; \
+		echo "✗ Failed to build librgss_runtime.so — aborting"; \
+		exit 1; \
+	fi; \
 	echo ""; \
 	echo "--- Staging .so into host jniLibs/$$ANDROID_ABI/ ---"; \
 	JNILIBS_DIR="$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/$$ANDROID_ABI"; \
 	mkdir -p "$$JNILIBS_DIR"; \
-	docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; \
+	if ! docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; then \
+		echo "✗ librgss_runtime.so not found in build output — build likely failed"; \
+		exit 1; \
+	fi; \
 	LIBCXX=$$(docker exec $(CONTAINER) find "$$NDK_HOME/toolchains/llvm/prebuilt" -path "*$$NDK_TRIPLE/libc++_shared.so" 2>/dev/null | head -1); \
 	if [ -n "$$LIBCXX" ]; then \
 		docker cp $(CONTAINER):"$$LIBCXX" "$$JNILIBS_DIR/libc++_shared.so"; \
