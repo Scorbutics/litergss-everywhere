@@ -423,7 +423,7 @@ publish-kmp: docker-check-running
 	echo "Found fat library at: $$FAT_LIB_A"; \
 	echo ""; \
 	echo "--- Building shared library for $$ANDROID_ABI ---"; \
-	NDK_HOME=$$(docker exec $(CONTAINER) bash -c 'ls -d /opt/android-ndk/*/ 2>/dev/null | head -1 | sed "s|/$$||"'); \
+	NDK_HOME=/opt/android-ndk/; \
 	if [ -z "$$NDK_HOME" ]; then \
 		echo "Error: Could not find Android NDK in container"; \
 		exit 1; \
@@ -434,7 +434,7 @@ publish-kmp: docker-check-running
 	docker exec $(CONTAINER) cmake \
 		-S $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/wrapper \
 		-B "$$CMAKE_BUILD_DIR" \
-		-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/cmake/android.toolchain.cmake" \
+		-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/build/cmake/android.toolchain.cmake" \
 		-DANDROID_ABI="$$ANDROID_ABI" \
 		-DANDROID_PLATFORM=android-26 \
 		-DANDROID_STL=c++_shared \
