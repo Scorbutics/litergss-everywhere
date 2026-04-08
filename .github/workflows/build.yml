@@ -10,9 +10,10 @@ on:
       platforms:
         description: "Platforms to build (comma-separated)"
         required: false
-        default: "android,linux-x86_64"
+        default: "android,linux-x86_64,ios-device,ios-simulator"
         type: choice
         options:
+          - "android,linux-x86_64,ios-device,ios-simulator"
           - "android,linux-x86_64"
           - "android"
           - "linux-x86_64"
@@ -42,7 +43,7 @@ on:
 
 # Build-wide defaults when triggered by push/PR (not workflow_dispatch)
 env:
-  DEFAULT_PLATFORMS: "android,linux-x86_64"
+  DEFAULT_PLATFORMS: "android,linux-x86_64,ios-device,ios-simulator"
   DEFAULT_ANDROID_ABIS: "arm64-v8a,x86_64"
   DEFAULT_BUILD_TYPE: "release"
 
