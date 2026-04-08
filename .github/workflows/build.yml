@@ -1,0 +1,180 @@
+name: Build LiteRGSS
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Platforms to build (comma-separated)"
+        required: false
+        default: "android,linux-x86_64"
+        type: choice
+        options:
+          - "android,linux-x86_64"
+          - "android"
+          - "linux-x86_64"
+          - "linux-arm64"
+          - "android,linux-x86_64,linux-arm64"
+      android_abis:
+        description: "Android ABIs to include in the AAR (comma-separated)"
+        required: false
+        default: "arm64-v8a,x86_64"
+        type: choice
+        options:
+          - "arm64-v8a,x86_64"
+          - "arm64-v8a"
+          - "x86_64"
+      build_type:
+        description: "Build type"
+        required: false
+        default: "release"
+        type: choice
+        options:
+          - "release"
+          - "debug"
+
+# Build-wide defaults when triggered by push/PR (not workflow_dispatch)
+env:
+  DEFAULT_PLATFORMS: "android,linux-x86_64"
+  DEFAULT_ANDROID_ABIS: "arm64-v8a,x86_64"
+  DEFAULT_BUILD_TYPE: "release"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Compute the build matrix from inputs (or defaults for push/PR triggers)
+  # ---------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      build_type_flag: ${{ steps.set-matrix.outputs.build_type_flag }}
+    steps:
+      - id: set-matrix
+        shell: bash
+        run: |
+          PLATFORMS="${{ github.event.inputs.platforms || env.DEFAULT_PLATFORMS }}"
+          ANDROID_ABIS="${{ github.event.inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
+          BUILD_TYPE="${{ github.event.inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
+
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            echo "build_type_flag=--enable-debug" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_type_flag=--enable-release" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Build a JSON matrix of platform jobs
+          MATRIX='{"include":['
+          FIRST=true
+
+          IFS=',' read -ra PLATS <<< "$PLATFORMS"
+          for plat in "${PLATS[@]}"; do
+            plat=$(echo "$plat" | xargs)  # trim whitespace
+            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
+
+            case "$plat" in
+              android)
+                # Collect Android ABI toolchain params
+                TOOLCHAIN_ARGS=""
+                IFS=',' read -ra ABIS <<< "$ANDROID_ABIS"
+                for abi in "${ABIS[@]}"; do
+                  abi=$(echo "$abi" | xargs)
+                  TOOLCHAIN_ARGS+=" --with-toolchain-params=toolchain-params/${abi}-android-toolchain.params"
+                done
+                MATRIX+="{\"platform\":\"android\",\"runner\":\"ubuntu-latest\",\"use_docker\":true,\"toolchain_args\":\"${TOOLCHAIN_ARGS}\",\"build_dir\":\"build-android\",\"target_dir\":\"target-android\"}"
+                ;;
+              linux-x86_64)
+                MATRIX+="{\"platform\":\"linux-x86_64\",\"runner\":\"ubuntu-latest\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params\",\"build_dir\":\"build-linux-x86_64\",\"target_dir\":\"target-linux-x86_64\"}"
+                ;;
+              linux-arm64)
+                MATRIX+="{\"platform\":\"linux-arm64\",\"runner\":\"ubuntu-24.04-arm\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-linux-toolchain.params\",\"build_dir\":\"build-linux-arm64\",\"target_dir\":\"target-linux-arm64\"}"
+                ;;
+            esac
+          done
+
+          MATRIX+=']}'
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix: $MATRIX"
+
+  # ---------------------------------------------------------------------------
+  # Build each platform in parallel
+  # ---------------------------------------------------------------------------
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    name: Build ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # --- Docker-based builds (Android) ---
+
+      - name: Build Docker image
+        if: matrix.use_docker
+        run: docker compose build litergss-dev
+
+      - name: Configure (Docker)
+        if: matrix.use_docker
+        run: |
+          ./configure \
+            ${{ matrix.toolchain_args }} \
+            --build-dir=${{ matrix.build_dir }} \
+            --target-dir=${{ matrix.target_dir }} \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Build (Docker)
+        if: matrix.use_docker
+        run: make build
+
+      - name: Install & publish AAR (Docker)
+        if: matrix.use_docker
+        run: make install
+
+      # --- Local builds (Linux) ---
+
+      - name: Install build dependencies (local)
+        if: "!matrix.use_docker"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ruby-dev ninja-build \
+            libtool autoconf automake libncurses-dev \
+            zip unzip wget gettext patch \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libudev-dev pkg-config
+
+      - name: Configure (local)
+        if: "!matrix.use_docker"
+        run: |
+          ./configure \
+            --without-docker \
+            ${{ matrix.toolchain_args }} \
+            --build-dir=${{ matrix.build_dir }} \
+            --target-dir=${{ matrix.target_dir }} \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Build (local)
+        if: "!matrix.use_docker"
+        run: make build
+
+      - name: Install (local)
+        if: "!matrix.use_docker"
+        run: make install
+
+      # --- Upload artifacts ---
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: litergss-${{ matrix.platform }}
+          path: ${{ matrix.target_dir }}/
+          if-no-files-found: error
+          retention-days: 30

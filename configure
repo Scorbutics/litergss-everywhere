@@ -24,9 +24,10 @@ fi
 
 # Default values
 USE_DOCKER=1
-TOOLCHAIN_PARAMS="toolchain-params/arm64-v8a-android-toolchain.params"
+TOOLCHAIN_PARAMS_LIST=""
 PREFIX="/usr/local"
 BUILD_DIR="build"
+TARGET_DIR="target"
 EXTRA_CMAKE_ARGS=""
 
 # Parse command-line arguments
@@ -38,7 +39,7 @@ Configuration Options:
   --without-docker          Build without Docker (requires local toolchain setup)
   --with-docker             Build with Docker (default)
   --with-toolchain-params=FILE
-                            Specify toolchain parameters file
+                            Specify toolchain parameters file (repeatable for multi-ABI)
                             (default: toolchain-params/arm64-v8a-android-toolchain.params)
   --enable-shared           Build shared libraries (.so files)
   --enable-static           Build static libraries (.a files) - default
@@ -46,6 +47,7 @@ Configuration Options:
   --enable-release          Build with optimizations (CMAKE_BUILD_TYPE=Release)
   --prefix=PREFIX           Installation prefix (default: /usr/local)
   --build-dir=DIR           Build directory (default: build)
+  --target-dir=DIR          Output directory for artifacts (default: target)
   --help                    Display this help message
 
 Examples:
@@ -55,9 +57,21 @@ Examples:
   ./configure --without-docker --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params --enable-static
   ./configure --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params --enable-shared --enable-debug
 
+  Multi-ABI Android build (produces a single AAR with both ABIs):
+  ./configure --with-toolchain-params=toolchain-params/arm64-v8a-android-toolchain.params \\
+              --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params
+
+  CI/CD cross-platform builds (separate target dirs to avoid collisions):
+  ./configure --target-dir=target-android --build-dir=build-android \\
+              --with-toolchain-params=toolchain-params/arm64-v8a-android-toolchain.params \\
+              --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params
+  make && make install
+  ./configure --target-dir=target-linux --build-dir=build-linux --without-docker \\
+              --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params
+  make && make install
+
 Environment Variables:
   ANDROID_NDK              Path to Android NDK (for Android builds)
-  TOOLCHAIN_PARAMS         Toolchain parameters file (overridden by --with-toolchain-params)
 
 EOF
 	exit 0
@@ -75,7 +89,7 @@ while [ $# -gt 0 ]; do
 			shift
 			;;
 		--with-toolchain-params=*)
-			TOOLCHAIN_PARAMS="${1#*=}"
+			TOOLCHAIN_PARAMS_LIST="${TOOLCHAIN_PARAMS_LIST:+$TOOLCHAIN_PARAMS_LIST }${1#*=}"
 			shift
 			;;
 		--enable-shared)
@@ -102,6 +116,10 @@ while [ $# -gt 0 ]; do
 			BUILD_DIR="${1#*=}"
 			shift
 			;;
+		--target-dir=*)
+			TARGET_DIR="${1#*=}"
+			shift
+			;;
 		--help|-h)
 			show_help
 			;;
@@ -113,12 +131,39 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-# Validation
-if [ ! -f "$ROOT_DIR/$TOOLCHAIN_PARAMS" ]; then
-	echo "Error: Toolchain parameters file not found: $TOOLCHAIN_PARAMS"
-	echo "Available toolchain files:"
-	ls -1 "$ROOT_DIR"/toolchain-params/*.params 2>/dev/null || echo "  (none found)"
-	exit 1
+# Apply default if no toolchain params specified
+if [ -z "$TOOLCHAIN_PARAMS_LIST" ]; then
+	TOOLCHAIN_PARAMS_LIST="toolchain-params/arm64-v8a-android-toolchain.params"
+fi
+
+# Validate toolchain files and extract ABI names
+TOOLCHAIN_COUNT=0
+TOOLCHAIN_ABI_LIST=""
+for tp in $TOOLCHAIN_PARAMS_LIST; do
+	if [ ! -f "$ROOT_DIR/$tp" ]; then
+		echo "Error: Toolchain parameters file not found: $tp"
+		echo "Available toolchain files:"
+		ls -1 "$ROOT_DIR"/toolchain-params/*.params 2>/dev/null || echo "  (none found)"
+		exit 1
+	fi
+	TOOLCHAIN_COUNT=$((TOOLCHAIN_COUNT + 1))
+	ABI=$(grep -o 'DANDROID_ABI=[^ ]*' "$ROOT_DIR/$tp" 2>/dev/null | sed 's/DANDROID_ABI=//')
+	if [ -n "$ABI" ]; then
+		TOOLCHAIN_ABI_LIST="${TOOLCHAIN_ABI_LIST:+$TOOLCHAIN_ABI_LIST }$ABI"
+	else
+		TOOLCHAIN_ABI_LIST="${TOOLCHAIN_ABI_LIST:+$TOOLCHAIN_ABI_LIST }generic"
+	fi
+done
+
+# Multi-ABI only supported for Android toolchains
+if [ $TOOLCHAIN_COUNT -gt 1 ]; then
+	for tp in $TOOLCHAIN_PARAMS_LIST; do
+		if ! grep -q "DANDROID_ABI=" "$ROOT_DIR/$tp"; then
+			echo "Error: Multi-ABI builds only supported for Android toolchains"
+			echo "  Non-Android toolchain: $tp"
+			exit 1
+		fi
+	done
 fi
 
 # Check Docker availability if Docker build is requested
@@ -153,8 +198,12 @@ else
 		echo "Install Ruby 3.0.0+ on the host system"
 	fi
 
-	# Check for Android NDK if this is an Android build
-	if grep -q "DANDROID_ABI=" "$ROOT_DIR/$TOOLCHAIN_PARAMS"; then
+	# Check for Android NDK if any toolchain is an Android build
+	IS_ANDROID=0
+	for tp in $TOOLCHAIN_PARAMS_LIST; do
+		if grep -q "DANDROID_ABI=" "$ROOT_DIR/$tp"; then IS_ANDROID=1; break; fi
+	done
+	if [ $IS_ANDROID -eq 1 ]; then
 		if [ -z "$ANDROID_NDK" ]; then
 			NDK_BASE="$HOME/Android/Sdk/ndk"
 			if [ -d "$NDK_BASE" ]; then
@@ -172,9 +221,18 @@ else
 	fi
 fi
 
-echo "Toolchain: $TOOLCHAIN_PARAMS"
+if [ $TOOLCHAIN_COUNT -eq 1 ]; then
+	echo "Toolchain: $TOOLCHAIN_PARAMS_LIST"
+else
+	echo "Toolchains ($TOOLCHAIN_COUNT):"
+	for tp in $TOOLCHAIN_PARAMS_LIST; do
+		echo "  - $tp"
+	done
+	echo "ABIs: $TOOLCHAIN_ABI_LIST"
+fi
 echo "Prefix: $PREFIX"
 echo "Build directory: $BUILD_DIR"
+echo "Target directory: $TARGET_DIR"
 if echo "$EXTRA_CMAKE_ARGS" | grep -q "BUILD_SHARED_LIBS=ON"; then
 	echo "Build mode: Shared libraries (.so)"
 elif echo "$EXTRA_CMAKE_ARGS" | grep -q "BUILD_SHARED_LIBS=OFF"; then
@@ -202,9 +260,12 @@ SHELL := /bin/bash
 
 # Configuration
 USE_DOCKER=@USE_DOCKER@
-TOOLCHAIN_PARAMS=@TOOLCHAIN_PARAMS@
+TOOLCHAIN_PARAMS_LIST=@TOOLCHAIN_PARAMS_LIST@
+TOOLCHAIN_ABI_LIST=@TOOLCHAIN_ABI_LIST@
+TOOLCHAIN_COUNT=@TOOLCHAIN_COUNT@
 PREFIX=@PREFIX@
 BUILD_DIR=@BUILD_DIR@
+TARGET_DIR=@TARGET_DIR@
 ROOT_DIR=@ROOT_DIR@
 EXTRA_CMAKE_ARGS=@EXTRA_CMAKE_ARGS@
 PROJECT_NAME=litergss-everywhere
@@ -231,7 +292,7 @@ help:
 	@echo "  clean              - Clean build artifacts (keeps downloads)"
 	@echo "  clean-libs         - Clean library build directories"
 	@echo "  clean-downloads    - Remove downloaded source archives"
-	@echo "  clean-artifacts    - Remove target directory"
+	@echo "  clean-artifacts    - Remove output directory ($(TARGET_DIR))"
 	@echo "  clean-all          - Clean everything (libs + downloads + artifacts)"
 	@echo "  clean-rgss_fat_library - Clean the fat library and JNI output directories"
 	@echo "  clean-<package>    - Clean specific package (e.g., clean-ruby-for-android)"
@@ -313,185 +374,236 @@ docker-init:
 # CMake configuration in Docker
 configure-cmake: docker-init
 	@echo "Configuring with CMake (Docker mode)..."
-	@docker exec $(CONTAINER) mkdir -p $(DOCKER_BUILD_DIR)
-	@docker exec $(CONTAINER) sh -c 'cd $(DOCKER_BUILD_DIR) && \
-		export SOURCE_DIR=$(DOCKER_WORKDIR) && \
-		TOOLCHAIN_PARAMS_FILE=$$SOURCE_DIR/$(TOOLCHAIN_PARAMS) && \
-		if [ ! -f "$$TOOLCHAIN_PARAMS_FILE" ]; then \
-			echo "Error: Toolchain parameters file not found: $$TOOLCHAIN_PARAMS_FILE"; \
-			exit 1; \
-		fi && \
-		echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
-		rm -f CMakeCache.txt && \
-		if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
-			NDK_BASE=/opt/android-ndk && \
-			export ANDROID_NDK=$$NDK_BASE && \
-			if [ ! -d "$$ANDROID_NDK" ]; then \
-				echo "Error: ANDROID_NDK not found"; \
+	@set -e; \
+	toolchains=($(TOOLCHAIN_PARAMS_LIST)); \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!toolchains[@]}; do \
+		tp=$${toolchains[$$i]}; \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Configuring ABI: $$abi ($$tp) ==="; \
+		echo "Build directory: $$build_dir"; \
+		docker exec $(CONTAINER) mkdir -p $$build_dir; \
+		docker exec $(CONTAINER) sh -c "cd $$build_dir && \
+			export SOURCE_DIR=$(DOCKER_WORKDIR) && \
+			TOOLCHAIN_PARAMS_FILE=\$$SOURCE_DIR/$$tp && \
+			if [ ! -f \"\$$TOOLCHAIN_PARAMS_FILE\" ]; then \
+				echo \"Error: Toolchain parameters file not found: \$$TOOLCHAIN_PARAMS_FILE\"; \
 				exit 1; \
 			fi && \
-			echo "Android NDK: $$ANDROID_NDK" && \
-			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
-				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
-				$(EXTRA_CMAKE_ARGS) \
-				$$SOURCE_DIR; \
-		else \
-			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
-				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
-				$(EXTRA_CMAKE_ARGS) \
-				$$SOURCE_DIR; \
-		fi'
+			echo \"Using toolchain parameters from: \$$TOOLCHAIN_PARAMS_FILE\" && \
+			rm -f CMakeCache.txt && \
+			if grep -q \"DANDROID_ABI=\" \"\$$TOOLCHAIN_PARAMS_FILE\"; then \
+				NDK_BASE=/opt/android-ndk && \
+				export ANDROID_NDK=\$$NDK_BASE && \
+				if [ ! -d \"\$$ANDROID_NDK\" ]; then \
+					echo \"Error: ANDROID_NDK not found\"; \
+					exit 1; \
+				fi && \
+				echo \"Android NDK: \$$ANDROID_NDK\" && \
+				cmake \$$(cat \$$TOOLCHAIN_PARAMS_FILE) \
+					-DCMAKE_TOOLCHAIN_FILE=\$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+					-DTOOLCHAIN_FILE=\$$TOOLCHAIN_PARAMS_FILE \
+					$(EXTRA_CMAKE_ARGS) \
+					\$$SOURCE_DIR; \
+			else \
+				cmake \$$(cat \$$TOOLCHAIN_PARAMS_FILE) \
+					-DTOOLCHAIN_FILE=\$$TOOLCHAIN_PARAMS_FILE \
+					$(EXTRA_CMAKE_ARGS) \
+					\$$SOURCE_DIR; \
+			fi"; \
+	done
 
 # Build in Docker
 build: configure-cmake
 	@echo "Building project (Docker mode)..."
-	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR)
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Building ABI: $$abi ==="; \
+		docker exec $(CONTAINER) cmake --build $$build_dir; \
+	done
 
 # Install/export from Docker
 install: docker-check-running
 	@echo "Exporting build artifacts from Docker..."
-	@rm -rf target
-	@mkdir -p target
-	@# Get staging directory from CMake cache
-	@BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-	if [ -z "$$BUILD_STAGING_DIR" ]; then \
-		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
-		exit 1; \
-	fi; \
-	echo "Staging directory: $$BUILD_STAGING_DIR"; \
-	TARGET_ARCHIVES=$$(docker exec $(CONTAINER) grep -E "TARGET_ARCHIVES:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-	if [ -z "$$TARGET_ARCHIVES" ]; then \
-		echo "Warning: No archives registered in TARGET_ARCHIVES"; \
-		docker exec $(CONTAINER) tar -czf - -C $(DOCKER_BUILD_DIR)/target . 2>/dev/null | tar -xzf - -C target 2>/dev/null || true; \
-	else \
-		echo "Found registered archives: $$TARGET_ARCHIVES"; \
-		FAILED=0; \
-		IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
-		for archive in "$${ARCHIVES[@]}"; do \
-			if [ -z "$$archive" ]; then continue; fi; \
-			ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
-			echo "Checking archive: $$archive"; \
-			if docker exec $(CONTAINER) test -f "$$ARCHIVE_PATH"; then \
-				echo "  Copying $$archive..."; \
-				docker cp $(CONTAINER):"$$ARCHIVE_PATH" target/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
-			else \
-				echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
-				FAILED=1; \
-			fi; \
-		done; \
-		if [ $$FAILED -eq 1 ]; then \
-			echo "Error: One or more archives are missing or failed to copy"; \
+	@rm -rf $(TARGET_DIR)
+	@mkdir -p $(TARGET_DIR)
+	@# Export archives from each ABI build directory
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Exporting artifacts for ABI: $$abi ==="; \
+		BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -z "$$BUILD_STAGING_DIR" ]; then \
+			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
 			exit 1; \
 		fi; \
-	fi
-	@echo "Build artifacts exported to: ./target"
-	@ls -lh target/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+		echo "Staging directory: $$BUILD_STAGING_DIR"; \
+		TARGET_ARCHIVES=$$(docker exec $(CONTAINER) grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -z "$$TARGET_ARCHIVES" ]; then \
+			echo "Warning: No archives registered in TARGET_ARCHIVES for $$abi"; \
+			docker exec $(CONTAINER) tar -czf - -C $$build_dir/target . 2>/dev/null | tar -xzf - -C $(TARGET_DIR) 2>/dev/null || true; \
+		else \
+			echo "Found registered archives: $$TARGET_ARCHIVES"; \
+			FAILED=0; \
+			IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
+			for archive in "$${ARCHIVES[@]}"; do \
+				if [ -z "$$archive" ]; then continue; fi; \
+				ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
+				echo "Checking archive: $$archive"; \
+				if docker exec $(CONTAINER) test -f "$$ARCHIVE_PATH"; then \
+					echo "  Copying $$archive..."; \
+					docker cp $(CONTAINER):"$$ARCHIVE_PATH" $(TARGET_DIR)/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+				else \
+					echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
+					FAILED=1; \
+				fi; \
+			done; \
+			if [ $$FAILED -eq 1 ]; then \
+				echo "Error: One or more archives are missing or failed to copy"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@echo "Build artifacts exported to: ./$(TARGET_DIR)"
+	@ls -lh $(TARGET_DIR)/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
 	@$(MAKE) publish-kmp
 
 # Publish KMP module to Maven Local
-# This target accumulates native libraries across builds: each invocation adds its ABI's
-# .so to the jniLibs staging directory, preserving previously built ABIs.
+# This target builds .so wrappers for all configured ABIs, stages them into jniLibs,
+# then publishes a single AAR containing all ABIs.
 publish-kmp: docker-check-running
 	@echo ""
 	@echo "=========================================="
 	@echo "Publishing KMP module to Maven Local..."
 	@echo "=========================================="
-	@# Get the staging directory and detect the target ABI
-	@BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $(DOCKER_BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-	if [ -z "$$BUILD_STAGING_DIR" ]; then \
-		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
-		exit 1; \
-	fi; \
-	echo "Staging directory: $$BUILD_STAGING_DIR"; \
-	TARGET_ARCH=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
-	echo "Detected target arch: $$TARGET_ARCH"; \
-	case "$$TARGET_ARCH" in \
-		arm64|arm64-v8a) ANDROID_ABI="arm64-v8a"; NDK_TRIPLE="aarch64-linux-android" ;; \
-		arm|armeabi-v7a) ANDROID_ABI="armeabi-v7a"; NDK_TRIPLE="arm-linux-androideabi" ;; \
-		x86_64)          ANDROID_ABI="x86_64"; NDK_TRIPLE="x86_64-linux-android" ;; \
-		x86)             ANDROID_ABI="x86"; NDK_TRIPLE="i686-linux-android" ;; \
-		*) echo "Error: Unknown target arch: $$TARGET_ARCH"; exit 1 ;; \
-	esac; \
-	echo "Android ABI: $$ANDROID_ABI"; \
-	FAT_LIB_A="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
-	if ! docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
-		echo "Warning: Fat library not found at $$FAT_LIB_A"; \
-		echo "Skipping KMP module publishing"; \
-		exit 0; \
-	fi; \
-	echo "Found fat library at: $$FAT_LIB_A"; \
-	echo ""; \
-	echo "--- Building shared library for $$ANDROID_ABI ---"; \
+	@# Clean stale jniLibs to avoid leftover ABIs from previous runs
+	@rm -rf $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs
+	@# Phase 1: Build .so wrapper and stage for each ABI
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
 	NDK_HOME=/opt/android-ndk/; \
-	if [ -z "$$NDK_HOME" ]; then \
-		echo "Error: Could not find Android NDK in container"; \
-		exit 1; \
-	fi; \
-	echo "NDK: $$NDK_HOME"; \
-	CMAKE_BUILD_DIR="$(DOCKER_BUILD_DIR)/kmp-publish-cmake/$$ANDROID_ABI"; \
-	docker exec $(CONTAINER) mkdir -p "$$CMAKE_BUILD_DIR"; \
-	docker exec $(CONTAINER) cmake \
-		-S $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/wrapper \
-		-B "$$CMAKE_BUILD_DIR" \
-		-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/build/cmake/android.toolchain.cmake" \
-		-DANDROID_ABI="$$ANDROID_ABI" \
-		-DANDROID_PLATFORM=android-26 \
-		-DANDROID_STL=c++_shared \
-		-DTARGET_ABI="$$ANDROID_ABI" \
-		-DTARGET_ARCH="$$TARGET_ARCH" \
-		-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
-	if ! docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; then \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
 		echo ""; \
-		echo "✗ Failed to build librgss_runtime.so — aborting"; \
-		exit 1; \
-	fi; \
-	echo ""; \
-	echo "--- Staging .so into host jniLibs/$$ANDROID_ABI/ ---"; \
-	JNILIBS_DIR="$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/$$ANDROID_ABI"; \
-	mkdir -p "$$JNILIBS_DIR"; \
-	if ! docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; then \
-		echo "✗ librgss_runtime.so not found in build output — build likely failed"; \
-		exit 1; \
-	fi; \
-	LIBCXX=$$(docker exec $(CONTAINER) find "$$NDK_HOME/toolchains/llvm/prebuilt" -path "*$$NDK_TRIPLE/libc++_shared.so" 2>/dev/null | head -1); \
-	if [ -n "$$LIBCXX" ]; then \
-		docker cp $(CONTAINER):"$$LIBCXX" "$$JNILIBS_DIR/libc++_shared.so"; \
-	else \
-		echo "Warning: libc++_shared.so not found for $$NDK_TRIPLE"; \
-	fi; \
-	echo "Staged files for $$ANDROID_ABI:"; \
-	ls -lh "$$JNILIBS_DIR/"*.so 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}'; \
-	echo ""; \
-	echo "All accumulated ABIs:"; \
-	for abi_dir in $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/*/; do \
+		echo "=== Staging ABI: $$abi ==="; \
+		BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -z "$$BUILD_STAGING_DIR" ]; then \
+			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
+			exit 1; \
+		fi; \
+		echo "Staging directory: $$BUILD_STAGING_DIR"; \
+		TARGET_ARCH=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
+		echo "Detected target arch: $$TARGET_ARCH"; \
+		case "$$TARGET_ARCH" in \
+			arm64|arm64-v8a) ANDROID_ABI="arm64-v8a"; NDK_TRIPLE="aarch64-linux-android" ;; \
+			arm|armeabi-v7a) ANDROID_ABI="armeabi-v7a"; NDK_TRIPLE="arm-linux-androideabi" ;; \
+			x86_64)          ANDROID_ABI="x86_64"; NDK_TRIPLE="x86_64-linux-android" ;; \
+			x86)             ANDROID_ABI="x86"; NDK_TRIPLE="i686-linux-android" ;; \
+			*) echo "Error: Unknown target arch: $$TARGET_ARCH"; exit 1 ;; \
+		esac; \
+		echo "Android ABI: $$ANDROID_ABI"; \
+		FAT_LIB_A="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
+		if ! docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
+			echo "Warning: Fat library not found at $$FAT_LIB_A"; \
+			echo "Skipping ABI $$abi"; \
+			continue; \
+		fi; \
+		echo "Found fat library at: $$FAT_LIB_A"; \
+		echo ""; \
+		echo "--- Building shared library for $$ANDROID_ABI ---"; \
+		echo "NDK: $$NDK_HOME"; \
+		CMAKE_BUILD_DIR="$(DOCKER_BUILD_DIR)/kmp-publish-cmake/$$ANDROID_ABI"; \
+		docker exec $(CONTAINER) mkdir -p "$$CMAKE_BUILD_DIR"; \
+		docker exec $(CONTAINER) cmake \
+			-S $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/wrapper \
+			-B "$$CMAKE_BUILD_DIR" \
+			-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/build/cmake/android.toolchain.cmake" \
+			-DANDROID_ABI="$$ANDROID_ABI" \
+			-DANDROID_PLATFORM=android-26 \
+			-DANDROID_STL=c++_shared \
+			-DTARGET_ABI="$$ANDROID_ABI" \
+			-DTARGET_ARCH="$$TARGET_ARCH" \
+			-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
+		if ! docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; then \
+			echo ""; \
+			echo "✗ Failed to build librgss_runtime.so for $$ANDROID_ABI — aborting"; \
+			exit 1; \
+		fi; \
+		echo ""; \
+		echo "--- Staging .so into host jniLibs/$$ANDROID_ABI/ ---"; \
+		JNILIBS_DIR="$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/$$ANDROID_ABI"; \
+		mkdir -p "$$JNILIBS_DIR"; \
+		if ! docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; then \
+			echo "✗ librgss_runtime.so not found in build output — build likely failed"; \
+			exit 1; \
+		fi; \
+		LIBCXX=$$(docker exec $(CONTAINER) find "$$NDK_HOME/toolchains/llvm/prebuilt" -path "*$$NDK_TRIPLE/libc++_shared.so" 2>/dev/null | head -1); \
+		if [ -n "$$LIBCXX" ]; then \
+			docker cp $(CONTAINER):"$$LIBCXX" "$$JNILIBS_DIR/libc++_shared.so"; \
+		else \
+			echo "Warning: libc++_shared.so not found for $$NDK_TRIPLE"; \
+		fi; \
+		echo "Staged files for $$ANDROID_ABI:"; \
+		ls -lh "$$JNILIBS_DIR/"*.so 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}'; \
+	done
+	@# Show all staged ABIs
+	@echo ""
+	@echo "All staged ABIs:"
+	@for abi_dir in $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/*/; do \
 		abi_name=$$(basename "$$abi_dir"); \
 		echo "  $$abi_name: $$(ls "$$abi_dir"*.so 2>/dev/null | wc -l) libraries"; \
-	done; \
-	echo ""; \
-	echo "--- Publishing AAR with all accumulated ABIs ---"; \
-	docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish; \
-	docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp; \
-	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
-	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/; \
-	if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
+	done
+	@# Phase 2: Single Gradle publish with all ABIs
+	@echo ""
+	@echo "--- Publishing AAR with all ABIs ---"
+	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish
+	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp
+	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/
+	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/
+	@if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
 		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
-	fi; \
-	echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
-	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties; \
-	if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew clean publishToMavenLocal -PnativeLibraryName=rgss_runtime" 2>&1; then \
+	fi
+	@echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties
+	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties
+	@if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew clean publishToMavenLocal -PnativeLibraryName=rgss_runtime" 2>&1; then \
 		echo ""; \
 		echo "✓ KMP module published successfully!"; \
 		echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
 		echo ""; \
 		echo "Copying Maven artifacts to host..."; \
-		mkdir -p target/maven; \
+		mkdir -p $(TARGET_DIR)/maven; \
 		if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android; then \
-			mkdir -p target/maven/com/scorbutics/rubyvm/; \
-			docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android target/maven/com/scorbutics/rubyvm/; \
-			echo "✓ Maven artifacts exported to: ./target/maven/"; \
+			mkdir -p $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
+			docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
+			echo "✓ Maven artifacts exported to: ./$(TARGET_DIR)/maven/"; \
 			mkdir -p $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
-			cp -r target/maven/com/scorbutics/rubyvm/kmp-publish-android $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
+			cp -r $(TARGET_DIR)/maven/com/scorbutics/rubyvm/kmp-publish-android $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
 			echo "✓ Maven artifacts installed to: ~/.m2/repository/"; \
 			echo ""; \
 			echo "AAR contents:"; \
@@ -572,20 +684,60 @@ android-example: android-example-install
 # Clean targets in Docker
 clean: docker-init
 	@echo "Cleaning build artifacts (Docker mode)..."
-	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean 2>/dev/null || true
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target clean 2>/dev/null || true; \
+	done
 
 clean-libs: docker-init
 	@echo "Cleaning library builds (Docker mode)..."
-	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-libs 2>/dev/null || true
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target clean-libs 2>/dev/null || true; \
+	done
 
 clean-downloads: docker-init
 	@echo "Cleaning downloads (Docker mode)..."
-	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-downloads 2>/dev/null || true
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target clean-downloads 2>/dev/null || true; \
+	done
 
 clean-artifacts: docker-init
 	@echo "Cleaning artifacts (Docker mode)..."
-	@docker exec $(CONTAINER) cmake --build $(DOCKER_BUILD_DIR) --target clean-artifacts 2>/dev/null || true
-	@rm -rf target
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target clean-artifacts 2>/dev/null || true; \
+	done
+	@rm -rf $(TARGET_DIR)
 
 clean-all: clean-libs clean-downloads clean-artifacts
 	@echo "Full clean complete (Docker mode)"
@@ -593,7 +745,17 @@ clean-all: clean-libs clean-downloads clean-artifacts
 # Clean fat library target (Docker mode)
 clean-rgss_fat_library: docker-init
 	@echo "Cleaning fat library (Docker mode)..."
-	@docker exec \$(CONTAINER) cmake --build \$(DOCKER_BUILD_DIR) --target rgss_fat_library_clean 2>/dev/null || true
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target rgss_fat_library_clean 2>/dev/null || true; \
+	done
 
 # Package-specific clean targets (Docker mode)
 @PACKAGE_CLEAN_TARGETS_DOCKER@
@@ -609,120 +771,218 @@ else
 
 configure-cmake:
 	@echo "Configuring with CMake (local mode)..."
-	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && \
-		export TOOLCHAIN_PARAMS=../$(TOOLCHAIN_PARAMS) && \
-		TOOLCHAIN_PARAMS_FILE="$$TOOLCHAIN_PARAMS" && \
-		if [ ! -f "$$TOOLCHAIN_PARAMS_FILE" ]; then \
-			echo "Error: Toolchain parameters file not found: $$TOOLCHAIN_PARAMS_FILE"; \
-			exit 1; \
-		fi && \
-		echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
-		rm -f CMakeCache.txt && \
-		if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
-			NDK_BASE=$$HOME/Android/Sdk/ndk && \
-			export ANDROID_NDK=$${ANDROID_NDK:-$$NDK_BASE/$$(ls $$NDK_BASE | tail -n 1)} && \
-			if [ ! -d "$$ANDROID_NDK" ]; then \
-				echo "Error: ANDROID_NDK not found"; \
+	@set -e; \
+	toolchains=($(TOOLCHAIN_PARAMS_LIST)); \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!toolchains[@]}; do \
+		tp=$${toolchains[$$i]}; \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Configuring ABI: $$abi ($$tp) ==="; \
+		echo "Build directory: $$build_dir"; \
+		mkdir -p $$build_dir; \
+		cd $$build_dir && \
+			TOOLCHAIN_PARAMS_FILE="../$$tp" && \
+			if [ ! -f "$$TOOLCHAIN_PARAMS_FILE" ]; then \
+				echo "Error: Toolchain parameters file not found: $$TOOLCHAIN_PARAMS_FILE"; \
 				exit 1; \
 			fi && \
-			echo "Android NDK: $$ANDROID_NDK" && \
-			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
-				-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
-				$(EXTRA_CMAKE_ARGS) \
-				..; \
-		else \
-			cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
-				-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
-				$(EXTRA_CMAKE_ARGS) \
-				..; \
-		fi
+			echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
+			rm -f CMakeCache.txt && \
+			if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
+				NDK_BASE=$$HOME/Android/Sdk/ndk && \
+				export ANDROID_NDK=$${ANDROID_NDK:-$$NDK_BASE/$$(ls $$NDK_BASE | tail -n 1)} && \
+				if [ ! -d "$$ANDROID_NDK" ]; then \
+					echo "Error: ANDROID_NDK not found"; \
+					exit 1; \
+				fi && \
+				echo "Android NDK: $$ANDROID_NDK" && \
+				cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+					-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+					-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+					$(EXTRA_CMAKE_ARGS) \
+					..; \
+			else \
+				cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
+					-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+					$(EXTRA_CMAKE_ARGS) \
+					..; \
+			fi; \
+		cd ..; \
+	done
 
 build: configure-cmake
 	@echo "Building project (local mode)..."
-	@cmake --build $(BUILD_DIR)
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Building ABI: $$abi ==="; \
+		cmake --build $$build_dir; \
+	done
 
 install:
 	@echo "Installing build artifacts (local mode)..."
-	@if [ ! -d "$(BUILD_DIR)" ]; then \
-		echo "Error: Build directory not found. Run 'make build' first."; \
-		exit 1; \
-	fi
-	@rm -rf target
-	@mkdir -p target
-	@# Get staging directory from CMake cache
-	@BUILD_STAGING_DIR=$$(grep -E "BUILD_STAGING_DIR:" $(BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-	if [ -z "$$BUILD_STAGING_DIR" ]; then \
-		echo "Error: BUILD_STAGING_DIR not found in CMake cache"; \
-		exit 1; \
-	fi; \
-	echo "Staging directory: $$BUILD_STAGING_DIR"; \
-	TARGET_ARCHIVES=$$(grep -E "TARGET_ARCHIVES:" $(BUILD_DIR)/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-	if [ -z "$$TARGET_ARCHIVES" ]; then \
-		echo "Warning: No archives registered in TARGET_ARCHIVES"; \
-		if [ -d "$(BUILD_DIR)/target" ]; then \
-			cp -r $(BUILD_DIR)/target/* target/ 2>/dev/null || true; \
+	@rm -rf $(TARGET_DIR)
+	@mkdir -p $(TARGET_DIR)
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
 		fi; \
-	else \
-		echo "Found registered archives: $$TARGET_ARCHIVES"; \
-		FAILED=0; \
-		IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
-		for archive in "$${ARCHIVES[@]}"; do \
-			if [ -z "$$archive" ]; then continue; fi; \
-			ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
-			echo "Checking archive: $$archive"; \
-			if [ -f "$$ARCHIVE_PATH" ]; then \
-				echo "  Copying $$archive..."; \
-				cp "$$ARCHIVE_PATH" target/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
-			else \
-				echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
-				FAILED=1; \
-			fi; \
-		done; \
-		if [ $$FAILED -eq 1 ]; then \
-			echo "Error: One or more archives are missing or failed to copy"; \
+		if [ ! -d "$$build_dir" ]; then \
+			echo "Error: Build directory not found: $$build_dir. Run 'make build' first."; \
 			exit 1; \
 		fi; \
-	fi
-	@echo "Build artifacts installed to: ./target"
-	@ls -lh target/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+		echo ""; \
+		echo "=== Exporting artifacts for ABI: $$abi ==="; \
+		BUILD_STAGING_DIR=$$(grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -z "$$BUILD_STAGING_DIR" ]; then \
+			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
+			exit 1; \
+		fi; \
+		echo "Staging directory: $$BUILD_STAGING_DIR"; \
+		TARGET_ARCHIVES=$$(grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -z "$$TARGET_ARCHIVES" ]; then \
+			echo "Warning: No archives registered in TARGET_ARCHIVES for $$abi"; \
+			if [ -d "$$build_dir/target" ]; then \
+				cp -r $$build_dir/target/* $(TARGET_DIR)/ 2>/dev/null || true; \
+			fi; \
+		else \
+			echo "Found registered archives: $$TARGET_ARCHIVES"; \
+			FAILED=0; \
+			IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
+			for archive in "$${ARCHIVES[@]}"; do \
+				if [ -z "$$archive" ]; then continue; fi; \
+				ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
+				echo "Checking archive: $$archive"; \
+				if [ -f "$$ARCHIVE_PATH" ]; then \
+					echo "  Copying $$archive..."; \
+					cp "$$ARCHIVE_PATH" $(TARGET_DIR)/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+				else \
+					echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
+					FAILED=1; \
+				fi; \
+			done; \
+			if [ $$FAILED -eq 1 ]; then \
+				echo "Error: One or more archives are missing or failed to copy"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@echo "Build artifacts installed to: ./$(TARGET_DIR)"
+	@ls -lh $(TARGET_DIR)/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
 
 clean:
 	@echo "Cleaning build artifacts (local mode)..."
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		cmake --build $(BUILD_DIR) --target clean 2>/dev/null || true; \
-	fi
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		if [ -d "$$build_dir" ]; then \
+			cmake --build $$build_dir --target clean 2>/dev/null || true; \
+		fi; \
+	done
 
 clean-libs:
 	@echo "Cleaning library builds (local mode)..."
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		cmake --build $(BUILD_DIR) --target clean-libs 2>/dev/null || true; \
-	fi
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		if [ -d "$$build_dir" ]; then \
+			cmake --build $$build_dir --target clean-libs 2>/dev/null || true; \
+		fi; \
+	done
 
 clean-downloads:
 	@echo "Cleaning downloads (local mode)..."
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		cmake --build $(BUILD_DIR) --target clean-downloads 2>/dev/null || true; \
-	fi
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		if [ -d "$$build_dir" ]; then \
+			cmake --build $$build_dir --target clean-downloads 2>/dev/null || true; \
+		fi; \
+	done
 
 clean-artifacts:
 	@echo "Cleaning artifacts (local mode)..."
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		cmake --build $(BUILD_DIR) --target clean-artifacts 2>/dev/null || true; \
-	fi
-	@rm -rf target
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		if [ -d "$$build_dir" ]; then \
+			cmake --build $$build_dir --target clean-artifacts 2>/dev/null || true; \
+		fi; \
+	done
+	@rm -rf $(TARGET_DIR)
 
 clean-all: clean-libs clean-downloads clean-artifacts
 	@echo "Full clean complete (local mode)"
-	@rm -rf $(BUILD_DIR)
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		rm -rf $$build_dir; \
+	done
 
 # Clean fat library target (local mode)
 clean-rgss_fat_library:
 	@echo "Cleaning fat library (local mode)..."
-	@if [ -d "\$(BUILD_DIR)" ]; then \\
-		cmake --build \$(BUILD_DIR) --target rgss_fat_library_clean 2>/dev/null || true; \\
-	fi
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		if [ -d "$$build_dir" ]; then \
+			cmake --build $$build_dir --target rgss_fat_library_clean 2>/dev/null || true; \
+		fi; \
+	done
 
 # Package-specific clean targets (Local mode)
 @PACKAGE_CLEAN_TARGETS_LOCAL@
@@ -751,7 +1011,17 @@ if [ -n "$PACKAGES" ]; then
 		PACKAGE_CLEAN_DOCKER="${PACKAGE_CLEAN_DOCKER}
 clean-${pkg}: docker-init
 	@echo \"Cleaning ${pkg} (Docker mode)...\"
-	@docker exec \$(CONTAINER) cmake --build \$(DOCKER_BUILD_DIR) --target ${pkg}_clean 2>/dev/null || true
+	@set -e; \\
+	abis=(\$(TOOLCHAIN_ABI_LIST)); \\
+	for i in \$\${!abis[@]}; do \\
+		abi=\$\${abis[\$$i]}; \\
+		if [ \$(TOOLCHAIN_COUNT) -eq 1 ]; then \\
+			build_dir=\$(DOCKER_BUILD_DIR); \\
+		else \\
+			build_dir=\$(DOCKER_BUILD_DIR)-\$$abi; \\
+		fi; \\
+		docker exec \$(CONTAINER) cmake --build \$$build_dir --target ${pkg}_clean 2>/dev/null || true; \\
+	done
 
 "
 	done
@@ -764,9 +1034,19 @@ if [ -n "$PACKAGES" ]; then
 		PACKAGE_CLEAN_LOCAL="${PACKAGE_CLEAN_LOCAL}
 clean-${pkg}:
 	@echo \"Cleaning ${pkg} (local mode)...\"
-	@if [ -d \"\$(BUILD_DIR)\" ]; then \\
-		cmake --build \$(BUILD_DIR) --target ${pkg}_clean 2>/dev/null || true; \\
-	fi
+	@set -e; \\
+	abis=(\$(TOOLCHAIN_ABI_LIST)); \\
+	for i in \$\${!abis[@]}; do \\
+		abi=\$\${abis[\$$i]}; \\
+		if [ \$(TOOLCHAIN_COUNT) -eq 1 ]; then \\
+			build_dir=\$(BUILD_DIR); \\
+		else \\
+			build_dir=\$(BUILD_DIR)-\$$abi; \\
+		fi; \\
+		if [ -d \"\$$build_dir\" ]; then \\
+			cmake --build \$$build_dir --target ${pkg}_clean 2>/dev/null || true; \\
+		fi; \\
+	done
 
 "
 	done
@@ -780,7 +1060,18 @@ if [ -n "$PACKAGES" ]; then
 			PACKAGE_LOG_DOCKER="${PACKAGE_LOG_DOCKER}
 logs-${pkg}-${step}: docker-check-running
 	@echo \"=== ${pkg} ${step} logs ===\"
-	@docker exec \$(CONTAINER) sh -c \"cat \$(DOCKER_BUILD_DIR)/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null\" || echo \"No ${step} logs found for ${pkg}\"
+	@set -e; \\
+	abis=(\$(TOOLCHAIN_ABI_LIST)); \\
+	for i in \$\${!abis[@]}; do \\
+		abi=\$\${abis[\$$i]}; \\
+		if [ \$(TOOLCHAIN_COUNT) -eq 1 ]; then \\
+			build_dir=\$(DOCKER_BUILD_DIR); \\
+		else \\
+			build_dir=\$(DOCKER_BUILD_DIR)-\$$abi; \\
+			echo \"--- ABI: \$$abi ---\"; \\
+		fi; \\
+		docker exec \$(CONTAINER) sh -c \"cat \$$build_dir/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null\" || echo \"No ${step} logs found for ${pkg} (\$$abi)\"; \\
+	done
 
 "
 		done
@@ -795,7 +1086,18 @@ if [ -n "$PACKAGES" ]; then
 			PACKAGE_LOG_LOCAL="${PACKAGE_LOG_LOCAL}
 logs-${pkg}-${step}:
 	@echo \"=== ${pkg} ${step} logs ===\"
-	@cat \$(BUILD_DIR)/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null || echo \"No ${step} logs found for ${pkg}\"
+	@set -e; \\
+	abis=(\$(TOOLCHAIN_ABI_LIST)); \\
+	for i in \$\${!abis[@]}; do \\
+		abi=\$\${abis[\$$i]}; \\
+		if [ \$(TOOLCHAIN_COUNT) -eq 1 ]; then \\
+			build_dir=\$(BUILD_DIR); \\
+		else \\
+			build_dir=\$(BUILD_DIR)-\$$abi; \\
+			echo \"--- ABI: \$$abi ---\"; \\
+		fi; \\
+		cat \$$build_dir/${pkg}/build_dir/*/stamps/${pkg}_external-${step}-*.log 2>/dev/null || echo \"No ${step} logs found for ${pkg} (\$$abi)\"; \\
+	done
 
 "
 		done
@@ -823,9 +1125,12 @@ EOF
 # Substitute configuration values
 sed \
 	-e "s|@USE_DOCKER@|$USE_DOCKER|g" \
-	-e "s|@TOOLCHAIN_PARAMS@|$TOOLCHAIN_PARAMS|g" \
+	-e "s|@TOOLCHAIN_PARAMS_LIST@|$TOOLCHAIN_PARAMS_LIST|g" \
+	-e "s|@TOOLCHAIN_ABI_LIST@|$TOOLCHAIN_ABI_LIST|g" \
+	-e "s|@TOOLCHAIN_COUNT@|$TOOLCHAIN_COUNT|g" \
 	-e "s|@PREFIX@|$PREFIX|g" \
 	-e "s|@BUILD_DIR@|$BUILD_DIR|g" \
+	-e "s|@TARGET_DIR@|$TARGET_DIR|g" \
 	-e "s|@ROOT_DIR@|$ROOT_DIR|g" \
 	-e "s|@EXTRA_CMAKE_ARGS@|$EXTRA_CMAKE_ARGS|g" \
 	"$ROOT_DIR/Makefile" > "$ROOT_DIR/Makefile.new"
