@@ -51,6 +51,8 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       build_type_flag: ${{ steps.set-matrix.outputs.build_type_flag }}
+      has_android: ${{ steps.set-matrix.outputs.has_android }}
+      has_linux_x86_64: ${{ steps.set-matrix.outputs.has_linux_x86_64 }}
     steps:
       - id: set-matrix
         shell: bash
@@ -97,6 +99,17 @@ jobs:
           MATRIX+=']}'
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Generated matrix: $MATRIX"
+
+          # Export platform presence flags for the package job
+          echo "has_android=false" >> "$GITHUB_OUTPUT"
+          echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
+          for plat in "${PLATS[@]}"; do
+            plat=$(echo "$plat" | xargs)
+            case "$plat" in
+              android)       echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
+              linux-x86_64)  echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
+            esac
+          done
 
   # ---------------------------------------------------------------------------
   # Build each platform in parallel
@@ -181,12 +194,83 @@ jobs:
         if: "!matrix.use_docker"
         run: make install
 
-      # --- Upload artifacts ---
+      # --- Upload intermediate artifacts (consumed by the package job) ---
 
-      - name: Upload build artifacts
+      - name: Find AAR artifact (Android)
+        if: matrix.use_docker
+        id: find-aar
+        run: |
+          AAR_PATH=$(find ${{ matrix.target_dir }}/maven -name '*.aar' 2>/dev/null | head -1)
+          if [ -z "$AAR_PATH" ]; then
+            echo "ERROR: No AAR file found in ${{ matrix.target_dir }}/maven"
+            exit 1
+          fi
+          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found AAR: $AAR_PATH"
+
+      - name: Upload intermediate AAR (Android)
+        if: matrix.use_docker
         uses: actions/upload-artifact@v4
         with:
-          name: litergss-${{ matrix.platform }}
+          name: intermediate-android
+          path: ${{ steps.find-aar.outputs.aar_path }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload intermediate build output (Linux)
+        if: "!matrix.use_docker"
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-${{ matrix.platform }}
           path: ${{ matrix.target_dir }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Package all platform outputs into a single release artifact
+  # ---------------------------------------------------------------------------
+  package:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    name: Package final artifacts
+    steps:
+      - name: Download Android AAR
+        if: needs.prepare.outputs.has_android == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-android
+          path: staging/android
+
+      - name: Download Linux x86_64 build
+        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-linux-x86_64
+          path: staging/linux-x86_64
+
+      - name: Assemble release
+        run: |
+          mkdir -p release
+          if [ -d staging/android ]; then
+            mkdir -p release/android
+            cp staging/android/*.aar release/android/
+            echo "Included Android AAR:"
+            ls -lh release/android/
+          fi
+          if [ -d staging/linux-x86_64 ]; then
+            mkdir -p release/linux-x86_64
+            cp -r staging/linux-x86_64/* release/linux-x86_64/
+            echo "Included Linux x86_64 artifacts:"
+            ls -lh release/linux-x86_64/
+          fi
+          echo ""
+          echo "=== Final release contents ==="
+          find release -type f | sort
+
+      - name: Upload final release
+        uses: actions/upload-artifact@v4
+        with:
+          name: litergss-release
+          path: release/
           if-no-files-found: error
           retention-days: 30
