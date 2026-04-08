@@ -17,7 +17,11 @@ on:
           - "android"
           - "linux-x86_64"
           - "linux-arm64"
+          - "ios-device"
+          - "ios-simulator"
+          - "ios-device,ios-simulator"
           - "android,linux-x86_64,linux-arm64"
+          - "android,linux-x86_64,linux-arm64,ios-device,ios-simulator"
       android_abis:
         description: "Android ABIs to include in the AAR (comma-separated)"
         required: false
@@ -53,6 +57,8 @@ jobs:
       build_type_flag: ${{ steps.set-matrix.outputs.build_type_flag }}
       has_android: ${{ steps.set-matrix.outputs.has_android }}
       has_linux_x86_64: ${{ steps.set-matrix.outputs.has_linux_x86_64 }}
+      has_ios_device: ${{ steps.set-matrix.outputs.has_ios_device }}
+      has_ios_simulator: ${{ steps.set-matrix.outputs.has_ios_simulator }}
     steps:
       - id: set-matrix
         shell: bash
@@ -93,6 +99,12 @@ jobs:
               linux-arm64)
                 MATRIX+="{\"platform\":\"linux-arm64\",\"runner\":\"ubuntu-24.04-arm\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-linux-toolchain.params\",\"build_dir\":\"build-linux-arm64\",\"target_dir\":\"target-linux-arm64\"}"
                 ;;
+              ios-device)
+                MATRIX+="{\"platform\":\"ios-device\",\"runner\":\"macos-14\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params --enable-static\",\"build_dir\":\"build-ios-device\",\"target_dir\":\"target-ios-device\"}"
+                ;;
+              ios-simulator)
+                MATRIX+="{\"platform\":\"ios-simulator\",\"runner\":\"macos-14\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params --enable-static\",\"build_dir\":\"build-ios-simulator\",\"target_dir\":\"target-ios-simulator\"}"
+                ;;
             esac
           done
 
@@ -103,11 +115,15 @@ jobs:
           # Export platform presence flags for the package job
           echo "has_android=false" >> "$GITHUB_OUTPUT"
           echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
+          echo "has_ios_device=false" >> "$GITHUB_OUTPUT"
+          echo "has_ios_simulator=false" >> "$GITHUB_OUTPUT"
           for plat in "${PLATS[@]}"; do
             plat=$(echo "$plat" | xargs)
             case "$plat" in
-              android)       echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
-              linux-x86_64)  echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
+              android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
+              linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
+              ios-device)     echo "has_ios_device=true" >> "$GITHUB_OUTPUT" ;;
+              ios-simulator)  echo "has_ios_simulator=true" >> "$GITHUB_OUTPUT" ;;
             esac
           done
 
@@ -153,8 +169,8 @@ jobs:
 
       # --- Local builds (Linux) ---
 
-      - name: Install build dependencies (local)
-        if: "!matrix.use_docker"
+      - name: Install build dependencies (Linux)
+        if: "!matrix.use_docker && runner.os == 'Linux'"
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -163,6 +179,17 @@ jobs:
             zip unzip wget gettext patch \
             libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
             libgl1-mesa-dev libudev-dev pkg-config
+
+      - name: Install build dependencies (macOS)
+        if: "!matrix.use_docker && runner.os == 'macOS'"
+        run: |
+          brew install autoconf automake libtool cmake
+          echo "Xcode version:"
+          xcodebuild -version
+          echo "iOS SDK path:"
+          xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "(not available)"
+          echo "iOS Simulator SDK path:"
+          xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || echo "(not available)"
 
       - name: Configure (local)
         if: "!matrix.use_docker"
@@ -217,7 +244,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload intermediate build output (Linux)
+      - name: Upload intermediate build output (non-Docker)
         if: "!matrix.use_docker"
         uses: actions/upload-artifact@v4
         with:
@@ -248,6 +275,20 @@ jobs:
           name: intermediate-linux-x86_64
           path: staging/linux-x86_64
 
+      - name: Download iOS device build
+        if: needs.prepare.outputs.has_ios_device == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-ios-device
+          path: staging/ios-device
+
+      - name: Download iOS simulator build
+        if: needs.prepare.outputs.has_ios_simulator == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-ios-simulator
+          path: staging/ios-simulator
+
       - name: Assemble release
         run: |
           mkdir -p release
@@ -262,6 +303,18 @@ jobs:
             cp -r staging/linux-x86_64/* release/linux-x86_64/
             echo "Included Linux x86_64 artifacts:"
             ls -lh release/linux-x86_64/
+          fi
+          if [ -d staging/ios-device ]; then
+            mkdir -p release/ios-device
+            cp -r staging/ios-device/* release/ios-device/
+            echo "Included iOS device artifacts:"
+            ls -lh release/ios-device/
+          fi
+          if [ -d staging/ios-simulator ]; then
+            mkdir -p release/ios-simulator
+            cp -r staging/ios-simulator/* release/ios-simulator/
+            echo "Included iOS simulator artifacts:"
+            ls -lh release/ios-simulator/
           fi
           echo ""
           echo "=== Final release contents ==="
