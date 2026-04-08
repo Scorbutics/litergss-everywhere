@@ -237,19 +237,9 @@ else()
         set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/lib${FAT_LIBRARY_NAME}.a")
         set(FAT_LIBRARY_WORKDIR "${CMAKE_BINARY_DIR}/fat_library_workdir")
 
-        # Filter library list to only include files that exist (at configure time)
-        # This handles platform differences (e.g., Android doesn't have libcrypt.a)
-        set(EXISTING_LIBS_TO_COMBINE)
-        foreach(lib ${STATIC_LIBS_TO_COMBINE})
-            if(EXISTS "${lib}")
-                list(APPEND EXISTING_LIBS_TO_COMBINE "${lib}")
-            else()
-                message(STATUS "Skipping non-existent library: ${lib}")
-            endif()
-        endforeach()
-
         # Create custom command that calls the combine function
-        # Note: We depend on the actual library files so the fat library rebuilds if they change
+        # Note: Library existence is checked at build time (not configure time),
+        # since on a clean build libraries don't exist yet during configuration.
         add_custom_command(
             OUTPUT ${FAT_LIBRARY_OUTPUT}
             COMMAND ${CMAKE_COMMAND}
@@ -259,9 +249,9 @@ else()
                 -DCOMBINE_RANLIB=${CMAKE_RANLIB}
                 -DCOMBINE_NM=${CMAKE_NM}
                 -DCOMBINE_OBJCOPY=${CMAKE_OBJCOPY}
-                "-DCOMBINE_LIBS=${EXISTING_LIBS_TO_COMBINE}"
+                "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external ${EXISTING_LIBS_TO_COMBINE}
+            DEPENDS litergss2_external
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )
