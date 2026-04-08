@@ -8,6 +8,9 @@ services:
     # --delete removes files in the named volume that were deleted in src
 
   litergss-dev:
+    # Use litergss-deps image if available (has pre-cached dependencies),
+    # otherwise fall back to building from docker/
+    image: litergss-deps
     build:
       context: docker/
     container_name: litergss-everywhere_dev

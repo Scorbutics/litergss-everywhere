@@ -145,11 +145,71 @@ jobs:
         with:
           submodules: recursive
 
+      # --- Dependency caching (non-Docker platforms) ---
+      # Docker builds bake deps into the image instead (see "Build Docker deps image" step).
+
+      - name: Cache dependencies (URL tarballs)
+        if: "!matrix.use_docker"
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.build_dir }}/downloads
+          key: deps-url-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: |
+            deps-url-${{ matrix.platform }}-
+
+      - name: Cache dependencies (git repos)
+        if: "!matrix.use_docker"
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.build_dir }}/git-cache
+          key: deps-git-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: |
+            deps-git-${{ matrix.platform }}-
+
+      - name: Pre-download dependencies
+        if: "!matrix.use_docker"
+        run: |
+          cmake \
+            -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
+            -DDOWNLOAD_DIR=${{ github.workspace }}/${{ matrix.build_dir }}/downloads \
+            -DGIT_CACHE_DIR=${{ github.workspace }}/${{ matrix.build_dir }}/git-cache \
+            -P cmake/docker/PreloadDeps.cmake
+
       # --- Docker-based builds (Android) ---
 
-      - name: Build Docker image
+      - name: Set up Docker Buildx
         if: matrix.use_docker
-        run: docker compose build litergss-dev
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        if: matrix.use_docker
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: docker-deps-${{ hashFiles('docker/Dockerfile', 'cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: |
+            docker-deps-
+
+      - name: Build Docker deps image
+        if: matrix.use_docker
+        run: |
+          # Generate Dockerfile.deps from dependency cmake files and build the image.
+          # This runs cmake directly (no Makefile needed yet).
+          cmake \
+            -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
+            -DBASE_DOCKERFILE=${{ github.workspace }}/docker/Dockerfile \
+            -DOUTPUT_DIR=${{ github.workspace }}/build/docker \
+            -P cmake/docker/GenerateDockerfile.cmake
+          docker buildx build \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --load \
+            -f build/docker/Dockerfile.deps \
+            -t litergss-deps \
+            docker/
+          # Rotate cache to avoid unbounded growth
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Configure (Docker)
         if: matrix.use_docker
@@ -168,7 +228,7 @@ jobs:
         if: matrix.use_docker
         run: make install
 
-      # --- Local builds (Linux) ---
+      # --- Local builds (Linux/macOS/iOS) ---
 
       - name: Install build dependencies (Linux)
         if: "!matrix.use_docker && runner.os == 'Linux'"

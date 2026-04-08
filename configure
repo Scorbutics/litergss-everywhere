@@ -273,7 +273,7 @@ CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current/src
 DOCKER_BUILD_DIR=/opt/current/build
 
-.PHONY: all build configure-cmake install publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install
+.PHONY: all build configure-cmake install publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
 
 # Default target
 all: build
@@ -297,6 +297,38 @@ help:
 	@echo "  clean-rgss_fat_library - Clean the fat library and JNI output directories"
 	@echo "  clean-<package>    - Clean specific package (e.g., clean-ruby-for-android)"
 	@echo "  logs-<package>-<step> - Show log for package build step (download/configure/build/install)"
+	@echo ""
+	@echo "Dependency caching:"
+	@echo "  docker-deps-image  - Generate and build Docker image with pre-cached dependencies"
+	@echo "  download-deps      - Pre-download all dependencies locally (no Docker needed)"
+
+# ============================================================================
+# Dependency Caching Targets (work in both Docker and Local modes)
+# ============================================================================
+
+# Generate Dockerfile.deps with pre-cached dependencies and build the image
+docker-deps-image:
+	@echo "Generating Dockerfile with cached dependencies..."
+	@cmake \
+		-DDEPS_DIR=$(ROOT_DIR)/cmake/litergss-app/dependencies \
+		-DBASE_DOCKERFILE=$(ROOT_DIR)/docker/Dockerfile \
+		-DOUTPUT_DIR=$(ROOT_DIR)/build/docker \
+		-P $(ROOT_DIR)/cmake/docker/GenerateDockerfile.cmake
+	@echo ""
+	@echo "Building Docker image with cached dependencies..."
+	docker build -f $(ROOT_DIR)/build/docker/Dockerfile.deps -t litergss-deps $(ROOT_DIR)/docker/
+	@echo ""
+	@echo "Done! Image tagged as: litergss-deps"
+	@echo "To use it, update docker-compose.yml to reference 'litergss-deps' instead of building from docker/"
+
+# Pre-download all dependencies locally (for non-Docker or offline builds)
+download-deps:
+	@echo "Pre-downloading all dependencies..."
+	@cmake \
+		-DDEPS_DIR=$(ROOT_DIR)/cmake/litergss-app/dependencies \
+		-DDOWNLOAD_DIR=$(ROOT_DIR)/$(BUILD_DIR)/downloads \
+		-DGIT_CACHE_DIR=$(ROOT_DIR)/$(BUILD_DIR)/git-cache \
+		-P $(ROOT_DIR)/cmake/docker/PreloadDeps.cmake
 
 ifeq ($(USE_DOCKER),1)
 
@@ -397,6 +429,11 @@ configure-cmake: docker-init
 				exit 1; \
 			fi && \
 			echo \"Using toolchain parameters from: \$$TOOLCHAIN_PARAMS_FILE\" && \
+			DEPS_CACHE_ARGS=\"\" && \
+			if [ -d /opt/deps-cache/downloads ]; then \
+				echo \"Using pre-cached dependencies from /opt/deps-cache/downloads\"; \
+				DEPS_CACHE_ARGS=\"-DBUILD_DOWNLOAD_DIR=/opt/deps-cache/downloads\"; \
+			fi && \
 			rm -f CMakeCache.txt && \
 			if grep -q \"DANDROID_ABI=\" \"\$$TOOLCHAIN_PARAMS_FILE\"; then \
 				NDK_BASE=/opt/android-ndk && \
@@ -409,11 +446,13 @@ configure-cmake: docker-init
 				cmake \$$(cat \$$TOOLCHAIN_PARAMS_FILE) \
 					-DCMAKE_TOOLCHAIN_FILE=\$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
 					-DTOOLCHAIN_FILE=\$$TOOLCHAIN_PARAMS_FILE \
+					\$$DEPS_CACHE_ARGS \
 					$(EXTRA_CMAKE_ARGS) \
 					\$$SOURCE_DIR; \
 			else \
 				cmake \$$(cat \$$TOOLCHAIN_PARAMS_FILE) \
 					-DTOOLCHAIN_FILE=\$$TOOLCHAIN_PARAMS_FILE \
+					\$$DEPS_CACHE_ARGS \
 					$(EXTRA_CMAKE_ARGS) \
 					\$$SOURCE_DIR; \
 			fi"; \
@@ -794,6 +833,11 @@ configure-cmake:
 				exit 1; \
 			fi && \
 			echo "Using toolchain parameters from: $$TOOLCHAIN_PARAMS_FILE" && \
+			DEPS_CACHE_ARGS="" && \
+			if [ -d "$(ROOT_DIR)/$(BUILD_DIR)/downloads" ]; then \
+				echo "Using pre-cached dependencies from $(ROOT_DIR)/$(BUILD_DIR)/downloads"; \
+				DEPS_CACHE_ARGS="-DBUILD_DOWNLOAD_DIR=$(ROOT_DIR)/$(BUILD_DIR)/downloads"; \
+			fi && \
 			rm -f CMakeCache.txt && \
 			if grep -q "DANDROID_ABI=" "$$TOOLCHAIN_PARAMS_FILE"; then \
 				NDK_BASE=$$HOME/Android/Sdk/ndk && \
@@ -806,11 +850,13 @@ configure-cmake:
 				cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 					-DCMAKE_TOOLCHAIN_FILE=$$ANDROID_NDK/build/cmake/android.toolchain.cmake \
 					-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+					$$DEPS_CACHE_ARGS \
 					$(EXTRA_CMAKE_ARGS) \
 					..; \
 			else \
 				cmake $$(cat $$TOOLCHAIN_PARAMS_FILE) \
 					-DTOOLCHAIN_FILE=$$TOOLCHAIN_PARAMS_FILE \
+					$$DEPS_CACHE_ARGS \
 					$(EXTRA_CMAKE_ARGS) \
 					..; \
 			fi; \

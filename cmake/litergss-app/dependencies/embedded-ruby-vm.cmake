@@ -72,17 +72,24 @@ if(PLATFORM_NORMALIZED STREQUAL "linux")
     message(STATUS "  Detected LibC tag: ${LIBC_TAG}")
 endif()
 
+# For iOS, append device/simulator to disambiguate between the two platform variants
+set(IOS_VARIANT_TAG "")
+if(PLATFORM_NORMALIZED STREQUAL "ios" AND DEFINED IOS_PLATFORM)
+    set(IOS_VARIANT_TAG "${IOS_PLATFORM}")
+    message(STATUS "  iOS variant: ${IOS_VARIANT_TAG}")
+endif()
+
 set(EMBEDDED_RUBY_VM_LIB_TYPE "static")
 
 # Step 1: Detect RUBY_PLATFORM_LOWER from config.h (Logic adapted from create_ruby_archive.cmake)
 set(CONFIG_H_ROOT "${EMBEDDED_RUBY_VM_DIR}/external/include")
 
 # Find the platform-specific directory
-# We filter by ARCH and PLATFORM and LIBC_TAG to avoid picking up wrong architectures/platforms
-file(GLOB PLATFORM_DIRS "${CONFIG_H_ROOT}/${ARCH_NORMALIZED}-*${PLATFORM_NORMALIZED}*${LIBC_TAG}*")
+# We filter by ARCH and PLATFORM and LIBC_TAG (and iOS variant) to avoid picking up wrong architectures/platforms
+file(GLOB PLATFORM_DIRS "${CONFIG_H_ROOT}/${ARCH_NORMALIZED}-*${PLATFORM_NORMALIZED}*${LIBC_TAG}*${IOS_VARIANT_TAG}*")
 
 if(NOT PLATFORM_DIRS)
-    message(FATAL_ERROR "Could not find platform-specific include directory in ${CONFIG_H_ROOT} matching ${ARCH_NORMALIZED}-*${PLATFORM_NORMALIZED}*${LIBC_TAG}*")
+    message(FATAL_ERROR "Could not find platform-specific include directory in ${CONFIG_H_ROOT} matching ${ARCH_NORMALIZED}-*${PLATFORM_NORMALIZED}*${LIBC_TAG}*${IOS_VARIANT_TAG}*")
 endif()
 
 # Get the first match
