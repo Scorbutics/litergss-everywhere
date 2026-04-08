@@ -75,7 +75,7 @@ add_external_dependency(
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-graphics${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-audio${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-network${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-main.a ${BUILD_STAGING_DIR}/usr/local/lib/
+                        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/core/CopyIfExists.cmake ${SFML_SOURCE_DIR}/lib/libsfml-main.a ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E make_directory ${BUILD_STAGING_DIR}/usr/local/include/
                         COMMAND ${CMAKE_COMMAND} -E copy_directory ${SFML_SOURCE_DIR}/include ${BUILD_STAGING_DIR}/usr/local/include/
     

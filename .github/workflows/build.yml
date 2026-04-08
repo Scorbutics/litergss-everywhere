@@ -165,6 +165,18 @@ jobs:
         if: "!matrix.use_docker"
         run: make build
 
+      - name: Show ExternalProject logs on failure
+        if: "!matrix.use_docker && failure()"
+        run: |
+          echo "=== ExternalProject error logs ==="
+          find ${{ matrix.build_dir }} -name '*.log' -path '*/stamps/*' | sort | while read log; do
+            if grep -q -i -E '(error|fail)' "$log" 2>/dev/null; then
+              echo ""
+              echo ">>> $log <<<"
+              cat "$log"
+            fi
+          done
+
       - name: Install (local)
         if: "!matrix.use_docker"
         run: make install
