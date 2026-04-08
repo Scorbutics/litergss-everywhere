@@ -549,6 +549,7 @@ publish-kmp: docker-check-running
 			-DANDROID_STL=c++_shared \
 			-DTARGET_ABI="$$ANDROID_ABI" \
 			-DTARGET_ARCH="$$TARGET_ARCH" \
+			-DFAT_LIB_PATH="$$FAT_LIB_A" \
 			-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
 		if ! docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; then \
 			echo ""; \
