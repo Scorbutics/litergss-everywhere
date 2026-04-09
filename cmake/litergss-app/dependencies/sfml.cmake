@@ -63,6 +63,7 @@ add_external_dependency(
 
     PATCH_COMMAND       patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/litergss-app/patches/sfml/android/dont_load_from_inputstream_android.patch
                         COMMAND patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/litergss-app/patches/sfml/android/static-libraries.patch
+                        COMMAND patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/litergss-app/patches/sfml/ios/detect-ios-platform.patch
 
     CONFIGURE_COMMAND   ${SFML_CONFIGURE_CMD}
     
