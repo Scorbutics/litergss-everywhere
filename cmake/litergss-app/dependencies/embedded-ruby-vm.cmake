@@ -48,10 +48,10 @@ set(_ERVM_INSTALL_CMD
         ${_ERVM_SOURCE_DIR}/libminizip.a
         ${BUILD_STAGING_DIR}/usr/local/lib/libminizip.a
 
-    # Copy headers
+    # Copy headers (archive already has embedded-ruby-vm/ subdirectory inside include/)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${_ERVM_SOURCE_DIR}/include
-        ${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm
+        ${BUILD_STAGING_DIR}/usr/local/include
 )
 
 # Compile extension-init.c and inject it into libembedded-ruby.a
@@ -66,7 +66,7 @@ endif()
 
 list(APPEND _ERVM_INSTALL_CMD
     COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
-        -I${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm
+        -I${BUILD_STAGING_DIR}/usr/local/include
         -I${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static
         -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
         -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}
