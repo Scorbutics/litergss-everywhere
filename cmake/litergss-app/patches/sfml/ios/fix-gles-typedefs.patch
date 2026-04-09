@@ -6,16 +6,16 @@
 
 +// These OES extension function pointer typedefs were removed from newer iOS SDK headers.
 +// Define them manually — the GL types (GLenum, GLuint, etc.) are already available via glad/gl.h.
-+typedef void        (GL_APIENTRY *PFNGLBINDFRAMEBUFFEROESPROC)            (GLenum target, GLuint framebuffer);
-+typedef void        (GL_APIENTRY *PFNGLBINDRENDERBUFFEROESPROC)           (GLenum target, GLuint renderbuffer);
-+typedef GLenum      (GL_APIENTRY *PFNGLCHECKFRAMEBUFFERSTATUSOESPROC)     (GLenum target);
-+typedef void        (GL_APIENTRY *PFNGLDELETEFRAMEBUFFERSOESPROC)         (GLsizei n, const GLuint *framebuffers);
-+typedef void        (GL_APIENTRY *PFNGLDELETERENDERBUFFERSOESPROC)        (GLsizei n, const GLuint *renderbuffers);
-+typedef void        (GL_APIENTRY *PFNGLFRAMEBUFFERRENDERBUFFEROESPROC)    (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
-+typedef void        (GL_APIENTRY *PFNGLGENFRAMEBUFFERSOESPROC)            (GLsizei n, GLuint *framebuffers);
-+typedef void        (GL_APIENTRY *PFNGLGENRENDERBUFFERSOESPROC)           (GLsizei n, GLuint *renderbuffers);
-+typedef void        (GL_APIENTRY *PFNGLGETRENDERBUFFERPARAMETERIVOESPROC) (GLenum target, GLenum pname, GLint *params);
-+typedef void        (GL_APIENTRY *PFNGLRENDERBUFFERSTORAGEOESPROC)        (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
++typedef void   (*PFNGLBINDFRAMEBUFFEROESPROC)            (GLenum target, GLuint framebuffer);
++typedef void   (*PFNGLBINDRENDERBUFFEROESPROC)           (GLenum target, GLuint renderbuffer);
++typedef GLenum (*PFNGLCHECKFRAMEBUFFERSTATUSOESPROC)     (GLenum target);
++typedef void   (*PFNGLDELETEFRAMEBUFFERSOESPROC)         (GLsizei n, const GLuint *framebuffers);
++typedef void   (*PFNGLDELETERENDERBUFFERSOESPROC)        (GLsizei n, const GLuint *renderbuffers);
++typedef void   (*PFNGLFRAMEBUFFERRENDERBUFFEROESPROC)    (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
++typedef void   (*PFNGLGENFRAMEBUFFERSOESPROC)            (GLsizei n, GLuint *framebuffers);
++typedef void   (*PFNGLGENRENDERBUFFERSOESPROC)           (GLsizei n, GLuint *renderbuffers);
++typedef void   (*PFNGLGETRENDERBUFFERPARAMETERIVOESPROC) (GLenum target, GLenum pname, GLint *params);
++typedef void   (*PFNGLRENDERBUFFERSTORAGEOESPROC)        (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
 +
 
  namespace
