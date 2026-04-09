@@ -37,7 +37,7 @@ diff -Naur a/cmake/SFMLConfigDependencies.cmake.in b/cmake/SFMLConfigDependencie
          # No lookup in environment variables (PATH on Windows), as they may contain wrong library versions
          find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
 -                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH)
-+                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_FIND_ROOT_PATH)
++                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_DEFAULT_PATH)
          mark_as_advanced(${THIS_FRIENDLY_NAME}_LIB)
          if(${THIS_FRIENDLY_NAME}_LIB)
              set_property(TARGET ${THIS_TARGET} APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${${THIS_FRIENDLY_NAME}_LIB}")
