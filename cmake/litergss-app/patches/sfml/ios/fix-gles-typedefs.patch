@@ -1,19 +1,11 @@
 --- a/src/SFML/Window/iOS/EaglContext.mm
 +++ b/src/SFML/Window/iOS/EaglContext.mm
-@@ -33,6 +33,7 @@
- #include <OpenGLES/EAGL.h>
- #include <OpenGLES/EAGLDrawable.h>
- #include <QuartzCore/CAEAGLLayer.h>
-+#include <OpenGLES/ES2/gl.h>
- #include <dlfcn.h>
-
- #if defined(__APPLE__)
-@@ -43,6 +44,18 @@
+@@ -43,6 +43,19 @@
      #endif
  #endif
 
-+// These typedefs were removed from newer iOS SDK headers.
-+// Define them manually as they are standard OpenGL ES OES extension signatures.
++// These OES extension function pointer typedefs were removed from newer iOS SDK headers.
++// Define them manually — the GL types (GLenum, GLuint, etc.) are already available via glad/gl.h.
 +typedef void        (GL_APIENTRY *PFNGLBINDFRAMEBUFFEROESPROC)            (GLenum target, GLuint framebuffer);
 +typedef void        (GL_APIENTRY *PFNGLBINDRENDERBUFFEROESPROC)           (GLenum target, GLuint renderbuffer);
 +typedef GLenum      (GL_APIENTRY *PFNGLCHECKFRAMEBUFFERSTATUSOESPROC)     (GLenum target);
@@ -24,6 +16,7 @@
 +typedef void        (GL_APIENTRY *PFNGLGENRENDERBUFFERSOESPROC)           (GLsizei n, GLuint *renderbuffers);
 +typedef void        (GL_APIENTRY *PFNGLGETRENDERBUFFERPARAMETERIVOESPROC) (GLenum target, GLenum pname, GLint *params);
 +typedef void        (GL_APIENTRY *PFNGLRENDERBUFFERSTORAGEOESPROC)        (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
++
 
  namespace
  {
