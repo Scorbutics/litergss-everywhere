@@ -1,7 +1,6 @@
-diff -Naur a/cmake/Config.cmake b/cmake/Config.cmake
 --- a/cmake/Config.cmake
 +++ b/cmake/Config.cmake
-@@ -56,6 +56,12 @@
+@@ -70,6 +70,13 @@
      # use the OpenGL ES implementation on Android
      set(OPENGL_ES 1)
 
@@ -11,6 +10,7 @@ diff -Naur a/cmake/Config.cmake b/cmake/Config.cmake
 +
 +    # use the OpenGL ES implementation on iOS
 +    set(OPENGL_ES 1)
-
++
  # comparing CMAKE_SYSTEM_NAME with "CYGWIN" generates a false warning depending on the CMake version
  # let's avoid it so the actual error is more visible
+ elseif(${CYGWIN})
