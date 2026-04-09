@@ -151,7 +151,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ matrix.build_dir }}/downloads
-          key: deps-url-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          key: deps-url-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v2
           restore-keys: |
             deps-url-${{ matrix.platform }}-
 
