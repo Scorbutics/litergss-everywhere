@@ -143,7 +143,7 @@ jobs:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true  # ruby-for-android submodule provides cmake/core/ build system
 
       # --- Dependency caching (non-Docker platforms) ---
       # Docker builds bake deps into the image instead (see "Build Docker deps image" step).

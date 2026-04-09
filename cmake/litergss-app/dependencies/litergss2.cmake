@@ -188,6 +188,20 @@ else()
         # Configurable fat library name (default: rgss_runtime)
         set(FAT_LIBRARY_NAME "rgss_runtime" CACHE STRING "Name of the fat library (without lib prefix or extension)")
         
+        # Ruby names the static lib differently per platform:
+        #   Linux/Android: libruby-static.a
+        #   iOS/macOS:     libruby.3.1-static.a (versioned)
+        file(GLOB _ruby_static_candidates
+            "${BUILD_STAGING_DIR}/usr/local/lib/libruby*-static.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libruby.a"
+        )
+        list(FILTER _ruby_static_candidates EXCLUDE REGEX "libruby-ext")
+        if(_ruby_static_candidates)
+            list(GET _ruby_static_candidates 0 RUBY_STATIC_LIB)
+        else()
+            set(RUBY_STATIC_LIB "${BUILD_STAGING_DIR}/usr/local/lib/libruby-static.a")
+        endif()
+
         # Define the list of static libraries to combine
         set(STATIC_LIBS_TO_COMBINE
             # This repository dependencies
@@ -213,7 +227,7 @@ else()
             # Make sure the libruby-ext.a goes first because it will define Init_ext, as libruby-static.a does,
             # and we only keep the first found symbol in case of duplicates.
             "${BUILD_STAGING_DIR}/usr/local/lib/libruby-ext.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libruby-static.a"
+            "${RUBY_STATIC_LIB}"
             "${BUILD_STAGING_DIR}/usr/local/lib/libreadline.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libncurses.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libpanel.a"
