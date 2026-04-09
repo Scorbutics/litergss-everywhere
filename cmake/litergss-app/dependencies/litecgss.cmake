@@ -62,7 +62,8 @@ add_external_dependency(
     
     CONFIGURE_COMMAND       ${LITECGSS_CONFIGURE_CMD}
     
-    PATCH_COMMAND           sed -i "s/assert(d != nullptr)//" src/src/LiteCGSS/Views/View.h
+    PATCH_COMMAND           sed -i.bak "s/assert(d != nullptr)//" src/src/LiteCGSS/Views/View.h
+                            COMMAND ${CMAKE_COMMAND} -E rm -f src/src/LiteCGSS/Views/View.h.bak
     
     BUILD_COMMAND           ${CMAKE_COMMAND} -E env ${BUILD_ENV}
                             ${CMAKE_COMMAND} --build .
