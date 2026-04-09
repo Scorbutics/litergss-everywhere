@@ -24,6 +24,8 @@ list(APPEND FLAC_CONFIGURE_CMD
 )
 
 # Build FLAC
+# Pass OGG_CFLAGS/OGG_LIBS so PKG_CHECK_MODULES skips pkg-config
+# (pkg-config may not be installed on all build hosts, e.g. macOS CI runners)
 add_external_dependency(
     NAME flac
     VERSION ${FLAC_VERSION}
@@ -31,4 +33,7 @@ add_external_dependency(
     URL_HASH ${FLAC_HASH}
     CONFIGURE_COMMAND ${FLAC_CONFIGURE_CMD}
     DEPENDS libogg
+    ENV_VARS
+        OGG_CFLAGS=-I${BUILD_STAGING_DIR}/usr/local/include
+        OGG_LIBS=-logg
 )
