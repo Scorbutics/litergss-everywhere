@@ -557,6 +557,34 @@ export: docker-check-running
 	@echo "Build outputs exported to: ./$(TARGET_DIR)"
 	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
 
+# Merge multiple single-ABI export directories into TARGET_DIR.
+# Usage: make merge-exports MERGE_SOURCES="target-arm64-v8a target-x86_64"
+merge-exports:
+	@echo "Merging export directories into $(TARGET_DIR)..."
+	@if [ -z "$(MERGE_SOURCES)" ]; then \
+		echo "Error: MERGE_SOURCES is not set. Usage: make merge-exports MERGE_SOURCES=\"dir1 dir2\""; \
+		exit 1; \
+	fi
+	@mkdir -p $(TARGET_DIR)/fat-libs $(TARGET_DIR)/archives
+	@for src in $(MERGE_SOURCES); do \
+		if [ ! -d "$$src/fat-libs" ]; then \
+			echo "Warning: $$src/fat-libs not found, skipping"; \
+			continue; \
+		fi; \
+		for abi_dir in $$src/fat-libs/*/; do \
+			[ -d "$$abi_dir" ] || continue; \
+			abi=$$(basename "$$abi_dir"); \
+			mkdir -p $(TARGET_DIR)/fat-libs/$$abi; \
+			cp "$$abi_dir"/* $(TARGET_DIR)/fat-libs/$$abi/; \
+			echo "  Merged fat-libs/$$abi"; \
+		done; \
+		if [ -d "$$src/archives" ]; then \
+			cp $$src/archives/* $(TARGET_DIR)/archives/ 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "Merge complete:"
+	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
+
 # Install = export + publish
 install: export
 	@$(MAKE) publish-kmp
@@ -916,6 +944,34 @@ export:
 	done
 	@echo ""
 	@echo "Build outputs exported to: ./$(TARGET_DIR)"
+	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
+
+# Merge multiple single-ABI export directories into TARGET_DIR.
+# Usage: make merge-exports MERGE_SOURCES="target-arm64-v8a target-x86_64"
+merge-exports:
+	@echo "Merging export directories into $(TARGET_DIR)..."
+	@if [ -z "$(MERGE_SOURCES)" ]; then \
+		echo "Error: MERGE_SOURCES is not set. Usage: make merge-exports MERGE_SOURCES=\"dir1 dir2\""; \
+		exit 1; \
+	fi
+	@mkdir -p $(TARGET_DIR)/fat-libs $(TARGET_DIR)/archives
+	@for src in $(MERGE_SOURCES); do \
+		if [ ! -d "$$src/fat-libs" ]; then \
+			echo "Warning: $$src/fat-libs not found, skipping"; \
+			continue; \
+		fi; \
+		for abi_dir in $$src/fat-libs/*/; do \
+			[ -d "$$abi_dir" ] || continue; \
+			abi=$$(basename "$$abi_dir"); \
+			mkdir -p $(TARGET_DIR)/fat-libs/$$abi; \
+			cp "$$abi_dir"/* $(TARGET_DIR)/fat-libs/$$abi/; \
+			echo "  Merged fat-libs/$$abi"; \
+		done; \
+		if [ -d "$$src/archives" ]; then \
+			cp $$src/archives/* $(TARGET_DIR)/archives/ 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "Merge complete:"
 	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
 
 # Install = export + publish

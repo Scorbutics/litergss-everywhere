@@ -71,7 +71,7 @@ done
 # Phase 2: Build XCFramework via Gradle
 echo "--- Building XCFramework ---"
 cd "$KMP_PUBLISH_DIR"
-./gradlew assembleReleaseXCFramework \
+./gradlew assembleRubyVMReleaseXCFramework \
 	-PnativeLibraryName=rgss_runtime
 cd "$ROOT_DIR"
 
