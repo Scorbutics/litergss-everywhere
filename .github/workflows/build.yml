@@ -580,8 +580,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- Publish AAR to GitHub Packages (Maven) ---
-
       # --- Publish to GitHub Packages (Maven) ---
       # Desktop JAR is published directly by the desktop-jar job via Gradle.
       # AAR is published here via mvn deploy:deploy-file from the pre-built Maven repo.
@@ -611,6 +609,21 @@ jobs:
 
           echo "Publishing $AAR_FILE as ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
 
+          # Write Maven settings to a temp file (process substitution doesn't work reliably)
+          SETTINGS_FILE=$(mktemp)
+          trap "rm -f $SETTINGS_FILE" EXIT
+          cat > "$SETTINGS_FILE" <<SETTINGS_EOF
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${{ github.actor }}</username>
+                <password>${{ secrets.GITHUB_TOKEN }}</password>
+              </server>
+            </servers>
+          </settings>
+          SETTINGS_EOF
+
           DEPLOY_ARGS=(
             -DgroupId="$GROUP_ID"
             -DartifactId="$ARTIFACT_ID"
@@ -627,16 +640,4 @@ jobs:
             DEPLOY_ARGS+=(-DgeneratePom=true)
           fi
 
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" \
-            --settings <(cat <<EOF
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${{ github.actor }}</username>
-                <password>${{ secrets.GITHUB_TOKEN }}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-            )
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings "$SETTINGS_FILE"
