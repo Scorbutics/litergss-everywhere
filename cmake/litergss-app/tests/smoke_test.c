@@ -17,10 +17,6 @@
 #include "embedded-ruby-vm/assets-error.h"
 #include "embedded-ruby-vm/assets-install.h"
 
-/* assets-error.h and assets-install.h already declare some symbols with their
- * real signatures. Skip the generic void(void) declarations from the generated
- * header to avoid conflicting types -- we only need the symbol table. */
-#define RGSS_NO_EXTERN_DECLARATIONS
 #include "rgss_expected_symbols.h"
 
 static int failures = 0;
@@ -65,9 +61,9 @@ int main(void) {
     /* --- Expected symbol linkage (from expected_symbols.cmake) --- */
     printf("\n[Expected symbol linkage]\n");
     {
+        const RgssExpectedSymbol* syms = rgss_expected_symbols();
         for (int i = 0; i < RGSS_EXPECTED_SYMBOL_COUNT; i++) {
-            CHECK_NOT_NULL(rgss_expected_symbol_entries[i].name,
-                           rgss_expected_symbol_entries[i].fn);
+            CHECK_NOT_NULL(syms[i].name, syms[i].fn);
         }
     }
 
