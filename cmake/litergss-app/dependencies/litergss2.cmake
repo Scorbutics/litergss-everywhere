@@ -263,6 +263,7 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libssl.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libcrypto.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libgmp.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libffi.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libcrypt.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libbsd.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libmd.a"
@@ -437,7 +438,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
                 "-framework CoreFoundation"
                 "-framework CoreVideo"
                 "-framework Carbon"
-                "-framework Compression"
+                compression
                 iconv
             )
         else()
