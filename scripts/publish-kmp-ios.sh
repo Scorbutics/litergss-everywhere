@@ -78,27 +78,57 @@ cd "$ROOT_DIR"
 echo ""
 echo "XCFramework built successfully"
 
-# Phase 3: Publish iOS klibs via Gradle (for KMP consumers)
-echo "--- Publishing iOS klibs ---"
+# Phase 3: Publish KMP metadata module + iOS klibs via Gradle
+# The metadata module enables consumers to use a single commonMain dependency
+# that Gradle auto-resolves per target platform.
+echo "--- Publishing KMP metadata module + iOS klibs ---"
 cd "$KMP_PUBLISH_DIR"
-./gradlew publishIosArm64PublicationToMavenLocal \
+./gradlew publishKotlinMultiplatformPublicationToMavenLocal \
+	publishIosArm64PublicationToMavenLocal \
 	publishIosSimulatorArm64PublicationToMavenLocal \
 	-PnativeLibraryName=rgss_runtime
 cd "$ROOT_DIR"
 
 echo ""
-echo "iOS klibs published to Maven Local"
+echo "KMP metadata + iOS klibs published to Maven Local"
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish" -maxdepth 2 -type f 2>/dev/null | head -10
 find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" -type f 2>/dev/null | head -10
 find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" -type f 2>/dev/null | head -10
 
-# Phase 4: Copy to target dir
+# Phase 4: Package iOS native static libraries for Maven distribution
+# Consumers need these .a files at link time when building their iOS framework.
+echo "--- Packaging iOS native libraries ---"
+mkdir -p "$TARGET_DIR/native-ios"
+for i in "${!ABIS[@]}"; do
+	abi="${ABIS[$i]}"
+	fat_lib="${FAT_LIBS[$i]}"
+
+	case "$abi" in
+		*ios-device*|*iphoneos*)       NATIVE_ID="native-iosarm64" ;;
+		*ios-simulator*|*iphonesimulator*) NATIVE_ID="native-iossimulatorarm64" ;;
+		*) continue ;;
+	esac
+
+	echo "Packaging $NATIVE_ID"
+	NATIVE_DIR="$TARGET_DIR/native-ios/$NATIVE_ID"
+	mkdir -p "$NATIVE_DIR"
+	cp "$fat_lib" "$NATIVE_DIR/"
+	(cd "$NATIVE_DIR" && zip -r "$TARGET_DIR/native-ios/${NATIVE_ID}.zip" .)
+	rm -rf "$NATIVE_DIR"
+done
+echo "Native iOS libraries:"
+ls -lh "$TARGET_DIR/native-ios/"
+
+# Phase 5: Copy artifacts to target dir
 mkdir -p "$TARGET_DIR/xcframework"
 cp -r "$KMP_PUBLISH_DIR/build/XCFrameworks/release/"* "$TARGET_DIR/xcframework/"
 find "$TARGET_DIR/xcframework" -type f | head -20
 
-# Copy Maven artifacts for CI publishing
-mkdir -p "$TARGET_DIR/maven-ios/"
+# Copy Maven artifacts (metadata + iOS klibs)
+mkdir -p "$TARGET_DIR/maven-kmp/"
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish" \
+	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true
 cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" \
-	"$TARGET_DIR/maven-ios/" 2>/dev/null || true
+	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true
 cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" \
-	"$TARGET_DIR/maven-ios/" 2>/dev/null || true
+	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true

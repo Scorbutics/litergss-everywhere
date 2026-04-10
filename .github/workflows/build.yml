@@ -758,7 +758,10 @@ jobs:
           fi
 
           if [ -d staging/ios/xcframework ]; then
-            tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/ios/xcframework .
+            # ZIP format required for Swift Package Manager binary targets
+            cd staging/ios/xcframework
+            zip -r "$OLDPWD/release-assets/RubyVM-xcframework-${VERSION}.zip" .
+            cd "$OLDPWD"
           fi
 
           if [ -d staging/macos ]; then
@@ -777,6 +780,58 @@ jobs:
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Package.swift with XCFramework checksum
+        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ZIP_FILE="release-assets/RubyVM-xcframework-${VERSION}.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "Warning: XCFramework ZIP not found, skipping Package.swift update"
+            exit 0
+          fi
+
+          CHECKSUM=$(swift package compute-checksum "$ZIP_FILE" 2>/dev/null \
+            || shasum -a 256 "$ZIP_FILE" | awk '{print $1}')
+          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/RubyVM-xcframework-${VERSION}.zip"
+
+          echo "XCFramework URL: $URL"
+          echo "XCFramework checksum: $CHECKSUM"
+
+          # Checkout repo to update Package.swift
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" repo-checkout
+          cd repo-checkout
+
+          cat > Package.swift <<SWIFT_EOF
+          // swift-tools-version: 5.9
+          import PackageDescription
+
+          let package = Package(
+              name: "RubyVM",
+              platforms: [
+                  .iOS(.v14)
+              ],
+              products: [
+                  .library(name: "RubyVM", targets: ["RubyVM"])
+              ],
+              targets: [
+                  .binaryTarget(
+                      name: "RubyVM",
+                      url: "$URL",
+                      checksum: "$CHECKSUM"
+                  )
+              ]
+          )
+          SWIFT_EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "chore: update Package.swift for v${VERSION}"
+          git push origin master
 
       # --- Publish to GitHub Packages (Maven) ---
 
@@ -937,18 +992,50 @@ jobs:
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
+      # --- iOS + KMP metadata (published from install-ios which runs on macOS) ---
+
+      - name: Publish KMP metadata module to GitHub Packages
+        if: needs.prepare.outputs.has_ios == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          # Publish the .module file (Gradle module metadata) — this is the key artifact
+          # that enables commonMain dependency resolution across all targets.
+          MODULE_FILE=$(find staging/ios/maven-kmp/kmp-publish -name '*.module' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish -name '*.pom' | head -1)
+
+          if [ -z "$MODULE_FILE" ] || [ -z "$POM_FILE" ]; then
+            echo "Warning: KMP metadata not found in staging/ios/maven-kmp/kmp-publish"
+            find staging/ios/maven-kmp -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing KMP metadata as com.scorbutics.rubyvm:kmp-publish:${VERSION}"
+
+          mvn deploy:deploy-file \
+            -DgroupId=com.scorbutics.rubyvm \
+            -DartifactId=kmp-publish \
+            -Dversion="$VERSION" \
+            -Dpackaging=module \
+            -Dfile="$MODULE_FILE" \
+            -DpomFile="$POM_FILE" \
+            -DrepositoryId=github \
+            -Durl="$REPO_URL" \
+            --settings /tmp/maven-settings.xml
+
       - name: Publish iOS arm64 klib to GitHub Packages
         if: needs.prepare.outputs.has_ios == 'true'
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
 
-          KLIB_FILE=$(find staging/ios/maven-ios/kmp-publish-iosarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-ios/kmp-publish-iosarm64 -name '*.pom' | head -1)
+          KLIB_FILE=$(find staging/ios/maven-kmp/kmp-publish-iosarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish-iosarm64 -name '*.pom' | head -1)
 
           if [ -z "$KLIB_FILE" ]; then
-            echo "Warning: No iOS arm64 klib found in staging/ios/maven-ios/kmp-publish-iosarm64"
-            find staging/ios/maven-ios -type f 2>/dev/null
+            echo "Warning: No iOS arm64 klib found"
+            find staging/ios/maven-kmp -type f 2>/dev/null
             exit 0
           fi
 
@@ -977,12 +1064,12 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
 
-          KLIB_FILE=$(find staging/ios/maven-ios/kmp-publish-iossimulatorarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-ios/kmp-publish-iossimulatorarm64 -name '*.pom' | head -1)
+          KLIB_FILE=$(find staging/ios/maven-kmp/kmp-publish-iossimulatorarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish-iossimulatorarm64 -name '*.pom' | head -1)
 
           if [ -z "$KLIB_FILE" ]; then
-            echo "Warning: No iOS simulator arm64 klib found in staging/ios/maven-ios/kmp-publish-iossimulatorarm64"
-            find staging/ios/maven-ios -type f 2>/dev/null
+            echo "Warning: No iOS simulator arm64 klib found"
+            find staging/ios/maven-kmp -type f 2>/dev/null
             exit 0
           fi
 
@@ -1004,3 +1091,27 @@ jobs:
           fi
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish iOS native libraries to GitHub Packages
+        if: needs.prepare.outputs.has_ios == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          for native_zip in staging/ios/native-ios/*.zip; do
+            [ -f "$native_zip" ] || continue
+            ARTIFACT_ID=$(basename "$native_zip" .zip)
+
+            echo "Publishing $ARTIFACT_ID native library"
+
+            mvn deploy:deploy-file \
+              -DgroupId=com.scorbutics.rubyvm \
+              -DartifactId="$ARTIFACT_ID" \
+              -Dversion="$VERSION" \
+              -Dpackaging=zip \
+              -Dfile="$native_zip" \
+              -DgeneratePom=true \
+              -DrepositoryId=github \
+              -Durl="$REPO_URL" \
+              --settings /tmp/maven-settings.xml
+          done
