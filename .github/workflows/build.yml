@@ -781,14 +781,14 @@ jobs:
       # --- Publish to GitHub Packages (Maven) ---
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_macos == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Write Maven settings
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_macos == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
         run: |
           cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
@@ -926,6 +926,74 @@ jobs:
             -Dversion="$VERSION"
             -Dpackaging=jar
             -Dfile="$JAR_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish iOS arm64 klib to GitHub Packages
+        if: needs.prepare.outputs.has_ios == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          KLIB_FILE=$(find staging/ios/maven-ios/kmp-publish-iosarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-ios/kmp-publish-iosarm64 -name '*.pom' | head -1)
+
+          if [ -z "$KLIB_FILE" ]; then
+            echo "Warning: No iOS arm64 klib found in staging/ios/maven-ios/kmp-publish-iosarm64"
+            find staging/ios/maven-ios -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing iOS arm64 klib as com.scorbutics.rubyvm:kmp-publish-iosarm64:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-iosarm64
+            -Dversion="$VERSION"
+            -Dpackaging=klib
+            -Dfile="$KLIB_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish iOS simulator arm64 klib to GitHub Packages
+        if: needs.prepare.outputs.has_ios == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          KLIB_FILE=$(find staging/ios/maven-ios/kmp-publish-iossimulatorarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-ios/kmp-publish-iossimulatorarm64 -name '*.pom' | head -1)
+
+          if [ -z "$KLIB_FILE" ]; then
+            echo "Warning: No iOS simulator arm64 klib found in staging/ios/maven-ios/kmp-publish-iossimulatorarm64"
+            find staging/ios/maven-ios -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing iOS simulator arm64 klib as com.scorbutics.rubyvm:kmp-publish-iossimulatorarm64:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-iossimulatorarm64
+            -Dversion="$VERSION"
+            -Dpackaging=klib
+            -Dfile="$KLIB_FILE"
             -DrepositoryId=github
             -Durl="$REPO_URL"
           )

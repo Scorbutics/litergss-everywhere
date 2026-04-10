@@ -78,7 +78,27 @@ cd "$ROOT_DIR"
 echo ""
 echo "XCFramework built successfully"
 
-# Phase 3: Copy to target dir
+# Phase 3: Publish iOS klibs via Gradle (for KMP consumers)
+echo "--- Publishing iOS klibs ---"
+cd "$KMP_PUBLISH_DIR"
+./gradlew publishIosArm64PublicationToMavenLocal \
+	publishIosSimulatorArm64PublicationToMavenLocal \
+	-PnativeLibraryName=rgss_runtime
+cd "$ROOT_DIR"
+
+echo ""
+echo "iOS klibs published to Maven Local"
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" -type f 2>/dev/null | head -10
+
+# Phase 4: Copy to target dir
 mkdir -p "$TARGET_DIR/xcframework"
 cp -r "$KMP_PUBLISH_DIR/build/XCFrameworks/release/"* "$TARGET_DIR/xcframework/"
 find "$TARGET_DIR/xcframework" -type f | head -20
+
+# Copy Maven artifacts for CI publishing
+mkdir -p "$TARGET_DIR/maven-ios/"
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" \
+	"$TARGET_DIR/maven-ios/" 2>/dev/null || true
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" \
+	"$TARGET_DIR/maven-ios/" 2>/dev/null || true
