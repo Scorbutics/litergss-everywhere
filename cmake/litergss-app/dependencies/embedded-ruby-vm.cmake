@@ -85,7 +85,15 @@ if(APPLE)
     endif()
     if(CMAKE_OSX_DEPLOYMENT_TARGET)
         if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-            list(APPEND _ERVM_APPLE_FLAGS "-miphoneos-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            # Distinguish device vs simulator: -miphoneos-version-min tags objects
+            # as iOS device, while -mios-simulator-version-min tags them as iOS
+            # simulator.  Using the wrong flag causes linker errors.
+            string(TOLOWER "${CMAKE_OSX_SYSROOT}" _ervm_sysroot_lower)
+            if(_ervm_sysroot_lower MATCHES "iphonesimulator")
+                list(APPEND _ERVM_APPLE_FLAGS "-mios-simulator-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            else()
+                list(APPEND _ERVM_APPLE_FLAGS "-miphoneos-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            endif()
         else()
             list(APPEND _ERVM_APPLE_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
         endif()
