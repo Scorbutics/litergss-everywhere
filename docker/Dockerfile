@@ -27,6 +27,7 @@ RUN apt-get update && \
     libgl1-mesa-dev \
     libudev-dev \
     pkg-config \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Get the Android NDK
