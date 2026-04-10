@@ -9,6 +9,7 @@
  * This test is only compiled and run for native (non-cross-compiled) builds.
  */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -17,6 +18,20 @@
 #include "embedded-ruby-vm/assets-error.h"
 #include "embedded-ruby-vm/assets-install.h"
 #include "rgss_expected_symbols.h"
+
+/*
+ * Compat shims for glibc 2.38+ C23 redirects.
+ * When the fat archive is compiled against glibc >= 2.38 headers, strtol/strtoul
+ * calls get redirected to __isoc23_strtol/__isoc23_strtoul. If the host libc is
+ * older it won't provide these symbols. Weak definitions fall back to the
+ * standard functions and are silently overridden when the real symbols exist.
+ */
+__attribute__((weak)) long __isoc23_strtol(const char *nptr, char **endptr, int base) {
+    return strtol(nptr, endptr, base);
+}
+__attribute__((weak)) unsigned long __isoc23_strtoul(const char *nptr, char **endptr, int base) {
+    return strtoul(nptr, endptr, base);
+}
 
 static int failures = 0;
 
