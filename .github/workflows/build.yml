@@ -3,6 +3,7 @@ name: Build LiteRGSS
 on:
   push:
     branches: [master]
+    tags: ['v*']
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -60,10 +61,23 @@ jobs:
       has_linux_x86_64: ${{ steps.set-matrix.outputs.has_linux_x86_64 }}
       has_ios_device: ${{ steps.set-matrix.outputs.has_ios_device }}
       has_ios_simulator: ${{ steps.set-matrix.outputs.has_ios_simulator }}
+      is_release: ${{ steps.set-matrix.outputs.is_release }}
+      version: ${{ steps.set-matrix.outputs.version }}
     steps:
       - id: set-matrix
         shell: bash
         run: |
+          # Determine if this is a release (tag push)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            VERSION="1.0.0-SNAPSHOT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
           PLATFORMS="${{ github.event.inputs.platforms || env.DEFAULT_PLATFORMS }}"
           ANDROID_ABIS="${{ github.event.inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
           BUILD_TYPE="${{ github.event.inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
@@ -257,6 +271,15 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Upload intermediate Maven repo (Android)
+        if: matrix.use_docker
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-android-maven
+          path: ${{ matrix.target_dir }}/maven/
+          if-no-files-found: warn
+          retention-days: 1
+
       - name: Upload intermediate build output (non-Docker)
         if: "!matrix.use_docker"
         uses: actions/upload-artifact@v4
@@ -267,12 +290,16 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Package all platform outputs into a single release artifact
+  # Package all platform outputs into a single artifact + publish to Maven
+  # On tag pushes, also create a GitHub Release
   # ---------------------------------------------------------------------------
   package:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     name: Package final artifacts
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Download Android AAR
         if: needs.prepare.outputs.has_android == 'true'
@@ -280,6 +307,13 @@ jobs:
         with:
           name: intermediate-android
           path: staging/android
+
+      - name: Download Android Maven repo
+        if: needs.prepare.outputs.has_android == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-android-maven
+          path: staging/android-maven
 
       - name: Download Linux x86_64 build
         if: needs.prepare.outputs.has_linux_x86_64 == 'true'
@@ -333,10 +367,107 @@ jobs:
           echo "=== Final release contents ==="
           find release -type f | sort
 
-      - name: Upload final release
+      - name: Upload final release artifact
         uses: actions/upload-artifact@v4
         with:
           name: litergss-release
           path: release/
           if-no-files-found: error
           retention-days: 30
+
+      # --- GitHub Release (only on tag pushes) ---
+
+      - name: Assemble release archives
+        if: needs.prepare.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p release-assets
+
+          if [ -d staging/android ]; then
+            for aar in staging/android/*.aar; do
+              BASENAME=$(basename "$aar" .aar)
+              cp "$aar" "release-assets/${BASENAME}-${VERSION}.aar"
+            done
+          fi
+
+          if [ -d staging/linux-x86_64 ]; then
+            tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64 .
+          fi
+
+          if [ -d staging/ios-device ]; then
+            tar -czf "release-assets/litergss-ios-device-${VERSION}.tar.gz" -C staging/ios-device .
+          fi
+
+          if [ -d staging/ios-simulator ]; then
+            tar -czf "release-assets/litergss-ios-simulator-${VERSION}.tar.gz" -C staging/ios-simulator .
+          fi
+
+          echo "=== Release assets ==="
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        if: needs.prepare.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LiteRGSS ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Publish AAR to GitHub Packages (Maven) ---
+
+      - name: Set up JDK
+        if: needs.prepare.outputs.has_android == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Publish AAR to GitHub Packages
+        if: needs.prepare.outputs.has_android == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          GROUP_ID="com.scorbutics.rubyvm"
+          ARTIFACT_ID="kmp-publish-android"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          AAR_FILE=$(find staging/android-maven -name '*.aar' | head -1)
+          POM_FILE=$(find staging/android-maven -name '*.pom' | head -1)
+
+          if [ -z "$AAR_FILE" ]; then
+            echo "ERROR: No AAR file found in staging/android-maven"
+            exit 1
+          fi
+
+          echo "Publishing $AAR_FILE as ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId="$GROUP_ID"
+            -DartifactId="$ARTIFACT_ID"
+            -Dversion="$VERSION"
+            -Dpackaging=aar
+            -Dfile="$AAR_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" \
+            --settings <(cat <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${{ github.actor }}</username>
+                <password>${{ secrets.GITHUB_TOKEN }}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+            )
