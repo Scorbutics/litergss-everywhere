@@ -11,6 +11,8 @@ set(FREETYPE_CONFIGURE_CMD
     --host=${HOST_TRIPLET}
     --target=${HOST_TRIPLET}
     --with-png=no
+    --with-harfbuzz=no
+    --with-brotli=no
     --with-pic
 )
 
