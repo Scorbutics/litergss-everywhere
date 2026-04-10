@@ -44,16 +44,6 @@ set(LITERGSS2_INSTALL_CMD
 )
 set(LITERGSS2_DEPENDS litecgss embedded-ruby-vm)
 
-# Static builds: Init functions are called directly from extension-init.c using
-# unprefixed names (Init_LiteRGSS), so skip the android dlopen renaming patches.
-# Shared builds: let default patch discovery apply platform-specific patches
-# (e.g., Init_LiteRGSS -> Init_libLiteRGSS for Android dlopen compatibility).
-if(NOT BUILD_SHARED_LIBS)
-    set(LITERGSS2_PATCH_ARGS PATCH_COMMAND ${CMAKE_COMMAND} -E echo "Static build - skipping Init renaming patches for litergss2")
-else()
-    set(LITERGSS2_PATCH_ARGS "")
-endif()
-
 add_external_dependency(
     NAME                litergss2
     VERSION             ${LITERGSS2_VERSION}
@@ -67,8 +57,6 @@ add_external_dependency(
                         ${CMAKE_COMMAND} --build .
 
     INSTALL_COMMAND     ${LITERGSS2_INSTALL_CMD}
-
-    ${LITERGSS2_PATCH_ARGS}
 
     DEPENDS             ${LITERGSS2_DEPENDS}
 )

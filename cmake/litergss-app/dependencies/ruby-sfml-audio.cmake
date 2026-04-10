@@ -42,20 +42,12 @@ if(BUILD_SHARED_LIBS)
         COMMAND ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.so ${BUILD_STAGING_DIR}/usr/local/lib/
     )
     set(RUBY_SFML_AUDIO_DEPENDS sfml embedded-ruby-vm patchelf)
-
-    # Shared builds: let default patch discovery apply platform-specific patches
-    # (e.g., Init_SFMLAudio -> Init_libSFMLAudio for Android dlopen compatibility)
-    set(RUBY_SFML_AUDIO_PATCH_ARGS "")
 else()
     # Static build: just copy .a file
     set(RUBY_SFML_AUDIO_INSTALL_CMD
         ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.a ${BUILD_STAGING_DIR}/usr/local/lib/
     )
     set(RUBY_SFML_AUDIO_DEPENDS sfml embedded-ruby-vm)
-
-    # Static builds: Init functions are called directly from extension-init.c using
-    # unprefixed names (Init_SFMLAudio), so skip the android dlopen renaming patches.
-    set(RUBY_SFML_AUDIO_PATCH_ARGS PATCH_COMMAND ${CMAKE_COMMAND} -E echo "Static build - skipping Init renaming patches for ruby-sfml-audio")
 endif()
 
 add_external_dependency(
@@ -71,8 +63,6 @@ add_external_dependency(
                         ${CMAKE_COMMAND} --build .
 
     INSTALL_COMMAND     ${RUBY_SFML_AUDIO_INSTALL_CMD}
-
-    ${RUBY_SFML_AUDIO_PATCH_ARGS}
 
     DEPENDS             ${RUBY_SFML_AUDIO_DEPENDS}
 )

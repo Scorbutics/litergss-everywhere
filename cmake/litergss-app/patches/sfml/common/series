@@ -1,0 +1,6 @@
+# Patch series for SFML on all platforms
+#
+# Cross-platform static library dependency resolution:
+# adds Android/iOS OS detection, restricts find_library to explicit paths
+# during cross-compilation, and skips OpenGL search on Android/iOS.
+fix-config-dependencies-cross-platform.patch

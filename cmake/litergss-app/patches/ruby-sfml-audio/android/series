@@ -1,4 +1,5 @@
 # Patch series for ruby-sfml-audio on Android
 
-# Rename Init_SFMLAudio to Init_libSFMLAudio for proper Ruby extension loading
-prefix_with_lib.patch
+# Rename Init_SFMLAudio to Init_libSFMLAudio for Ruby dlopen compatibility.
+# Only for shared builds; static builds call Init_SFMLAudio directly via extension-init.c.
+prefix_with_lib.patch  [shared]

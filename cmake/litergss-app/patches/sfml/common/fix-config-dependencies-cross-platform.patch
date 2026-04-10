@@ -1,0 +1,47 @@
+diff --git a/cmake/SFMLConfigDependencies.cmake.in b/cmake/SFMLConfigDependencies.cmake.in
+index 0737ec5..a1b2c3d 100644
+--- a/cmake/SFMLConfigDependencies.cmake.in
++++ b/cmake/SFMLConfigDependencies.cmake.in
+@@ -8,6 +8,10 @@ if(SFML_STATIC_LIBRARIES)
+     # detect the OS
+     if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+         set(FIND_SFML_OS_WINDOWS 1)
++    elseif(${CMAKE_SYSTEM_NAME} MATCHES "Android")
++        set(FIND_SFML_OS_ANDROID 1)
++    elseif(${CMAKE_SYSTEM_NAME} STREQUAL "iOS")
++        set(FIND_SFML_OS_IOS 1)
+     elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+         set(FIND_SFML_OS_LINUX 1)
+
+@@ -35,8 +39,19 @@ if(SFML_STATIC_LIBRARIES)
+         endif()
+
+         # No lookup in environment variables (PATH on Windows), as they may contain wrong library versions
+-        find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
+-                     PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH)
++        # Cross-compilation (Android/iOS): restrict to explicit FIND_SFML_PATHS only
++        # so that host (e.g. Homebrew) libraries are never picked up.
++        # Native builds: allow system paths for X11, OpenGL, etc.
++        if(FIND_SFML_OS_ANDROID)
++            find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
++                         PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
++        elseif(FIND_SFML_OS_IOS)
++            find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
++                         PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_DEFAULT_PATH)
++        else()
++            find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
++                         PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_SYSTEM_ENVIRONMENT_PATH)
++        endif()
+         mark_as_advanced(${THIS_FRIENDLY_NAME}_LIB)
+         if(${THIS_FRIENDLY_NAME}_LIB)
+             set_property(TARGET ${THIS_TARGET} APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${${THIS_FRIENDLY_NAME}_LIB}")
+@@ -63,6 +78,9 @@ if(SFML_STATIC_LIBRARIES)
+
+         if (FIND_SFML_OS_WINDOWS)
+             set_property(TARGET OpenGL APPEND PROPERTY INTERFACE_LINK_LIBRARIES "OpenGL32")
++        elseif(FIND_SFML_OS_ANDROID)
++            # Android uses OpenGL ES, which is part of the system - no need to search
++            message(STATUS "FIND_SFML_PATHS: ${FIND_SFML_PATHS}")
+         elseif(NOT FIND_SFML_OS_IOS)
+             sfml_bind_dependency(TARGET OpenGL FRIENDLY_NAME "OpenGL" SEARCH_NAMES "OpenGL" "GL")
+         endif()

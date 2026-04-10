@@ -1,0 +1,5 @@
+# Patch series for SFML on iOS
+
+detect-ios-platform.patch
+fix-gles-typedefs.patch
+fix-shader-glhandle-cast.patch
