@@ -71,8 +71,29 @@ if(CMAKE_C_COMPILER_TARGET)
     set(COMPILER_TARGET_FLAG "--target=${CMAKE_C_COMPILER_TARGET}")
 endif()
 
+# Apple cross-compilation flags: CMake stores sysroot/arch/deployment-target in
+# dedicated variables, not in CMAKE_C_FLAGS.  When invoking the compiler directly
+# in a custom command we must pass them explicitly, otherwise clang defaults to
+# building for macOS on a macOS host.
+set(_ERVM_APPLE_FLAGS "")
+if(APPLE)
+    if(CMAKE_OSX_SYSROOT)
+        list(APPEND _ERVM_APPLE_FLAGS "-isysroot" "${CMAKE_OSX_SYSROOT}")
+    endif()
+    if(CMAKE_OSX_ARCHITECTURES)
+        list(APPEND _ERVM_APPLE_FLAGS "-arch" "${CMAKE_OSX_ARCHITECTURES}")
+    endif()
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+            list(APPEND _ERVM_APPLE_FLAGS "-miphoneos-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        else()
+            list(APPEND _ERVM_APPLE_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
+    endif()
+endif()
+
 list(APPEND _ERVM_INSTALL_CMD
-    COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
+    COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST} ${_ERVM_APPLE_FLAGS}
         -I${BUILD_STAGING_DIR}/usr/local/include
         -I${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static
         -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
