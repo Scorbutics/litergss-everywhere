@@ -995,6 +995,7 @@ publish-kmp:
 		if grep -q "DANDROID_ABI=" "$$tp" 2>/dev/null; then IS_ANDROID=true; \
 		elif grep -q "DCMAKE_SYSTEM_NAME=iOS" "$$tp" 2>/dev/null; then IS_IOS=true; \
 		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=Darwin" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
 		fi; \
 	done; \
 	SCRIPT_ARGS="--root-dir $(ROOT_DIR) --target-dir $(TARGET_DIR)"; \

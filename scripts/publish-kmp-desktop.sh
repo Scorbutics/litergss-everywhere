@@ -70,12 +70,20 @@ for i in "${!ABIS[@]}"; do
 	case "$abi" in
 		x86_64-linux|linux-x86_64) NATIVES_DIR="linux-x64" ;;
 		arm64-linux|linux-arm64|aarch64-linux) NATIVES_DIR="linux-arm64" ;;
+		arm64-macos|macos-arm64|aarch64-apple-darwin|arm64-apple-darwin) NATIVES_DIR="macos-arm64" ;;
+		x86_64-macos|macos-x86_64) NATIVES_DIR="macos-x64" ;;
 		*) NATIVES_DIR="$abi" ;;
 	esac
 
-	echo "--- Staging .so into desktopLibs/natives/$NATIVES_DIR/ ---"
+	# Determine shared library extension based on platform
+	case "$NATIVES_DIR" in
+		macos-*) LIB_EXT="dylib" ;;
+		*)       LIB_EXT="so" ;;
+	esac
+
+	echo "--- Staging .${LIB_EXT} into desktopLibs/natives/$NATIVES_DIR/ ---"
 	mkdir -p "$KMP_PUBLISH_DIR/src/main/desktopLibs/natives/$NATIVES_DIR"
-	cp "$WRAPPER_BUILD_DIR/librgss_runtime.so" \
+	cp "$WRAPPER_BUILD_DIR/librgss_runtime.${LIB_EXT}" \
 		"$KMP_PUBLISH_DIR/src/main/desktopLibs/natives/$NATIVES_DIR/"
 	ls -lh "$KMP_PUBLISH_DIR/src/main/desktopLibs/natives/$NATIVES_DIR/"
 done

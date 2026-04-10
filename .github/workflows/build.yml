@@ -11,17 +11,19 @@ on:
       platforms:
         description: "Platforms to build (comma-separated)"
         required: false
-        default: "android,linux-x86_64,ios"
+        default: "android,linux-x86_64,ios,macos"
         type: choice
         options:
+          - "android,linux-x86_64,ios,macos"
           - "android,linux-x86_64,ios"
           - "android,linux-x86_64"
           - "android"
           - "linux-x86_64"
           - "linux-arm64"
           - "ios"
+          - "macos"
           - "android,linux-x86_64,linux-arm64"
-          - "android,linux-x86_64,linux-arm64,ios"
+          - "android,linux-x86_64,linux-arm64,ios,macos"
       android_abis:
         description: "Android ABIs to include in the AAR (comma-separated)"
         required: false
@@ -42,7 +44,7 @@ on:
 
 # Build-wide defaults when triggered by push/PR (not workflow_dispatch)
 env:
-  DEFAULT_PLATFORMS: "android,linux-x86_64,ios"
+  DEFAULT_PLATFORMS: "android,linux-x86_64,ios,macos"
   DEFAULT_ANDROID_ABIS: "arm64-v8a,x86_64"
   DEFAULT_BUILD_TYPE: "release"
 
@@ -57,6 +59,7 @@ jobs:
       has_android: ${{ steps.set-params.outputs.has_android }}
       has_linux_x86_64: ${{ steps.set-params.outputs.has_linux_x86_64 }}
       has_ios: ${{ steps.set-params.outputs.has_ios }}
+      has_macos: ${{ steps.set-params.outputs.has_macos }}
       is_release: ${{ steps.set-params.outputs.is_release }}
       version: ${{ steps.set-params.outputs.version }}
       android_abis: ${{ steps.set-params.outputs.android_abis }}
@@ -110,6 +113,7 @@ jobs:
           echo "has_android=false" >> "$GITHUB_OUTPUT"
           echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
           echo "has_ios=false" >> "$GITHUB_OUTPUT"
+          echo "has_macos=false" >> "$GITHUB_OUTPUT"
           IFS=',' read -ra PLATS <<< "$PLATFORMS"
           for plat in "${PLATS[@]}"; do
             plat=$(echo "$plat" | xargs)
@@ -117,6 +121,7 @@ jobs:
               android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
               linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
               ios)            echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
+              macos)          echo "has_macos=true" >> "$GITHUB_OUTPUT" ;;
             esac
           done
 
@@ -332,6 +337,67 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # --- macOS ARM64 (local) ---
+  build-macos:
+    needs: prepare
+    if: needs.prepare.outputs.has_macos == 'true'
+    runs-on: macos-14
+    name: Build macOS arm64
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Cache dependencies (URL tarballs)
+        uses: actions/cache@v4
+        with:
+          path: build-macos/downloads
+          key: deps-url-macos-arm64-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v5
+          restore-keys: deps-url-macos-arm64-
+
+      - name: Cache dependencies (git repos)
+        uses: actions/cache@v4
+        with:
+          path: build-macos/git-cache
+          key: deps-git-macos-arm64-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: deps-git-macos-arm64-
+
+      - name: Pre-download dependencies
+        run: |
+          cmake \
+            -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
+            -DDOWNLOAD_DIR=${{ github.workspace }}/build-macos/downloads \
+            -DGIT_CACHE_DIR=${{ github.workspace }}/build-macos/git-cache \
+            -P cmake/docker/PreloadDeps.cmake
+
+      - name: Install build dependencies
+        run: brew install autoconf automake libtool cmake
+
+      - name: Configure
+        run: |
+          ./configure \
+            --without-docker \
+            --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
+            --enable-static \
+            --build-dir=build-macos \
+            --target-dir=target-macos \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Build
+        run: make build
+
+      - name: Export build outputs
+        run: make export
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos-arm64
+          path: target-macos/
+          if-no-files-found: error
+          retention-days: 1
+
   # ===========================================================================
   #  INSTALL PHASE — publish KMP artifacts (each depends on its build)
   # ===========================================================================
@@ -408,7 +474,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
-  # --- Install Linux x86_64: build .so wrapper + publish Desktop JAR ---
+  # --- Install Linux x86_64: build .so wrapper + publish Desktop JAR + Linux Native klib ---
   install-linux-x86_64:
     needs: [prepare, build-linux-x86_64]
     if: needs.prepare.outputs.has_linux_x86_64 == 'true'
@@ -518,17 +584,66 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # --- Install macOS: build .dylib wrapper + publish Desktop JAR ---
+  install-macos:
+    needs: [prepare, build-macos]
+    if: needs.prepare.outputs.has_macos == 'true'
+    runs-on: macos-14
+    name: Install macOS arm64
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: build-macos-arm64
+          path: target-macos
+
+      - name: Install build dependencies
+        run: brew install autoconf automake libtool cmake
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configure
+        run: |
+          ./configure \
+            --without-docker \
+            --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
+            --enable-static \
+            --build-dir=build-macos \
+            --target-dir=target-macos \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Publish
+        run: make publish-kmp
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-macos
+          path: target-macos/
+          if-no-files-found: error
+          retention-days: 1
+
   # ===========================================================================
   #  PACKAGE — assemble final release from all platform outputs
   # ===========================================================================
   package:
-    needs: [prepare, install-android, install-linux-x86_64, install-ios]
+    needs: [prepare, install-android, install-linux-x86_64, install-ios, install-macos]
     if: >-
       always()
       && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
       && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
       && (needs.install-ios.result == 'success' || needs.install-ios.result == 'skipped')
-      && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success' || needs.install-ios.result == 'success')
+      && (needs.install-macos.result == 'success' || needs.install-macos.result == 'skipped')
+      && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success' || needs.install-ios.result == 'success' || needs.install-macos.result == 'success')
     runs-on: ubuntu-latest
     name: Package final artifacts
     permissions:
@@ -563,6 +678,13 @@ jobs:
           name: intermediate-ios
           path: staging/ios
 
+      - name: Download macOS build
+        if: needs.prepare.outputs.has_macos == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-macos
+          path: staging/macos
+
       - name: Assemble release
         run: |
           mkdir -p release
@@ -591,6 +713,12 @@ jobs:
               echo "Included iOS XCFramework:"
               find release/xcframework -type f | head -20
             fi
+          fi
+          if [ -d staging/macos ]; then
+            mkdir -p release/macos
+            cp -r staging/macos/* release/macos/
+            echo "Included macOS artifacts:"
+            ls -lh release/macos/
           fi
           echo ""
           echo "=== Final release contents ==="
@@ -633,6 +761,10 @@ jobs:
             tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/ios/xcframework .
           fi
 
+          if [ -d staging/macos ]; then
+            tar -czf "release-assets/litergss-macos-arm64-${VERSION}.tar.gz" -C staging/macos .
+          fi
+
           echo "=== Release assets ==="
           ls -lh release-assets/
 
@@ -649,14 +781,14 @@ jobs:
       # --- Publish to GitHub Packages (Maven) ---
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_macos == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Write Maven settings
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_macos == 'true'
         run: |
           cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
@@ -703,7 +835,7 @@ jobs:
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
-      - name: Publish Desktop JAR to GitHub Packages
+      - name: Publish Desktop JAR to GitHub Packages (Linux)
         if: needs.prepare.outputs.has_linux_x86_64 == 'true'
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -723,6 +855,74 @@ jobs:
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
             -DartifactId=kmp-publish-desktop
+            -Dversion="$VERSION"
+            -Dpackaging=jar
+            -Dfile="$JAR_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish Linux Native klib to GitHub Packages
+        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          KLIB_FILE=$(find staging/linux-x86_64/maven-native -name '*.klib' | head -1)
+          POM_FILE=$(find staging/linux-x86_64/maven-native -name '*.pom' | head -1)
+
+          if [ -z "$KLIB_FILE" ]; then
+            echo "Warning: No Linux Native klib found in staging/linux-x86_64/maven-native"
+            find staging/linux-x86_64/maven-native -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing Linux Native klib as com.scorbutics.rubyvm:kmp-publish-linuxx64:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-linuxx64
+            -Dversion="$VERSION"
+            -Dpackaging=klib
+            -Dfile="$KLIB_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish Desktop JAR to GitHub Packages (macOS)
+        if: needs.prepare.outputs.has_macos == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          JAR_FILE=$(find staging/macos/maven -name '*.jar' ! -name '*-sources.jar' | head -1)
+          POM_FILE=$(find staging/macos/maven -name '*.pom' | head -1)
+
+          if [ -z "$JAR_FILE" ]; then
+            echo "Warning: No Desktop JAR found in staging/macos/maven"
+            find staging/macos/maven -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:kmp-publish-desktop-macos:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-desktop-macos
             -Dversion="$VERSION"
             -Dpackaging=jar
             -Dfile="$JAR_FILE"
