@@ -128,7 +128,7 @@ done
 echo ""
 echo "--- Publishing AAR with all ABIs ---"
 cd "$KMP_PUBLISH_DIR"
-./gradlew clean publishToMavenLocal -PnativeLibraryName=rgss_runtime
+./gradlew clean publishAndroidReleasePublicationToMavenLocal -PnativeLibraryName=rgss_runtime
 cd "$ROOT_DIR"
 
 echo ""
