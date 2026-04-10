@@ -408,7 +408,11 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     )
 
     # Export symbols so dlsym(RTLD_DEFAULT, ...) can find them in the executable
-    target_link_options(rgss_smoke_test PRIVATE -rdynamic)
+    if(APPLE)
+        target_link_options(rgss_smoke_test PRIVATE -Wl,-export_dynamic)
+    else()
+        target_link_options(rgss_smoke_test PRIVATE -rdynamic)
+    endif()
 
     if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
         # Shared wrapper: link against the CMake target directly
@@ -418,19 +422,33 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
         # Fat static library: link against the archive + system dependencies
         # System deps are needed because the static archive doesn't resolve them.
         find_package(Threads REQUIRED)
-        find_package(X11 REQUIRED)
-        find_package(OpenGL REQUIRED)
         target_link_libraries(rgss_smoke_test PRIVATE
             "${FAT_LIBRARY_OUTPUT}"
             Threads::Threads
             ${CMAKE_DL_LIBS}
             m
-            ${X11_LIBRARIES}
-            ${X11_Xrandr_LIB}
-            ${X11_Xcursor_LIB}
-            OpenGL::GL
-            udev
         )
+        if(APPLE)
+            find_package(OpenGL REQUIRED)
+            target_link_libraries(rgss_smoke_test PRIVATE
+                OpenGL::GL
+                "-framework Cocoa"
+                "-framework IOKit"
+                "-framework CoreFoundation"
+                "-framework CoreVideo"
+                "-framework Carbon"
+            )
+        else()
+            find_package(X11 REQUIRED)
+            find_package(OpenGL REQUIRED)
+            target_link_libraries(rgss_smoke_test PRIVATE
+                ${X11_LIBRARIES}
+                ${X11_Xrandr_LIB}
+                ${X11_Xcursor_LIB}
+                OpenGL::GL
+                udev
+            )
+        endif()
         add_dependencies(rgss_smoke_test rgss_fat_library)
     endif()
 
