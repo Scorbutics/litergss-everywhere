@@ -61,6 +61,7 @@ jobs:
       has_linux_x86_64: ${{ steps.set-matrix.outputs.has_linux_x86_64 }}
       has_ios_device: ${{ steps.set-matrix.outputs.has_ios_device }}
       has_ios_simulator: ${{ steps.set-matrix.outputs.has_ios_simulator }}
+      has_ios: ${{ steps.set-matrix.outputs.has_ios }}
       is_release: ${{ steps.set-matrix.outputs.is_release }}
       version: ${{ steps.set-matrix.outputs.version }}
     steps:
@@ -132,13 +133,16 @@ jobs:
           echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
           echo "has_ios_device=false" >> "$GITHUB_OUTPUT"
           echo "has_ios_simulator=false" >> "$GITHUB_OUTPUT"
+          echo "has_ios=false" >> "$GITHUB_OUTPUT"
           for plat in "${PLATS[@]}"; do
             plat=$(echo "$plat" | xargs)
             case "$plat" in
               android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
               linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
-              ios-device)     echo "has_ios_device=true" >> "$GITHUB_OUTPUT" ;;
-              ios-simulator)  echo "has_ios_simulator=true" >> "$GITHUB_OUTPUT" ;;
+              ios-device)     echo "has_ios_device=true" >> "$GITHUB_OUTPUT"
+                              echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
+              ios-simulator)  echo "has_ios_simulator=true" >> "$GITHUB_OUTPUT"
+                              echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
             esac
           done
 
@@ -290,11 +294,134 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
+  # Build Desktop JVM JAR via KMP Gradle (runs in parallel with main build)
+  # Produces a JAR with bundled Linux x86_64 native libs, usable from Java/Kotlin
+  # ---------------------------------------------------------------------------
+  desktop-jar:
+    needs: prepare
+    if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+    runs-on: ubuntu-latest
+    name: Build Desktop JAR (Linux x86_64)
+    permissions:
+      packages: write
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build \
+            libtool autoconf automake \
+            zip unzip wget
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-desktop-${{ hashFiles('external/embedded-ruby-vm/**/*.gradle.kts', 'external/embedded-ruby-vm/gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-desktop-
+
+      - name: Cache Ruby libs (for embedded-ruby-vm CMake)
+        uses: actions/cache@v4
+        with:
+          path: external/embedded-ruby-vm/external/lib
+          key: ruby-libs-linux-x86_64-${{ hashFiles('external/embedded-ruby-vm/RUBY_LIBS_VERSION') }}
+
+      - name: Build and publish Desktop JAR
+        working-directory: external/embedded-ruby-vm
+        run: |
+          ./gradlew :kmp:publishDesktopPublicationToGitHubPackagesRepository \
+            -Pversion=${{ needs.prepare.outputs.version }} \
+            -PtargetArch=x86_64 \
+            -PbuildType=Release
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Desktop JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-desktop-jar
+          path: external/embedded-ruby-vm/kmp/build/libs/*desktop*.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Build iOS XCFramework via KMP Gradle (runs in parallel with main build)
+  # ---------------------------------------------------------------------------
+  xcframework:
+    needs: prepare
+    if: needs.prepare.outputs.has_ios == 'true'
+    runs-on: macos-14
+    name: Build iOS XCFramework
+
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-xcframework-${{ hashFiles('external/embedded-ruby-vm/**/*.gradle.kts', 'external/embedded-ruby-vm/gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-xcframework-
+
+      - name: Cache Ruby libs (for embedded-ruby-vm CMake)
+        uses: actions/cache@v4
+        with:
+          path: external/embedded-ruby-vm/external/lib
+          key: ruby-libs-ios-${{ hashFiles('external/embedded-ruby-vm/RUBY_LIBS_VERSION') }}
+
+      - name: Build XCFramework
+        working-directory: external/embedded-ruby-vm
+        run: |
+          ./gradlew assembleReleaseXCFramework \
+            -PtargetArch=arm64 \
+            -PbuildType=Release \
+            -Pandroid.skip=true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload XCFramework
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-xcframework
+          path: external/embedded-ruby-vm/kmp/build/XCFrameworks/release/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
   # Package all platform outputs into a single artifact + publish to Maven
   # On tag pushes, also create a GitHub Release
   # ---------------------------------------------------------------------------
   package:
-    needs: [prepare, build]
+    needs: [prepare, build, desktop-jar, xcframework]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     name: Package final artifacts
     permissions:
@@ -336,6 +463,20 @@ jobs:
           name: intermediate-ios-simulator
           path: staging/ios-simulator
 
+      - name: Download Desktop JAR
+        if: needs.desktop-jar.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-desktop-jar
+          path: staging/desktop-jar
+
+      - name: Download iOS XCFramework
+        if: needs.xcframework.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-xcframework
+          path: staging/xcframework
+
       - name: Assemble release
         run: |
           mkdir -p release
@@ -362,6 +503,18 @@ jobs:
             cp -r staging/ios-simulator/* release/ios-simulator/
             echo "Included iOS simulator artifacts:"
             ls -lh release/ios-simulator/
+          fi
+          if [ -d staging/desktop-jar ]; then
+            mkdir -p release/desktop
+            cp staging/desktop-jar/*.jar release/desktop/
+            echo "Included Desktop JAR:"
+            ls -lh release/desktop/
+          fi
+          if [ -d staging/xcframework ]; then
+            mkdir -p release/xcframework
+            cp -r staging/xcframework/* release/xcframework/
+            echo "Included iOS XCFramework:"
+            find release/xcframework -type f | head -20
           fi
           echo ""
           echo "=== Final release contents ==="
@@ -402,6 +555,18 @@ jobs:
             tar -czf "release-assets/litergss-ios-simulator-${VERSION}.tar.gz" -C staging/ios-simulator .
           fi
 
+          if [ -d staging/desktop-jar ]; then
+            for jar in staging/desktop-jar/*.jar; do
+              BASENAME=$(basename "$jar" .jar)
+              cp "$jar" "release-assets/${BASENAME}-${VERSION}.jar"
+            done
+          fi
+
+          if [ -d staging/xcframework ]; then
+            tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/xcframework .
+            echo "Included XCFramework archive"
+          fi
+
           echo "=== Release assets ==="
           ls -lh release-assets/
 
@@ -416,6 +581,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Publish AAR to GitHub Packages (Maven) ---
+
+      # --- Publish to GitHub Packages (Maven) ---
+      # Desktop JAR is published directly by the desktop-jar job via Gradle.
+      # AAR is published here via mvn deploy:deploy-file from the pre-built Maven repo.
 
       - name: Set up JDK
         if: needs.prepare.outputs.has_android == 'true'
