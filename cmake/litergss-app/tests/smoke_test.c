@@ -4,8 +4,7 @@
  * This test verifies that the combined library (fat static archive or shared
  * wrapper) is correctly assembled by:
  *   1. Calling lightweight API functions that don't need a full Ruby runtime
- *   2. Checking that key function pointers resolve to non-NULL
- *   3. Referencing extension init symbols to prove linkage
+ *   2. Using dlsym to verify all expected symbols are present and resolvable
  *
  * This test is only compiled and run for native (non-cross-compiled) builds.
  */
@@ -13,10 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dlfcn.h>
 
 #include "embedded-ruby-vm/assets-error.h"
 #include "embedded-ruby-vm/assets-install.h"
-
 #include "rgss_expected_symbols.h"
 
 static int failures = 0;
@@ -61,9 +60,9 @@ int main(void) {
     /* --- Expected symbol linkage (from expected_symbols.cmake) --- */
     printf("\n[Expected symbol linkage]\n");
     {
-        const RgssExpectedSymbol* syms = rgss_expected_symbols();
         for (int i = 0; i < RGSS_EXPECTED_SYMBOL_COUNT; i++) {
-            CHECK_NOT_NULL(syms[i].name, syms[i].fn);
+            void* sym = dlsym(RTLD_DEFAULT, rgss_expected_symbol_names[i]);
+            CHECK_NOT_NULL(rgss_expected_symbol_names[i], sym);
         }
     }
 

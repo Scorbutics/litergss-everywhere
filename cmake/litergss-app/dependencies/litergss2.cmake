@@ -407,6 +407,9 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
         "${BUILD_STAGING_DIR}/usr/local/include"
     )
 
+    # Export symbols so dlsym(RTLD_DEFAULT, ...) can find them in the executable
+    target_link_options(rgss_smoke_test PRIVATE -rdynamic)
+
     if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
         # Shared wrapper: link against the CMake target directly
         target_link_libraries(rgss_smoke_test PRIVATE rgss_runtime)

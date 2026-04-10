@@ -35,10 +35,9 @@ set(RGSS_EXPECTED_SYMBOLS
 )
 
 # Generate rgss_expected_symbols.h in the build directory.
-# This header provides:
-#   - extern declarations for every expected symbol
-#   - RGSS_EXPECTED_SYMBOL_COUNT
-#   - rgss_expected_symbol_entries[] array for iteration
+# This header provides only the symbol NAME list as string data.
+# The smoke test uses dlsym(RTLD_DEFAULT, name) to look up each symbol,
+# which avoids any declaration conflicts with proper API headers.
 function(rgss_generate_expected_symbols_header OUTPUT_DIR)
     set(_header "${OUTPUT_DIR}/rgss_expected_symbols.h")
 
@@ -51,36 +50,14 @@ function(rgss_generate_expected_symbols_header OUTPUT_DIR)
 
 #define RGSS_EXPECTED_SYMBOL_COUNT ${_count}
 
-typedef struct {
-    const char* name;
-    void (*fn)(void);
-} RgssExpectedSymbol;
-
-/*
- * Returns a static table of all expected symbols with their addresses.
- * Uses block-scope extern declarations to avoid conflicts with any
- * API headers that declare these symbols with their real signatures.
- */
-static inline const RgssExpectedSymbol* rgss_expected_symbols(void) {
-")
-
-    # Block-scope extern declarations -- these are legal C and never
-    # conflict with file-scope declarations that have different signatures.
-    foreach(_sym ${RGSS_EXPECTED_SYMBOLS})
-        string(APPEND _content "    extern void ${_sym}();\n")
-    endforeach()
-
-    string(APPEND _content "
-    static const RgssExpectedSymbol table[] = {
+static const char* const rgss_expected_symbol_names[] = {
 ")
 
     foreach(_sym ${RGSS_EXPECTED_SYMBOLS})
-        string(APPEND _content "        { \"${_sym}\", (void(*)(void))${_sym} },\n")
+        string(APPEND _content "    \"${_sym}\",\n")
     endforeach()
 
-    string(APPEND _content "    };
-    return table;
-}
+    string(APPEND _content "};
 
 #endif /* RGSS_EXPECTED_SYMBOLS_H */
 ")
