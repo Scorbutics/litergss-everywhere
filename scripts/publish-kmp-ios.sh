@@ -33,6 +33,12 @@ if [ -z "$ROOT_DIR" ] || [ -z "$TARGET_DIR" ]; then
 	exit 1
 fi
 
+# Resolve TARGET_DIR to absolute path so it works after cd
+case "$TARGET_DIR" in
+	/*) ;;
+	*) TARGET_DIR="$ROOT_DIR/$TARGET_DIR" ;;
+esac
+
 if [ ${#ABIS[@]} -ne ${#FAT_LIBS[@]} ]; then
 	echo "Error: --abi and --fat-lib must be provided in pairs"
 	exit 1
