@@ -128,7 +128,7 @@ jobs:
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Generated matrix: $MATRIX"
 
-          # Export platform presence flags for the package job
+          # Export platform presence flags for downstream jobs
           echo "has_android=false" >> "$GITHUB_OUTPUT"
           echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
           echo "has_ios_device=false" >> "$GITHUB_OUTPUT"
@@ -148,6 +148,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Build each platform in parallel
+  # Each platform also stages its kmp-publish artifacts (same pattern):
+  #   Android: fat .a → .so wrapper via Docker → AAR via Gradle (existing flow)
+  #   Linux:   fat .a → .so wrapper via CMake  → Desktop JAR via Gradle
+  #   iOS:     fat .a uploaded for XCFramework job
   # ---------------------------------------------------------------------------
   build:
     needs: prepare
@@ -161,7 +165,7 @@ jobs:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
-          submodules: true  # ruby-for-android submodule provides cmake/core/ build system
+          submodules: true
 
       # --- Dependency caching ---
 
@@ -252,7 +256,71 @@ jobs:
         if: "!matrix.use_docker"
         run: make install
 
-      # --- Upload intermediate artifacts (consumed by the package job) ---
+      # --- kmp-publish: Desktop JAR (Linux only) ---
+      # Same pattern as Android: fat .a → .so wrapper → stage → Gradle → JAR
+
+      - name: Set up JDK (Desktop publish)
+        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build Desktop .so wrapper and publish JAR
+        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
+        run: |
+          # Find fat library from the main build
+          BUILD_STAGING_DIR=$(grep "BUILD_STAGING_DIR:" ${{ matrix.build_dir }}/CMakeCache.txt | sed 's/.*=//')
+          FAT_LIB="$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"
+
+          if [ ! -f "$FAT_LIB" ]; then
+            echo "ERROR: Fat library not found at $FAT_LIB"
+            exit 1
+          fi
+          echo "Found fat library: $FAT_LIB ($(du -h "$FAT_LIB" | cut -f1))"
+
+          # Phase 1: Wrap .a → .so using kmp-publish wrapper CMakeLists.txt
+          echo "=== Building librgss_runtime.so wrapper ==="
+          cmake \
+            -S external/embedded-ruby-vm/kmp-publish/wrapper \
+            -B build-kmp-desktop-wrapper \
+            -DTARGET_ABI=linux-x86_64 \
+            -DFAT_LIB_PATH="$(realpath "$FAT_LIB")" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-kmp-desktop-wrapper
+
+          # Phase 2: Stage .so into kmp-publish layout
+          echo "=== Staging .so into kmp-publish ==="
+          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64
+          cp build-kmp-desktop-wrapper/librgss_runtime.so \
+            external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64/
+          ls -lh external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64/
+
+          # Phase 3: Gradle publish to Maven Local
+          echo "=== Publishing Desktop JAR ==="
+          cd external/embedded-ruby-vm/kmp-publish
+          ./gradlew publishDesktopPublicationToMavenLocal \
+            -Pversion=${{ needs.prepare.outputs.version }} \
+            -PnativeLibraryName=rgss_runtime
+
+          echo "=== Desktop JAR published ==="
+          find ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop -type f 2>/dev/null | head -10
+
+          # Copy Maven artifacts to target dir for upload
+          mkdir -p ${{ github.workspace }}/${{ matrix.target_dir }}/maven/
+          cp -r ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop \
+            ${{ github.workspace }}/${{ matrix.target_dir }}/maven/ 2>/dev/null || true
+
+      - name: Upload intermediate Desktop Maven repo
+        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-desktop-maven
+          path: ${{ matrix.target_dir }}/maven/
+          if-no-files-found: warn
+          retention-days: 1
+
+      # --- Upload intermediate artifacts (consumed by package job) ---
 
       - name: Find AAR artifact (Android)
         if: matrix.use_docker
@@ -284,6 +352,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      # Upload iOS fat .a for the publish-ios job
+      - name: Find and upload iOS fat library
+        if: "!matrix.use_docker && startsWith(matrix.platform, 'ios')"
+        run: |
+          BUILD_STAGING_DIR=$(grep "BUILD_STAGING_DIR:" ${{ matrix.build_dir }}/CMakeCache.txt | sed 's/.*=//')
+          FAT_LIB="$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"
+          if [ -f "$FAT_LIB" ]; then
+            mkdir -p ${{ matrix.target_dir }}/fat-lib
+            cp "$FAT_LIB" ${{ matrix.target_dir }}/fat-lib/librgss_runtime.a
+            echo "Staged fat library: $(du -h "$FAT_LIB" | cut -f1)"
+          else
+            echo "Warning: Fat library not found at $FAT_LIB"
+          fi
+
       - name: Upload intermediate build output (non-Docker)
         if: "!matrix.use_docker"
         uses: actions/upload-artifact@v4
@@ -294,80 +376,15 @@ jobs:
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Build Desktop JVM JAR via KMP Gradle (runs in parallel with main build)
-  # Produces a JAR with bundled Linux x86_64 native libs, usable from Java/Kotlin
+  # Build iOS XCFramework from pre-built fat libraries
+  # Same kmp-publish pattern: stage pre-built .a → Gradle → XCFramework
+  # Requires both ios-device and ios-simulator builds to complete first
   # ---------------------------------------------------------------------------
-  desktop-jar:
-    needs: prepare
-    if: needs.prepare.outputs.has_linux_x86_64 == 'true'
-    runs-on: ubuntu-latest
-    name: Build Desktop JAR (Linux x86_64)
-    permissions:
-      packages: write
-
-    steps:
-      - name: Checkout with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build \
-            libtool autoconf automake \
-            zip unzip wget
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-desktop-${{ hashFiles('external/embedded-ruby-vm/**/*.gradle.kts', 'external/embedded-ruby-vm/gradle/libs.versions.toml') }}
-          restore-keys: |
-            gradle-desktop-
-
-      - name: Cache Ruby libs (for embedded-ruby-vm CMake)
-        uses: actions/cache@v4
-        with:
-          path: external/embedded-ruby-vm/external/lib
-          key: ruby-libs-linux-x86_64-${{ hashFiles('external/embedded-ruby-vm/RUBY_LIBS_VERSION') }}
-
-      - name: Build and publish Desktop JAR
-        working-directory: external/embedded-ruby-vm
-        run: |
-          ./gradlew :kmp:publishDesktopPublicationToGitHubPackagesRepository \
-            -Pversion=${{ needs.prepare.outputs.version }} \
-            -PtargetArch=x86_64 \
-            -PbuildType=Release
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Desktop JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: intermediate-desktop-jar
-          path: external/embedded-ruby-vm/kmp/build/libs/*desktop*.jar
-          if-no-files-found: error
-          retention-days: 1
-
-  # ---------------------------------------------------------------------------
-  # Build iOS XCFramework via KMP Gradle (runs in parallel with main build)
-  # ---------------------------------------------------------------------------
-  xcframework:
-    needs: prepare
-    if: needs.prepare.outputs.has_ios == 'true'
+  publish-ios:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.has_ios_device == 'true' && needs.prepare.outputs.has_ios_simulator == 'true'
     runs-on: macos-14
-    name: Build iOS XCFramework
+    name: Publish iOS XCFramework
 
     steps:
       - name: Checkout with submodules
@@ -381,29 +398,60 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Download iOS device build
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-ios-device
+          path: staging/ios-device
+
+      - name: Download iOS simulator build
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-ios-simulator
+          path: staging/ios-simulator
+
+      - name: Stage iOS fat libraries into kmp-publish
+        run: |
+          # Stage device .a
+          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_arm64
+          if [ -f staging/ios-device/fat-lib/librgss_runtime.a ]; then
+            cp staging/ios-device/fat-lib/librgss_runtime.a \
+              external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_arm64/
+            echo "Staged iOS device fat lib: $(du -h staging/ios-device/fat-lib/librgss_runtime.a | cut -f1)"
+          else
+            echo "ERROR: iOS device fat library not found"
+            find staging/ios-device -name '*.a' 2>/dev/null
+            exit 1
+          fi
+
+          # Stage simulator .a
+          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_simulator_arm64
+          if [ -f staging/ios-simulator/fat-lib/librgss_runtime.a ]; then
+            cp staging/ios-simulator/fat-lib/librgss_runtime.a \
+              external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_simulator_arm64/
+            echo "Staged iOS simulator fat lib: $(du -h staging/ios-simulator/fat-lib/librgss_runtime.a | cut -f1)"
+          else
+            echo "ERROR: iOS simulator fat library not found"
+            find staging/ios-simulator -name '*.a' 2>/dev/null
+            exit 1
+          fi
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-xcframework-${{ hashFiles('external/embedded-ruby-vm/**/*.gradle.kts', 'external/embedded-ruby-vm/gradle/libs.versions.toml') }}
+          key: gradle-ios-publish-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle.kts') }}
           restore-keys: |
-            gradle-xcframework-
-
-      - name: Cache Ruby libs (for embedded-ruby-vm CMake)
-        uses: actions/cache@v4
-        with:
-          path: external/embedded-ruby-vm/external/lib
-          key: ruby-libs-ios-${{ hashFiles('external/embedded-ruby-vm/RUBY_LIBS_VERSION') }}
+            gradle-ios-publish-
 
       - name: Build XCFramework
-        working-directory: external/embedded-ruby-vm
+        working-directory: external/embedded-ruby-vm/kmp-publish
         run: |
           ./gradlew assembleReleaseXCFramework \
-            -PtargetArch=arm64 \
-            -PbuildType=Release \
-            -Pandroid.skip=true
+            -Pversion=${{ needs.prepare.outputs.version }} \
+            -PnativeLibraryName=rgss_runtime
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -411,7 +459,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: intermediate-xcframework
-          path: external/embedded-ruby-vm/kmp/build/XCFrameworks/release/
+          path: external/embedded-ruby-vm/kmp-publish/build/XCFrameworks/release/
           if-no-files-found: error
           retention-days: 1
 
@@ -420,7 +468,7 @@ jobs:
   # On tag pushes, also create a GitHub Release
   # ---------------------------------------------------------------------------
   package:
-    needs: [prepare, build, desktop-jar, xcframework]
+    needs: [prepare, build, publish-ios]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     name: Package final artifacts
@@ -449,6 +497,13 @@ jobs:
           name: intermediate-linux-x86_64
           path: staging/linux-x86_64
 
+      - name: Download Desktop Maven repo
+        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-desktop-maven
+          path: staging/desktop-maven
+
       - name: Download iOS device build
         if: needs.prepare.outputs.has_ios_device == 'true'
         uses: actions/download-artifact@v4
@@ -463,15 +518,8 @@ jobs:
           name: intermediate-ios-simulator
           path: staging/ios-simulator
 
-      - name: Download Desktop JAR
-        if: needs.desktop-jar.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-desktop-jar
-          path: staging/desktop-jar
-
       - name: Download iOS XCFramework
-        if: needs.xcframework.result == 'success'
+        if: needs.publish-ios.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: intermediate-xcframework
@@ -503,12 +551,6 @@ jobs:
             cp -r staging/ios-simulator/* release/ios-simulator/
             echo "Included iOS simulator artifacts:"
             ls -lh release/ios-simulator/
-          fi
-          if [ -d staging/desktop-jar ]; then
-            mkdir -p release/desktop
-            cp staging/desktop-jar/*.jar release/desktop/
-            echo "Included Desktop JAR:"
-            ls -lh release/desktop/
           fi
           if [ -d staging/xcframework ]; then
             mkdir -p release/xcframework
@@ -555,16 +597,8 @@ jobs:
             tar -czf "release-assets/litergss-ios-simulator-${VERSION}.tar.gz" -C staging/ios-simulator .
           fi
 
-          if [ -d staging/desktop-jar ]; then
-            for jar in staging/desktop-jar/*.jar; do
-              BASENAME=$(basename "$jar" .jar)
-              cp "$jar" "release-assets/${BASENAME}-${VERSION}.jar"
-            done
-          fi
-
           if [ -d staging/xcframework ]; then
             tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/xcframework .
-            echo "Included XCFramework archive"
           fi
 
           echo "=== Release assets ==="
@@ -581,38 +615,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # --- Publish to GitHub Packages (Maven) ---
-      # Desktop JAR is published directly by the desktop-jar job via Gradle.
-      # AAR is published here via mvn deploy:deploy-file from the pre-built Maven repo.
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_android == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Publish AAR to GitHub Packages
-        if: needs.prepare.outputs.has_android == 'true'
+      - name: Write Maven settings
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          GROUP_ID="com.scorbutics.rubyvm"
-          ARTIFACT_ID="kmp-publish-android"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          AAR_FILE=$(find staging/android-maven -name '*.aar' | head -1)
-          POM_FILE=$(find staging/android-maven -name '*.pom' | head -1)
-
-          if [ -z "$AAR_FILE" ]; then
-            echo "ERROR: No AAR file found in staging/android-maven"
-            exit 1
-          fi
-
-          echo "Publishing $AAR_FILE as ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
-
-          # Write Maven settings to a temp file (process substitution doesn't work reliably)
-          SETTINGS_FILE=$(mktemp)
-          trap "rm -f $SETTINGS_FILE" EXIT
-          cat > "$SETTINGS_FILE" <<SETTINGS_EOF
+          cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
             <servers>
               <server>
@@ -624,20 +638,69 @@ jobs:
           </settings>
           SETTINGS_EOF
 
+      - name: Publish AAR to GitHub Packages
+        if: needs.prepare.outputs.has_android == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          AAR_FILE=$(find staging/android-maven -name '*.aar' | head -1)
+          POM_FILE=$(find staging/android-maven -name '*.pom' | head -1)
+
+          if [ -z "$AAR_FILE" ]; then
+            echo "ERROR: No AAR file found in staging/android-maven"
+            exit 1
+          fi
+
+          echo "Publishing AAR as com.scorbutics.rubyvm:kmp-publish-android:${VERSION}"
+
           DEPLOY_ARGS=(
-            -DgroupId="$GROUP_ID"
-            -DartifactId="$ARTIFACT_ID"
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-android
             -Dversion="$VERSION"
             -Dpackaging=aar
             -Dfile="$AAR_FILE"
             -DrepositoryId=github
             -Durl="$REPO_URL"
           )
-
           if [ -n "$POM_FILE" ]; then
             DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
           else
             DEPLOY_ARGS+=(-DgeneratePom=true)
           fi
 
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings "$SETTINGS_FILE"
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish Desktop JAR to GitHub Packages
+        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          JAR_FILE=$(find staging/desktop-maven -name '*.jar' ! -name '*-sources.jar' | head -1)
+          POM_FILE=$(find staging/desktop-maven -name '*.pom' | head -1)
+
+          if [ -z "$JAR_FILE" ]; then
+            echo "Warning: No Desktop JAR found in staging/desktop-maven"
+            find staging/desktop-maven -type f 2>/dev/null
+            exit 0
+          fi
+
+          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:kmp-publish-desktop:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=kmp-publish-desktop
+            -Dversion="$VERSION"
+            -Dpackaging=jar
+            -Dfile="$JAR_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
