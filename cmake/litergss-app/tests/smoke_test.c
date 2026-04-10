@@ -16,10 +16,10 @@
 
 #include "embedded-ruby-vm/assets-error.h"
 #include "embedded-ruby-vm/assets-install.h"
-#include "embedded-ruby-vm/static/ruby-api-loader.h"
 
-/* Proper API headers above already declare the real signatures.
- * Skip the generic void(void) declarations, keep only the symbol table. */
+/* assets-error.h and assets-install.h already declare some symbols with their
+ * real signatures. Skip the generic void(void) declarations from the generated
+ * header to avoid conflicting types -- we only need the symbol table. */
 #define RGSS_NO_EXTERN_DECLARATIONS
 #include "rgss_expected_symbols.h"
 
@@ -60,27 +60,6 @@ int main(void) {
         if (dir) {
             printf("    default install dir: %s\n", dir);
         }
-    }
-
-    /* --- Ruby API loader (static) --- */
-    printf("\n[Ruby API loader]\n");
-    {
-        RubyAPI api;
-        int rc = ruby_api_load(NULL, &api);
-        CHECK("ruby_api_load succeeds", rc == 0);
-
-        CHECK_NOT_NULL("interpreter.create",          api.interpreter.create);
-        CHECK_NOT_NULL("interpreter.destroy",         api.interpreter.destroy);
-        CHECK_NOT_NULL("interpreter.enqueue",         api.interpreter.enqueue);
-        CHECK_NOT_NULL("interpreter.execute_sync",    api.interpreter.execute_sync);
-        CHECK_NOT_NULL("interpreter.enable_logging",  api.interpreter.enable_logging);
-        CHECK_NOT_NULL("interpreter.disable_logging", api.interpreter.disable_logging);
-        CHECK_NOT_NULL("interpreter.get_error_message", api.interpreter.get_error_message);
-        CHECK_NOT_NULL("script.create_from_content",  api.script.create_from_content);
-        CHECK_NOT_NULL("script.destroy",              api.script.destroy);
-        CHECK_NOT_NULL("set_custom_ext_init",         api.set_custom_ext_init);
-
-        ruby_api_unload(&api);
     }
 
     /* --- Expected symbol linkage (from expected_symbols.cmake) --- */

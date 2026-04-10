@@ -405,10 +405,6 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     target_include_directories(rgss_smoke_test PRIVATE
         "${CMAKE_BINARY_DIR}/generated"
         "${BUILD_STAGING_DIR}/usr/local/include"
-        "${BUILD_STAGING_DIR}/usr/local/include/private"
-        "${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static"
-        "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby"
-        "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}"
     )
 
     if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
