@@ -10,7 +10,7 @@
 # This depends on ruby-for-android (must be listed after it in APP_DEPENDENCIES)
 # since it needs Ruby headers for extension-init.c compilation.
 
-set(EMBEDDED_RUBY_VM_VERSION "1.0.3")
+set(EMBEDDED_RUBY_VM_VERSION "1.0.4")
 
 # Map platform/arch to the archive name
 string(TOLOWER "${TARGET_PLATFORM}" _ERVM_PLATFORM)
