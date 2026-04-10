@@ -74,6 +74,18 @@ set(VERIFY_SYMBOLS_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/litergss-app/scripts/verify
 # Generate the header so smoke_test.c can verify all symbols at link+run time
 rgss_generate_expected_symbols_header("${CMAKE_BINARY_DIR}/generated")
 
+# Detect whether we can run built binaries on this host.
+# CMAKE_CROSSCOMPILING is TRUE whenever CMAKE_SYSTEM_NAME is set explicitly
+# (even for native builds like x86_64-linux on an x86_64-linux host), so we
+# also check whether host and target actually match.
+set(_RGSS_CAN_RUN_TESTS FALSE)
+if(NOT CMAKE_CROSSCOMPILING)
+    set(_RGSS_CAN_RUN_TESTS TRUE)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL CMAKE_SYSTEM_NAME
+       AND CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL CMAKE_SYSTEM_PROCESSOR)
+    set(_RGSS_CAN_RUN_TESTS TRUE)
+endif()
+
 if(BUILD_SHARED_WRAPPER)
     # ------------------------------------------------------------------------
     # SHARED WRAPPER MODE (rgss_runtime.so)
@@ -290,8 +302,8 @@ else()
         # Verify symbols are present in the fat static library.
         # For native builds the smoke test provides a stronger check
         # (compile + link + run), so the nm fallback is only needed
-        # when cross-compiling.
-        if(CMAKE_CROSSCOMPILING)
+        # when we cannot run built binaries.
+        if(NOT _RGSS_CAN_RUN_TESTS)
             add_custom_command(
                 TARGET rgss_fat_library POST_BUILD
                 COMMAND ${CMAKE_COMMAND}
@@ -381,9 +393,9 @@ endif()
 # ============================================================================
 # SMOKE TEST (native builds only)
 # ============================================================================
-# When not cross-compiling, compile and run a smoke test against the output
-# library to verify the build artifact is functional, not just symbol-complete.
-if(RGSS_SMOKE_TEST_ENABLED AND NOT CMAKE_CROSSCOMPILING)
+# When we can run the built binary, compile and run a smoke test against the
+# output library to verify the build artifact is functional, not just symbol-complete.
+if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     enable_testing()
 
     set(SMOKE_TEST_SRC "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
@@ -427,8 +439,8 @@ if(RGSS_SMOKE_TEST_ENABLED AND NOT CMAKE_CROSSCOMPILING)
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
 else()
-    if(CMAKE_CROSSCOMPILING)
-        message(STATUS "Smoke test disabled (cross-compiling)")
+    if(NOT _RGSS_CAN_RUN_TESTS)
+        message(STATUS "Smoke test disabled (cross-compiling: ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR} on ${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR})")
     elseif(NOT RGSS_SMOKE_TEST_ENABLED)
         message(STATUS "Smoke test disabled (no testable output library)")
     endif()
