@@ -601,10 +601,10 @@ publish-kmp: docker-check-running
 		echo "Error: $(TARGET_DIR)/fat-libs not found. Run 'make export' first."; \
 		exit 1; \
 	fi
-	@IS_ANDROID=false; IS_DESKTOP=false; \
+	@IS_ANDROID=false; IS_DESKTOP=false; IS_LINUX_NATIVE=false; \
 	for tp in $(TOOLCHAIN_PARAMS_LIST); do \
 		if grep -q "DANDROID_ABI=" "$$tp" 2>/dev/null; then IS_ANDROID=true; \
-		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; IS_LINUX_NATIVE=true; \
 		fi; \
 	done; \
 	set -e; \
@@ -628,6 +628,9 @@ publish-kmp: docker-check-running
 		docker exec $(CONTAINER) bash -c "$(DOCKER_WORKDIR)/scripts/publish-kmp-android.sh $$DOCKER_SCRIPT_ARGS --ndk-home /opt/android-ndk"; \
 	elif [ "$$IS_DESKTOP" = "true" ]; then \
 		docker exec $(CONTAINER) bash -c "$(DOCKER_WORKDIR)/scripts/publish-kmp-desktop.sh $$DOCKER_SCRIPT_ARGS"; \
+		if [ "$$IS_LINUX_NATIVE" = "true" ]; then \
+			docker exec $(CONTAINER) bash -c "$(DOCKER_WORKDIR)/scripts/publish-kmp-linux-native.sh $$DOCKER_SCRIPT_ARGS"; \
+		fi; \
 	else \
 		echo "No KMP publishing needed for this platform"; \
 	fi
@@ -990,11 +993,11 @@ publish-kmp:
 		echo "Error: $(TARGET_DIR)/fat-libs not found. Run 'make export' first."; \
 		exit 1; \
 	fi
-	@IS_ANDROID=false; IS_IOS=false; IS_DESKTOP=false; \
+	@IS_ANDROID=false; IS_IOS=false; IS_DESKTOP=false; IS_LINUX_NATIVE=false; \
 	for tp in $(TOOLCHAIN_PARAMS_LIST); do \
 		if grep -q "DANDROID_ABI=" "$$tp" 2>/dev/null; then IS_ANDROID=true; \
 		elif grep -q "DCMAKE_SYSTEM_NAME=iOS" "$$tp" 2>/dev/null; then IS_IOS=true; \
-		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; IS_LINUX_NATIVE=true; \
 		elif grep -q "DCMAKE_SYSTEM_NAME=Darwin" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
 		fi; \
 	done; \
@@ -1013,6 +1016,9 @@ publish-kmp:
 	elif [ "$$IS_DESKTOP" = "true" ]; then \
 		set -e; \
 		$(ROOT_DIR)/scripts/publish-kmp-desktop.sh $$SCRIPT_ARGS; \
+		if [ "$$IS_LINUX_NATIVE" = "true" ]; then \
+			$(ROOT_DIR)/scripts/publish-kmp-linux-native.sh $$SCRIPT_ARGS; \
+		fi; \
 	elif [ "$$IS_IOS" = "true" ]; then \
 		set -e; \
 		$(ROOT_DIR)/scripts/publish-kmp-ios.sh $$SCRIPT_ARGS; \
