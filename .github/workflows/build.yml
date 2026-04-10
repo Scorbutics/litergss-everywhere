@@ -11,19 +11,17 @@ on:
       platforms:
         description: "Platforms to build (comma-separated)"
         required: false
-        default: "android,linux-x86_64,ios-device,ios-simulator"
+        default: "android,linux-x86_64,ios"
         type: choice
         options:
-          - "android,linux-x86_64,ios-device,ios-simulator"
+          - "android,linux-x86_64,ios"
           - "android,linux-x86_64"
           - "android"
           - "linux-x86_64"
           - "linux-arm64"
-          - "ios-device"
-          - "ios-simulator"
-          - "ios-device,ios-simulator"
+          - "ios"
           - "android,linux-x86_64,linux-arm64"
-          - "android,linux-x86_64,linux-arm64,ios-device,ios-simulator"
+          - "android,linux-x86_64,linux-arm64,ios"
       android_abis:
         description: "Android ABIs to include in the AAR (comma-separated)"
         required: false
@@ -44,28 +42,27 @@ on:
 
 # Build-wide defaults when triggered by push/PR (not workflow_dispatch)
 env:
-  DEFAULT_PLATFORMS: "android,linux-x86_64,ios-device,ios-simulator"
+  DEFAULT_PLATFORMS: "android,linux-x86_64,ios"
   DEFAULT_ANDROID_ABIS: "arm64-v8a,x86_64"
   DEFAULT_BUILD_TYPE: "release"
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Compute the build matrix from inputs (or defaults for push/PR triggers)
+  # Compute build parameters from inputs (or defaults for push/PR triggers)
   # ---------------------------------------------------------------------------
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      build_type_flag: ${{ steps.set-matrix.outputs.build_type_flag }}
-      has_android: ${{ steps.set-matrix.outputs.has_android }}
-      has_linux_x86_64: ${{ steps.set-matrix.outputs.has_linux_x86_64 }}
-      has_ios_device: ${{ steps.set-matrix.outputs.has_ios_device }}
-      has_ios_simulator: ${{ steps.set-matrix.outputs.has_ios_simulator }}
-      has_ios: ${{ steps.set-matrix.outputs.has_ios }}
-      is_release: ${{ steps.set-matrix.outputs.is_release }}
-      version: ${{ steps.set-matrix.outputs.version }}
+      build_type_flag: ${{ steps.set-params.outputs.build_type_flag }}
+      has_android: ${{ steps.set-params.outputs.has_android }}
+      has_linux_x86_64: ${{ steps.set-params.outputs.has_linux_x86_64 }}
+      has_ios: ${{ steps.set-params.outputs.has_ios }}
+      is_release: ${{ steps.set-params.outputs.is_release }}
+      version: ${{ steps.set-params.outputs.version }}
+      android_abis: ${{ steps.set-params.outputs.android_abis }}
+      android_toolchain_args: ${{ steps.set-params.outputs.android_toolchain_args }}
     steps:
-      - id: set-matrix
+      - id: set-params
         shell: bash
         run: |
           # Determine if this is a release (tag push)
@@ -89,131 +86,126 @@ jobs:
             echo "build_type_flag=--enable-release" >> "$GITHUB_OUTPUT"
           fi
 
-          # Build a JSON matrix of platform jobs
-          MATRIX='{"include":['
-          FIRST=true
+          echo "android_abis=$ANDROID_ABIS" >> "$GITHUB_OUTPUT"
 
-          IFS=',' read -ra PLATS <<< "$PLATFORMS"
-          for plat in "${PLATS[@]}"; do
-            plat=$(echo "$plat" | xargs)  # trim whitespace
-            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
-
-            case "$plat" in
-              android)
-                # Collect Android ABI toolchain params
-                TOOLCHAIN_ARGS=""
-                IFS=',' read -ra ABIS <<< "$ANDROID_ABIS"
-                for abi in "${ABIS[@]}"; do
-                  abi=$(echo "$abi" | xargs)
-                  TOOLCHAIN_ARGS+=" --with-toolchain-params=toolchain-params/${abi}-android-toolchain.params"
-                done
-                MATRIX+="{\"platform\":\"android\",\"runner\":\"ubuntu-latest\",\"use_docker\":true,\"toolchain_args\":\"${TOOLCHAIN_ARGS}\",\"build_dir\":\"build-android\",\"target_dir\":\"target-android\"}"
-                ;;
-              linux-x86_64)
-                MATRIX+="{\"platform\":\"linux-x86_64\",\"runner\":\"ubuntu-latest\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params\",\"build_dir\":\"build-linux-x86_64\",\"target_dir\":\"target-linux-x86_64\"}"
-                ;;
-              linux-arm64)
-                MATRIX+="{\"platform\":\"linux-arm64\",\"runner\":\"ubuntu-24.04-arm\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-linux-toolchain.params\",\"build_dir\":\"build-linux-arm64\",\"target_dir\":\"target-linux-arm64\"}"
-                ;;
-              ios-device)
-                MATRIX+="{\"platform\":\"ios-device\",\"runner\":\"macos-14\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params --enable-static\",\"build_dir\":\"build-ios-device\",\"target_dir\":\"target-ios-device\"}"
-                ;;
-              ios-simulator)
-                MATRIX+="{\"platform\":\"ios-simulator\",\"runner\":\"macos-14\",\"use_docker\":false,\"toolchain_args\":\" --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params --enable-static\",\"build_dir\":\"build-ios-simulator\",\"target_dir\":\"target-ios-simulator\"}"
-                ;;
-            esac
+          # Build Android toolchain args
+          TOOLCHAIN_ARGS=""
+          IFS=',' read -ra ABIS <<< "$ANDROID_ABIS"
+          for abi in "${ABIS[@]}"; do
+            abi=$(echo "$abi" | xargs)
+            TOOLCHAIN_ARGS+=" --with-toolchain-params=toolchain-params/${abi}-android-toolchain.params"
           done
+          echo "android_toolchain_args=$TOOLCHAIN_ARGS" >> "$GITHUB_OUTPUT"
 
-          MATRIX+=']}'
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Generated matrix: $MATRIX"
-
-          # Export platform presence flags for downstream jobs
+          # Export platform presence flags
           echo "has_android=false" >> "$GITHUB_OUTPUT"
           echo "has_linux_x86_64=false" >> "$GITHUB_OUTPUT"
-          echo "has_ios_device=false" >> "$GITHUB_OUTPUT"
-          echo "has_ios_simulator=false" >> "$GITHUB_OUTPUT"
           echo "has_ios=false" >> "$GITHUB_OUTPUT"
+          IFS=',' read -ra PLATS <<< "$PLATFORMS"
           for plat in "${PLATS[@]}"; do
             plat=$(echo "$plat" | xargs)
             case "$plat" in
               android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
               linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
-              ios-device)     echo "has_ios_device=true" >> "$GITHUB_OUTPUT"
-                              echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
-              ios-simulator)  echo "has_ios_simulator=true" >> "$GITHUB_OUTPUT"
-                              echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
+              ios)            echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
             esac
           done
 
-  # ---------------------------------------------------------------------------
-  # Build each platform in parallel
-  # Each platform also stages its kmp-publish artifacts (same pattern):
-  #   Android: fat .a → .so wrapper via Docker → AAR via Gradle (existing flow)
-  #   Linux:   fat .a → .so wrapper via CMake  → Desktop JAR via Gradle
-  #   iOS:     fat .a uploaded for XCFramework job
-  # ---------------------------------------------------------------------------
-  build:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
-    name: Build ${{ matrix.platform }}
+  # ===========================================================================
+  #  BUILD PHASE — configure + make build (parallel across platforms)
+  # ===========================================================================
 
+  # --- Android (Docker) ---
+  build-android:
+    needs: prepare
+    if: needs.prepare.outputs.has_android == 'true'
+    runs-on: ubuntu-latest
+    name: Build Android
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           submodules: true
 
-      # --- Dependency caching ---
-
       - name: Cache dependencies (URL tarballs)
         uses: actions/cache@v4
         with:
-          path: ${{ matrix.build_dir }}/downloads
-          key: deps-url-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v5
-          restore-keys: |
-            deps-url-${{ matrix.platform }}-
+          path: build-android/downloads
+          key: deps-url-android-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v5
+          restore-keys: deps-url-android-
 
       - name: Cache dependencies (git repos)
         uses: actions/cache@v4
         with:
-          path: ${{ matrix.build_dir }}/git-cache
-          key: deps-git-${{ matrix.platform }}-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
-          restore-keys: |
-            deps-git-${{ matrix.platform }}-
+          path: build-android/git-cache
+          key: deps-git-android-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: deps-git-android-
 
       - name: Pre-download dependencies
         run: |
           cmake \
             -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
-            -DDOWNLOAD_DIR=${{ github.workspace }}/${{ matrix.build_dir }}/downloads \
-            -DGIT_CACHE_DIR=${{ github.workspace }}/${{ matrix.build_dir }}/git-cache \
+            -DDOWNLOAD_DIR=${{ github.workspace }}/build-android/downloads \
+            -DGIT_CACHE_DIR=${{ github.workspace }}/build-android/git-cache \
             -P cmake/docker/PreloadDeps.cmake
 
-      - name: Configure (Docker)
-        if: matrix.use_docker
+      - name: Configure
         run: |
           ./configure \
-            ${{ matrix.toolchain_args }} \
-            --build-dir=${{ matrix.build_dir }} \
-            --target-dir=${{ matrix.target_dir }} \
+            ${{ needs.prepare.outputs.android_toolchain_args }} \
+            --build-dir=build-android \
+            --target-dir=target-android \
             ${{ needs.prepare.outputs.build_type_flag }}
 
-      - name: Build (Docker)
-        if: matrix.use_docker
+      - name: Build
         run: make build
 
-      - name: Install & publish AAR (Docker)
-        if: matrix.use_docker
-        run: make install
+      - name: Export build outputs
+        run: make export
 
-      # --- Local builds (Linux/macOS/iOS) ---
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-android
+          path: target-android/
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Install build dependencies (Linux)
-        if: "!matrix.use_docker && runner.os == 'Linux'"
+  # --- Linux x86_64 (local) ---
+  build-linux-x86_64:
+    needs: prepare
+    if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+    runs-on: ubuntu-latest
+    name: Build Linux x86_64
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Cache dependencies (URL tarballs)
+        uses: actions/cache@v4
+        with:
+          path: build-linux-x86_64/downloads
+          key: deps-url-linux-x86_64-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v5
+          restore-keys: deps-url-linux-x86_64-
+
+      - name: Cache dependencies (git repos)
+        uses: actions/cache@v4
+        with:
+          path: build-linux-x86_64/git-cache
+          key: deps-git-linux-x86_64-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: deps-git-linux-x86_64-
+
+      - name: Pre-download dependencies
+        run: |
+          cmake \
+            -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
+            -DDOWNLOAD_DIR=${{ github.workspace }}/build-linux-x86_64/downloads \
+            -DGIT_CACHE_DIR=${{ github.workspace }}/build-linux-x86_64/git-cache \
+            -P cmake/docker/PreloadDeps.cmake
+
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -223,8 +215,67 @@ jobs:
             libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
             libgl1-mesa-dev libudev-dev pkg-config
 
-      - name: Install build dependencies (macOS)
-        if: "!matrix.use_docker && runner.os == 'macOS'"
+      - name: Configure
+        run: |
+          ./configure \
+            --without-docker \
+            --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
+            --build-dir=build-linux-x86_64 \
+            --target-dir=target-linux-x86_64 \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+      - name: Export build outputs
+        run: make export
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux-x86_64
+          path: target-linux-x86_64/
+          if-no-files-found: error
+          retention-days: 1
+
+  # --- iOS (macOS) ---
+  build-ios:
+    needs: prepare
+    if: needs.prepare.outputs.has_ios == 'true'
+    runs-on: macos-14
+    name: Build iOS
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Cache dependencies (URL tarballs)
+        uses: actions/cache@v4
+        with:
+          path: build-ios/downloads
+          key: deps-url-ios-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}-v5
+          restore-keys: deps-url-ios-
+
+      - name: Cache dependencies (git repos)
+        uses: actions/cache@v4
+        with:
+          path: build-ios/git-cache
+          key: deps-git-ios-${{ hashFiles('cmake/litergss-app/dependencies/*.cmake') }}
+          restore-keys: deps-git-ios-
+
+      - name: Pre-download dependencies
+        run: |
+          cmake \
+            -DDEPS_DIR=${{ github.workspace }}/cmake/litergss-app/dependencies \
+            -DDOWNLOAD_DIR=${{ github.workspace }}/build-ios/downloads \
+            -DGIT_CACHE_DIR=${{ github.workspace }}/build-ios/git-cache \
+            -P cmake/docker/PreloadDeps.cmake
+
+      - name: Install build dependencies
         run: |
           brew install autoconf automake libtool cmake
           echo "Xcode version:"
@@ -234,163 +285,52 @@ jobs:
           echo "iOS Simulator SDK path:"
           xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || echo "(not available)"
 
-      - name: Configure (local)
-        if: "!matrix.use_docker"
+      - name: Configure
         run: |
           ./configure \
             --without-docker \
-            ${{ matrix.toolchain_args }} \
-            --build-dir=${{ matrix.build_dir }} \
-            --target-dir=${{ matrix.target_dir }} \
+            --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
+            --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
+            --enable-static \
+            --build-dir=build-ios \
+            --target-dir=target-ios \
             ${{ needs.prepare.outputs.build_type_flag }}
 
-      - name: Build (local)
-        if: "!matrix.use_docker"
+      - name: Build
         run: make build
 
-      - name: Test (local, native builds only)
-        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
-        run: make test
+      - name: Export build outputs
+        run: make export
 
-      - name: Install (local)
-        if: "!matrix.use_docker"
-        run: make install
-
-      # --- kmp-publish: Desktop JAR (Linux only) ---
-      # Same pattern as Android: fat .a → .so wrapper → stage → Gradle → JAR
-
-      - name: Set up JDK (Desktop publish)
-        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Build Desktop .so wrapper and publish JAR
-        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
-        run: |
-          # Find fat library from the main build
-          BUILD_STAGING_DIR=$(grep "BUILD_STAGING_DIR:" ${{ matrix.build_dir }}/CMakeCache.txt | sed 's/.*=//')
-          FAT_LIB="$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"
-
-          if [ ! -f "$FAT_LIB" ]; then
-            echo "ERROR: Fat library not found at $FAT_LIB"
-            exit 1
-          fi
-          echo "Found fat library: $FAT_LIB ($(du -h "$FAT_LIB" | cut -f1))"
-
-          # Phase 1: Wrap .a → .so using kmp-publish wrapper CMakeLists.txt
-          echo "=== Building librgss_runtime.so wrapper ==="
-          cmake \
-            -S external/embedded-ruby-vm/kmp-publish/wrapper \
-            -B build-kmp-desktop-wrapper \
-            -DTARGET_ABI=linux-x86_64 \
-            -DFAT_LIB_PATH="$(realpath "$FAT_LIB")" \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-kmp-desktop-wrapper
-
-          # Phase 2: Stage .so into kmp-publish layout
-          echo "=== Staging .so into kmp-publish ==="
-          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64
-          cp build-kmp-desktop-wrapper/librgss_runtime.so \
-            external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64/
-          ls -lh external/embedded-ruby-vm/kmp-publish/src/main/desktopLibs/natives/linux-x64/
-
-          # Phase 3: Gradle publish to Maven Local
-          echo "=== Publishing Desktop JAR ==="
-          cd external/embedded-ruby-vm/kmp-publish
-          ./gradlew publishDesktopPublicationToMavenLocal \
-            -Pversion=${{ needs.prepare.outputs.version }} \
-            -PnativeLibraryName=rgss_runtime
-
-          echo "=== Desktop JAR published ==="
-          find ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop -type f 2>/dev/null | head -10
-
-          # Copy Maven artifacts to target dir for upload
-          mkdir -p ${{ github.workspace }}/${{ matrix.target_dir }}/maven/
-          cp -r ~/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop \
-            ${{ github.workspace }}/${{ matrix.target_dir }}/maven/ 2>/dev/null || true
-
-      - name: Upload intermediate Desktop Maven repo
-        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
+      - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-desktop-maven
-          path: ${{ matrix.target_dir }}/maven/
-          if-no-files-found: warn
-          retention-days: 1
-
-      # --- Upload intermediate artifacts (consumed by package job) ---
-
-      - name: Find AAR artifact (Android)
-        if: matrix.use_docker
-        id: find-aar
-        run: |
-          AAR_PATH=$(find ${{ matrix.target_dir }}/maven -name '*.aar' 2>/dev/null | head -1)
-          if [ -z "$AAR_PATH" ]; then
-            echo "ERROR: No AAR file found in ${{ matrix.target_dir }}/maven"
-            exit 1
-          fi
-          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
-          echo "Found AAR: $AAR_PATH"
-
-      - name: Upload intermediate AAR (Android)
-        if: matrix.use_docker
-        uses: actions/upload-artifact@v4
-        with:
-          name: intermediate-android
-          path: ${{ steps.find-aar.outputs.aar_path }}
+          name: build-ios
+          path: target-ios/
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload intermediate Maven repo (Android)
-        if: matrix.use_docker
-        uses: actions/upload-artifact@v4
-        with:
-          name: intermediate-android-maven
-          path: ${{ matrix.target_dir }}/maven/
-          if-no-files-found: warn
-          retention-days: 1
+  # ===========================================================================
+  #  INSTALL PHASE — publish KMP artifacts (each depends on its build)
+  # ===========================================================================
 
-      # Upload iOS fat .a for the publish-ios job
-      - name: Find and upload iOS fat library
-        if: "!matrix.use_docker && startsWith(matrix.platform, 'ios')"
-        run: |
-          BUILD_STAGING_DIR=$(grep "BUILD_STAGING_DIR:" ${{ matrix.build_dir }}/CMakeCache.txt | sed 's/.*=//')
-          FAT_LIB="$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"
-          if [ -f "$FAT_LIB" ]; then
-            mkdir -p ${{ matrix.target_dir }}/fat-lib
-            cp "$FAT_LIB" ${{ matrix.target_dir }}/fat-lib/librgss_runtime.a
-            echo "Staged fat library: $(du -h "$FAT_LIB" | cut -f1)"
-          else
-            echo "Warning: Fat library not found at $FAT_LIB"
-          fi
-
-      - name: Upload intermediate build output (non-Docker)
-        if: "!matrix.use_docker"
-        uses: actions/upload-artifact@v4
-        with:
-          name: intermediate-${{ matrix.platform }}
-          path: ${{ matrix.target_dir }}/
-          if-no-files-found: error
-          retention-days: 1
-
-  # ---------------------------------------------------------------------------
-  # Build iOS XCFramework from pre-built fat libraries
-  # Same kmp-publish pattern: stage pre-built .a → Gradle → XCFramework
-  # Requires both ios-device and ios-simulator builds to complete first
-  # ---------------------------------------------------------------------------
-  publish-ios:
-    needs: [prepare, build]
-    if: needs.prepare.outputs.has_ios_device == 'true' && needs.prepare.outputs.has_ios_simulator == 'true'
-    runs-on: macos-14
-    name: Publish iOS XCFramework
-
+  # --- Install Android: build .so wrappers + publish AAR ---
+  install-android:
+    needs: [prepare, build-android]
+    if: needs.prepare.outputs.has_android == 'true'
+    runs-on: ubuntu-latest
+    name: Install Android
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: build-android
+          path: target-android
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -398,78 +338,157 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Download iOS device build
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-ios-device
-          path: staging/ios-device
-
-      - name: Download iOS simulator build
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-ios-simulator
-          path: staging/ios-simulator
-
-      - name: Stage iOS fat libraries into kmp-publish
+      - name: Configure
         run: |
-          # Stage device .a
-          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_arm64
-          if [ -f staging/ios-device/fat-lib/librgss_runtime.a ]; then
-            cp staging/ios-device/fat-lib/librgss_runtime.a \
-              external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_arm64/
-            echo "Staged iOS device fat lib: $(du -h staging/ios-device/fat-lib/librgss_runtime.a | cut -f1)"
-          else
-            echo "ERROR: iOS device fat library not found"
-            find staging/ios-device -name '*.a' 2>/dev/null
+          ./configure \
+            --without-docker \
+            ${{ needs.prepare.outputs.android_toolchain_args }} \
+            --build-dir=build-android \
+            --target-dir=target-android \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Publish
+        run: make publish-kmp
+
+      - name: Find AAR artifact
+        id: find-aar
+        run: |
+          AAR_PATH=$(find target-android/maven -name '*.aar' 2>/dev/null | head -1)
+          if [ -z "$AAR_PATH" ]; then
+            echo "ERROR: No AAR file found in target-android/maven"
             exit 1
           fi
+          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found AAR: $AAR_PATH"
 
-          # Stage simulator .a
-          mkdir -p external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_simulator_arm64
-          if [ -f staging/ios-simulator/fat-lib/librgss_runtime.a ]; then
-            cp staging/ios-simulator/fat-lib/librgss_runtime.a \
-              external/embedded-ruby-vm/kmp-publish/src/main/iosLibs/ios_simulator_arm64/
-            echo "Staged iOS simulator fat lib: $(du -h staging/ios-simulator/fat-lib/librgss_runtime.a | cut -f1)"
-          else
-            echo "ERROR: iOS simulator fat library not found"
-            find staging/ios-simulator -name '*.a' 2>/dev/null
-            exit 1
-          fi
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-ios-publish-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle.kts') }}
-          restore-keys: |
-            gradle-ios-publish-
-
-      - name: Build XCFramework
-        working-directory: external/embedded-ruby-vm/kmp-publish
-        run: |
-          ./gradlew assembleReleaseXCFramework \
-            -Pversion=${{ needs.prepare.outputs.version }} \
-            -PnativeLibraryName=rgss_runtime
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload XCFramework
+      - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-xcframework
-          path: external/embedded-ruby-vm/kmp-publish/build/XCFrameworks/release/
+          name: intermediate-android
+          path: ${{ steps.find-aar.outputs.aar_path }}
           if-no-files-found: error
           retention-days: 1
 
-  # ---------------------------------------------------------------------------
-  # Package all platform outputs into a single artifact + publish to Maven
-  # On tag pushes, also create a GitHub Release
-  # ---------------------------------------------------------------------------
+      - name: Upload Maven repo
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-android-maven
+          path: target-android/maven/
+          if-no-files-found: warn
+          retention-days: 1
+
+  # --- Install Linux x86_64: build .so wrapper + publish Desktop JAR ---
+  install-linux-x86_64:
+    needs: [prepare, build-linux-x86_64]
+    if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+    runs-on: ubuntu-latest
+    name: Install Linux x86_64
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: build-linux-x86_64
+          path: target-linux-x86_64
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libudev-dev pkg-config
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configure
+        run: |
+          ./configure \
+            --without-docker \
+            --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
+            --build-dir=build-linux-x86_64 \
+            --target-dir=target-linux-x86_64 \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Publish
+        run: make publish-kmp
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-linux-x86_64
+          path: target-linux-x86_64/
+          if-no-files-found: error
+          retention-days: 1
+
+  # --- Install iOS: build XCFramework ---
+  install-ios:
+    needs: [prepare, build-ios]
+    if: needs.prepare.outputs.has_ios == 'true'
+    runs-on: macos-14
+    name: Install iOS
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: build-ios
+          path: target-ios
+
+      - name: Install build dependencies
+        run: brew install autoconf automake libtool cmake
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configure
+        run: |
+          ./configure \
+            --without-docker \
+            --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
+            --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
+            --enable-static \
+            --build-dir=build-ios \
+            --target-dir=target-ios \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Publish
+        run: make publish-kmp
+
+      - name: Upload target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: intermediate-ios
+          path: target-ios/
+          if-no-files-found: error
+          retention-days: 1
+
+  # ===========================================================================
+  #  PACKAGE — assemble final release from all platform outputs
+  # ===========================================================================
   package:
-    needs: [prepare, build, publish-ios]
-    if: always() && needs.build.result == 'success'
+    needs: [prepare, install-android, install-linux-x86_64, install-ios]
+    if: >-
+      always()
+      && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
+      && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
+      && (needs.install-ios.result == 'success' || needs.install-ios.result == 'skipped')
+      && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success' || needs.install-ios.result == 'success')
     runs-on: ubuntu-latest
     name: Package final artifacts
     permissions:
@@ -497,33 +516,12 @@ jobs:
           name: intermediate-linux-x86_64
           path: staging/linux-x86_64
 
-      - name: Download Desktop Maven repo
-        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
+      - name: Download iOS build
+        if: needs.prepare.outputs.has_ios == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: intermediate-desktop-maven
-          path: staging/desktop-maven
-
-      - name: Download iOS device build
-        if: needs.prepare.outputs.has_ios_device == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-ios-device
-          path: staging/ios-device
-
-      - name: Download iOS simulator build
-        if: needs.prepare.outputs.has_ios_simulator == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-ios-simulator
-          path: staging/ios-simulator
-
-      - name: Download iOS XCFramework
-        if: needs.publish-ios.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-xcframework
-          path: staging/xcframework
+          name: intermediate-ios
+          path: staging/ios
 
       - name: Assemble release
         run: |
@@ -540,23 +538,19 @@ jobs:
             echo "Included Linux x86_64 artifacts:"
             ls -lh release/linux-x86_64/
           fi
-          if [ -d staging/ios-device ]; then
-            mkdir -p release/ios-device
-            cp -r staging/ios-device/* release/ios-device/
-            echo "Included iOS device artifacts:"
-            ls -lh release/ios-device/
-          fi
-          if [ -d staging/ios-simulator ]; then
-            mkdir -p release/ios-simulator
-            cp -r staging/ios-simulator/* release/ios-simulator/
-            echo "Included iOS simulator artifacts:"
-            ls -lh release/ios-simulator/
-          fi
-          if [ -d staging/xcframework ]; then
-            mkdir -p release/xcframework
-            cp -r staging/xcframework/* release/xcframework/
-            echo "Included iOS XCFramework:"
-            find release/xcframework -type f | head -20
+          if [ -d staging/ios ]; then
+            mkdir -p release/ios
+            # Copy build archives (flat, from both device + simulator ABIs)
+            find staging/ios -maxdepth 1 -type f -exec cp {} release/ios/ \;
+            echo "Included iOS artifacts:"
+            ls -lh release/ios/ 2>/dev/null || true
+            # Copy XCFramework if present
+            if [ -d staging/ios/xcframework ]; then
+              mkdir -p release/xcframework
+              cp -r staging/ios/xcframework/* release/xcframework/
+              echo "Included iOS XCFramework:"
+              find release/xcframework -type f | head -20
+            fi
           fi
           echo ""
           echo "=== Final release contents ==="
@@ -589,16 +583,14 @@ jobs:
             tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64 .
           fi
 
-          if [ -d staging/ios-device ]; then
-            tar -czf "release-assets/litergss-ios-device-${VERSION}.tar.gz" -C staging/ios-device .
+          if [ -d staging/ios ]; then
+            # Archive iOS build outputs (excludes xcframework subdir)
+            tar -czf "release-assets/litergss-ios-${VERSION}.tar.gz" \
+              --exclude='xcframework' -C staging/ios .
           fi
 
-          if [ -d staging/ios-simulator ]; then
-            tar -czf "release-assets/litergss-ios-simulator-${VERSION}.tar.gz" -C staging/ios-simulator .
-          fi
-
-          if [ -d staging/xcframework ]; then
-            tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/xcframework .
+          if [ -d staging/ios/xcframework ]; then
+            tar -czf "release-assets/RubyVM-xcframework-${VERSION}.tar.gz" -C staging/ios/xcframework .
           fi
 
           echo "=== Release assets ==="
@@ -677,12 +669,12 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
 
-          JAR_FILE=$(find staging/desktop-maven -name '*.jar' ! -name '*-sources.jar' | head -1)
-          POM_FILE=$(find staging/desktop-maven -name '*.pom' | head -1)
+          JAR_FILE=$(find staging/linux-x86_64/maven -name '*.jar' ! -name '*-sources.jar' | head -1)
+          POM_FILE=$(find staging/linux-x86_64/maven -name '*.pom' | head -1)
 
           if [ -z "$JAR_FILE" ]; then
-            echo "Warning: No Desktop JAR found in staging/desktop-maven"
-            find staging/desktop-maven -type f 2>/dev/null
+            echo "Warning: No Desktop JAR found in staging/linux-x86_64/maven"
+            find staging/linux-x86_64/maven -type f 2>/dev/null
             exit 0
           fi
 

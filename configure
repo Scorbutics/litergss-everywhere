@@ -61,6 +61,11 @@ Examples:
   ./configure --with-toolchain-params=toolchain-params/arm64-v8a-android-toolchain.params \\
               --with-toolchain-params=toolchain-params/x86_64-android-toolchain.params
 
+  Multi-toolchain iOS build (device + simulator):
+  ./configure --without-docker --enable-static --build-dir=build-ios --target-dir=target-ios \\
+              --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \\
+              --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params
+
   CI/CD cross-platform builds (separate target dirs to avoid collisions):
   ./configure --target-dir=target-android --build-dir=build-android \\
               --with-toolchain-params=toolchain-params/arm64-v8a-android-toolchain.params \\
@@ -147,24 +152,23 @@ for tp in $TOOLCHAIN_PARAMS_LIST; do
 		exit 1
 	fi
 	TOOLCHAIN_COUNT=$((TOOLCHAIN_COUNT + 1))
+	# Derive ABI name: prefer DANDROID_ABI from file content, otherwise use filename
+	# e.g. "arm64-ios-device-toolchain.params" → "arm64-ios-device"
 	ABI=$(grep -o 'DANDROID_ABI=[^ ]*' "$ROOT_DIR/$tp" 2>/dev/null | sed 's/DANDROID_ABI=//')
-	if [ -n "$ABI" ]; then
-		TOOLCHAIN_ABI_LIST="${TOOLCHAIN_ABI_LIST:+$TOOLCHAIN_ABI_LIST }$ABI"
-	else
-		TOOLCHAIN_ABI_LIST="${TOOLCHAIN_ABI_LIST:+$TOOLCHAIN_ABI_LIST }generic"
+	if [ -z "$ABI" ]; then
+		ABI=$(basename "$tp" | sed 's/-toolchain\.params$//')
 	fi
+	TOOLCHAIN_ABI_LIST="${TOOLCHAIN_ABI_LIST:+$TOOLCHAIN_ABI_LIST }$ABI"
 done
 
-# Multi-ABI only supported for Android toolchains
-if [ $TOOLCHAIN_COUNT -gt 1 ]; then
-	for tp in $TOOLCHAIN_PARAMS_LIST; do
-		if ! grep -q "DANDROID_ABI=" "$ROOT_DIR/$tp"; then
-			echo "Error: Multi-ABI builds only supported for Android toolchains"
-			echo "  Non-Android toolchain: $tp"
-			exit 1
-		fi
-	done
-fi
+# Detect if any toolchain is Android
+HAS_ANDROID=0
+for tp in $TOOLCHAIN_PARAMS_LIST; do
+	if grep -q "DANDROID_ABI=" "$ROOT_DIR/$tp"; then
+		HAS_ANDROID=1
+		break
+	fi
+done
 
 # Check Docker availability if Docker build is requested
 if [ $USE_DOCKER -eq 1 ]; then
@@ -268,12 +272,13 @@ BUILD_DIR=@BUILD_DIR@
 TARGET_DIR=@TARGET_DIR@
 ROOT_DIR=@ROOT_DIR@
 EXTRA_CMAKE_ARGS=@EXTRA_CMAKE_ARGS@
+HAS_ANDROID=@HAS_ANDROID@
 PROJECT_NAME=litergss-everywhere
 CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current/src
 DOCKER_BUILD_DIR=/opt/current/build
 
-.PHONY: all build configure-cmake install test publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
+.PHONY: all build configure-cmake export install test publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
 
 # Default target
 all: build
@@ -284,7 +289,8 @@ help:
 	@echo "  build              - Build the project (same as 'all')"
 	@echo "  sync               - Force sync of source files to Docker (Docker mode only)"
 	@echo "  configure-cmake    - Run CMake configuration"
-	@echo "  install            - Install/export build artifacts and publish KMP module"
+	@echo "  export             - Export build outputs (fat libs + archives) to $(TARGET_DIR)"
+	@echo "  install            - Export build outputs and publish KMP module"
 	@echo "  test               - Run smoke tests (native builds only, skipped when cross-compiling)"
 	@echo "  publish-kmp        - Publish KMP module to Maven Local (called by install)"
 	@echo "  android-example-build - Build the Android example app (assembleDebug)"
@@ -494,12 +500,14 @@ test: build
 			echo "  (smoke test not available for this configuration, skipping)"; \
 	done
 
-# Install/export from Docker
-install: docker-check-running
-	@echo "Exporting build artifacts from Docker..."
+# Export build outputs to a well-defined structure under TARGET_DIR:
+#   TARGET_DIR/fat-libs/<abi>/librgss_runtime.a
+#   TARGET_DIR/archives/<name>.zip
+# This is the contract between build and install — no CMakeCache.txt leaves this step.
+export: docker-check-running
+	@echo "Exporting build outputs from Docker..."
 	@rm -rf $(TARGET_DIR)
-	@mkdir -p $(TARGET_DIR)
-	@# Export archives from each ABI build directory
+	@mkdir -p $(TARGET_DIR)/fat-libs $(TARGET_DIR)/archives
 	@set -e; \
 	abis=($(TOOLCHAIN_ABI_LIST)); \
 	for i in $${!abis[@]}; do \
@@ -510,28 +518,30 @@ install: docker-check-running
 			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
 		fi; \
 		echo ""; \
-		echo "=== Exporting artifacts for ABI: $$abi ==="; \
+		echo "=== Exporting build outputs for ABI: $$abi ==="; \
 		BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
 		if [ -z "$$BUILD_STAGING_DIR" ]; then \
 			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
 			exit 1; \
 		fi; \
-		echo "Staging directory: $$BUILD_STAGING_DIR"; \
-		TARGET_ARCHIVES=$$(docker exec $(CONTAINER) grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-		if [ -z "$$TARGET_ARCHIVES" ]; then \
-			echo "Warning: No archives registered in TARGET_ARCHIVES for $$abi"; \
-			docker exec $(CONTAINER) tar -czf - -C $$build_dir/target . 2>/dev/null | tar -xzf - -C $(TARGET_DIR) 2>/dev/null || true; \
+		FAT_LIB="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
+		if docker exec $(CONTAINER) test -f "$$FAT_LIB"; then \
+			mkdir -p $(TARGET_DIR)/fat-libs/$$abi; \
+			docker cp $(CONTAINER):"$$FAT_LIB" $(TARGET_DIR)/fat-libs/$$abi/librgss_runtime.a; \
+			echo "  fat-libs/$$abi/librgss_runtime.a ($$(du -h $(TARGET_DIR)/fat-libs/$$abi/librgss_runtime.a | cut -f1))"; \
 		else \
-			echo "Found registered archives: $$TARGET_ARCHIVES"; \
+			echo "  Warning: Fat library not found at $$FAT_LIB"; \
+		fi; \
+		TARGET_ARCHIVES=$$(docker exec $(CONTAINER) grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -n "$$TARGET_ARCHIVES" ]; then \
 			FAILED=0; \
 			IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
 			for archive in "$${ARCHIVES[@]}"; do \
 				if [ -z "$$archive" ]; then continue; fi; \
 				ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
-				echo "Checking archive: $$archive"; \
 				if docker exec $(CONTAINER) test -f "$$ARCHIVE_PATH"; then \
-					echo "  Copying $$archive..."; \
-					docker cp $(CONTAINER):"$$ARCHIVE_PATH" $(TARGET_DIR)/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+					docker cp $(CONTAINER):"$$ARCHIVE_PATH" $(TARGET_DIR)/archives/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+					echo "  archives/$$archive"; \
 				else \
 					echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
 					FAILED=1; \
@@ -543,138 +553,69 @@ install: docker-check-running
 			fi; \
 		fi; \
 	done
-	@echo "Build artifacts exported to: ./$(TARGET_DIR)"
-	@ls -lh $(TARGET_DIR)/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+	@echo ""
+	@echo "Build outputs exported to: ./$(TARGET_DIR)"
+	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
+
+# Install = export + publish
+install: export
 	@$(MAKE) publish-kmp
 
-# Publish KMP module to Maven Local
-# This target builds .so wrappers for all configured ABIs, stages them into jniLibs,
-# then publishes a single AAR containing all ABIs.
+# Publish KMP module to Maven Local (Docker mode)
+# Reads fat libs from TARGET_DIR/fat-libs/<abi>/ (produced by 'make export'),
+# copies them into the Docker container, and runs the publish script inside it.
 publish-kmp: docker-check-running
 	@echo ""
 	@echo "=========================================="
-	@echo "Publishing KMP module to Maven Local..."
+	@echo "Publishing KMP module (Docker)..."
 	@echo "=========================================="
-	@# Clean stale jniLibs to avoid leftover ABIs from previous runs
-	@rm -rf $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs
-	@# Phase 1: Build .so wrapper and stage for each ABI
-	@set -e; \
-	abis=($(TOOLCHAIN_ABI_LIST)); \
-	NDK_HOME=/opt/android-ndk/; \
-	for i in $${!abis[@]}; do \
-		abi=$${abis[$$i]}; \
-		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
-			build_dir=$(DOCKER_BUILD_DIR); \
-		else \
-			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
-		fi; \
-		echo ""; \
-		echo "=== Staging ABI: $$abi ==="; \
-		BUILD_STAGING_DIR=$$(docker exec $(CONTAINER) grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-		if [ -z "$$BUILD_STAGING_DIR" ]; then \
-			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
-			exit 1; \
-		fi; \
-		echo "Staging directory: $$BUILD_STAGING_DIR"; \
-		TARGET_ARCH=$$(basename $$BUILD_STAGING_DIR | sed 's/-android$$//'); \
-		echo "Detected target arch: $$TARGET_ARCH"; \
-		case "$$TARGET_ARCH" in \
-			arm64|arm64-v8a) ANDROID_ABI="arm64-v8a"; NDK_TRIPLE="aarch64-linux-android" ;; \
-			arm|armeabi-v7a) ANDROID_ABI="armeabi-v7a"; NDK_TRIPLE="arm-linux-androideabi" ;; \
-			x86_64)          ANDROID_ABI="x86_64"; NDK_TRIPLE="x86_64-linux-android" ;; \
-			x86)             ANDROID_ABI="x86"; NDK_TRIPLE="i686-linux-android" ;; \
-			*) echo "Error: Unknown target arch: $$TARGET_ARCH"; exit 1 ;; \
-		esac; \
-		echo "Android ABI: $$ANDROID_ABI"; \
-		FAT_LIB_A="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
-		if ! docker exec $(CONTAINER) test -f "$$FAT_LIB_A"; then \
-			echo "Warning: Fat library not found at $$FAT_LIB_A"; \
-			echo "Skipping ABI $$abi"; \
-			continue; \
-		fi; \
-		echo "Found fat library at: $$FAT_LIB_A"; \
-		echo ""; \
-		echo "--- Building shared library for $$ANDROID_ABI ---"; \
-		echo "NDK: $$NDK_HOME"; \
-		CMAKE_BUILD_DIR="$(DOCKER_BUILD_DIR)/kmp-publish-cmake/$$ANDROID_ABI"; \
-		docker exec $(CONTAINER) mkdir -p "$$CMAKE_BUILD_DIR"; \
-		docker exec $(CONTAINER) cmake \
-			-S $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/wrapper \
-			-B "$$CMAKE_BUILD_DIR" \
-			-DCMAKE_TOOLCHAIN_FILE="$$NDK_HOME/build/cmake/android.toolchain.cmake" \
-			-DANDROID_ABI="$$ANDROID_ABI" \
-			-DANDROID_PLATFORM=android-26 \
-			-DANDROID_STL=c++_shared \
-			-DTARGET_ABI="$$ANDROID_ABI" \
-			-DTARGET_ARCH="$$TARGET_ARCH" \
-			-DFAT_LIB_PATH="$$FAT_LIB_A" \
-			-DCMAKE_BUILD_TYPE=RelWithDebInfo; \
-		if ! docker exec $(CONTAINER) cmake --build "$$CMAKE_BUILD_DIR"; then \
-			echo ""; \
-			echo "✗ Failed to build librgss_runtime.so for $$ANDROID_ABI — aborting"; \
-			exit 1; \
-		fi; \
-		echo ""; \
-		echo "--- Staging .so into host jniLibs/$$ANDROID_ABI/ ---"; \
-		JNILIBS_DIR="$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/$$ANDROID_ABI"; \
-		mkdir -p "$$JNILIBS_DIR"; \
-		if ! docker cp $(CONTAINER):"$$CMAKE_BUILD_DIR/librgss_runtime.so" "$$JNILIBS_DIR/librgss_runtime.so"; then \
-			echo "✗ librgss_runtime.so not found in build output — build likely failed"; \
-			exit 1; \
-		fi; \
-		LIBCXX=$$(docker exec $(CONTAINER) find "$$NDK_HOME/toolchains/llvm/prebuilt" -path "*$$NDK_TRIPLE/libc++_shared.so" 2>/dev/null | head -1); \
-		if [ -n "$$LIBCXX" ]; then \
-			docker cp $(CONTAINER):"$$LIBCXX" "$$JNILIBS_DIR/libc++_shared.so"; \
-		else \
-			echo "Warning: libc++_shared.so not found for $$NDK_TRIPLE"; \
-		fi; \
-		echo "Staged files for $$ANDROID_ABI:"; \
-		ls -lh "$$JNILIBS_DIR/"*.so 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}'; \
-	done
-	@# Show all staged ABIs
-	@echo ""
-	@echo "All staged ABIs:"
-	@for abi_dir in $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src/main/jniLibs/*/; do \
-		abi_name=$$(basename "$$abi_dir"); \
-		echo "  $$abi_name: $$(ls "$$abi_dir"*.so 2>/dev/null | wc -l) libraries"; \
-	done
-	@# Phase 2: Single Gradle publish with all ABIs
-	@echo ""
-	@echo "--- Publishing AAR with all ABIs ---"
-	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish
-	@docker exec $(CONTAINER) mkdir -p $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp
-	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/
-	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/
-	@if [ -d "$(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src" ]; then \
-		docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
-	fi
-	@echo "sdk.dir=/opt/android-sdk" > $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties
-	@docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/local.properties $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/local.properties
-	@if docker exec $(CONTAINER) bash -c "cd $(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish && ./gradlew clean publishToMavenLocal -PnativeLibraryName=rgss_runtime" 2>&1; then \
-		echo ""; \
-		echo "✓ KMP module published successfully!"; \
-		echo "  Maven coordinates: com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT"; \
-		echo ""; \
-		echo "Copying Maven artifacts to host..."; \
-		mkdir -p $(TARGET_DIR)/maven; \
-		if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android; then \
-			mkdir -p $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
-			docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
-			echo "✓ Maven artifacts exported to: ./$(TARGET_DIR)/maven/"; \
-			mkdir -p $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
-			cp -r $(TARGET_DIR)/maven/com/scorbutics/rubyvm/kmp-publish-android $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
-			echo "✓ Maven artifacts installed to: ~/.m2/repository/"; \
-			echo ""; \
-			echo "AAR contents:"; \
-			unzip -l $(HOME)/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android/1.0.0-SNAPSHOT/kmp-publish-android-1.0.0-SNAPSHOT.aar 2>/dev/null | grep -E "\.so|jni/" | awk '{print "  " $$4}'; \
-		else \
-			echo "Warning: Maven artifacts not found in container"; \
-		fi; \
-		echo ""; \
-	else \
-		echo ""; \
-		echo "✗ Gradle publish failed - see error output above"; \
+	@if [ ! -d "$(TARGET_DIR)/fat-libs" ]; then \
+		echo "Error: $(TARGET_DIR)/fat-libs not found. Run 'make export' first."; \
 		exit 1; \
+	fi
+	@IS_ANDROID=false; IS_DESKTOP=false; \
+	for tp in $(TOOLCHAIN_PARAMS_LIST); do \
+		if grep -q "DANDROID_ABI=" "$$tp" 2>/dev/null; then IS_ANDROID=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
+		fi; \
+	done; \
+	set -e; \
+	DOCKER_TARGET_DIR="$(DOCKER_WORKDIR)/$(TARGET_DIR)"; \
+	docker exec $(CONTAINER) mkdir -p "$$DOCKER_TARGET_DIR/fat-libs"; \
+	DOCKER_SCRIPT_ARGS="--root-dir $(DOCKER_WORKDIR) --target-dir $$DOCKER_TARGET_DIR"; \
+	for abi_dir in $(TARGET_DIR)/fat-libs/*/; do \
+		[ -d "$$abi_dir" ] || continue; \
+		abi=$$(basename "$$abi_dir"); \
+		fat_lib="$$abi_dir/librgss_runtime.a"; \
+		if [ -f "$$fat_lib" ]; then \
+			docker exec $(CONTAINER) mkdir -p "$$DOCKER_TARGET_DIR/fat-libs/$$abi"; \
+			docker cp "$$fat_lib" $(CONTAINER):"$$DOCKER_TARGET_DIR/fat-libs/$$abi/librgss_runtime.a"; \
+			DOCKER_SCRIPT_ARGS="$$DOCKER_SCRIPT_ARGS --abi $$abi --fat-lib $$DOCKER_TARGET_DIR/fat-libs/$$abi/librgss_runtime.a"; \
+		fi; \
+	done; \
+	docker cp $(ROOT_DIR)/scripts/. $(CONTAINER):$(DOCKER_WORKDIR)/scripts/; \
+	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp-publish/. $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp-publish/; \
+	docker cp $(ROOT_DIR)/external/embedded-ruby-vm/kmp/src $(CONTAINER):$(DOCKER_WORKDIR)/external/embedded-ruby-vm/kmp/; \
+	if [ "$$IS_ANDROID" = "true" ]; then \
+		docker exec $(CONTAINER) bash -c "$(DOCKER_WORKDIR)/scripts/publish-kmp-android.sh $$DOCKER_SCRIPT_ARGS --ndk-home /opt/android-ndk"; \
+	elif [ "$$IS_DESKTOP" = "true" ]; then \
+		docker exec $(CONTAINER) bash -c "$(DOCKER_WORKDIR)/scripts/publish-kmp-desktop.sh $$DOCKER_SCRIPT_ARGS"; \
+	else \
+		echo "No KMP publishing needed for this platform"; \
+	fi
+	@echo ""
+	@echo "Copying Maven artifacts from Docker..."
+	@mkdir -p $(TARGET_DIR)/maven
+	@docker exec $(CONTAINER) find /root/.m2/repository/com/scorbutics/rubyvm -name '*.aar' -o -name '*.jar' -o -name '*.pom' 2>/dev/null | head -5 || true
+	@if docker exec $(CONTAINER) test -d /root/.m2/repository/com/scorbutics/rubyvm; then \
+		mkdir -p $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
+		docker cp $(CONTAINER):/root/.m2/repository/com/scorbutics/rubyvm/. $(TARGET_DIR)/maven/com/scorbutics/rubyvm/; \
+		echo "Maven artifacts exported to: ./$(TARGET_DIR)/maven/"; \
+		mkdir -p $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
+		cp -r $(TARGET_DIR)/maven/com/scorbutics/rubyvm/. $(HOME)/.m2/repository/com/scorbutics/rubyvm/; \
+		echo "Maven artifacts installed to: ~/.m2/repository/"; \
+	else \
+		echo "Warning: No Maven artifacts found in container"; \
 	fi
 
 # Build Android example app
@@ -916,10 +857,14 @@ test: build
 			echo "  (smoke test not available for this configuration, skipping)"; \
 	done
 
-install:
-	@echo "Installing build artifacts (local mode)..."
+# Export build outputs to a well-defined structure under TARGET_DIR:
+#   TARGET_DIR/fat-libs/<abi>/librgss_runtime.a
+#   TARGET_DIR/archives/<name>.zip
+# This is the contract between build and install — no CMakeCache.txt leaves this step.
+export:
+	@echo "Exporting build outputs (local mode)..."
 	@rm -rf $(TARGET_DIR)
-	@mkdir -p $(TARGET_DIR)
+	@mkdir -p $(TARGET_DIR)/fat-libs $(TARGET_DIR)/archives
 	@set -e; \
 	abis=($(TOOLCHAIN_ABI_LIST)); \
 	for i in $${!abis[@]}; do \
@@ -934,30 +879,30 @@ install:
 			exit 1; \
 		fi; \
 		echo ""; \
-		echo "=== Exporting artifacts for ABI: $$abi ==="; \
+		echo "=== Exporting build outputs for ABI: $$abi ==="; \
 		BUILD_STAGING_DIR=$$(grep -E "BUILD_STAGING_DIR:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
 		if [ -z "$$BUILD_STAGING_DIR" ]; then \
 			echo "Error: BUILD_STAGING_DIR not found in CMake cache for $$abi"; \
 			exit 1; \
 		fi; \
-		echo "Staging directory: $$BUILD_STAGING_DIR"; \
-		TARGET_ARCHIVES=$$(grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
-		if [ -z "$$TARGET_ARCHIVES" ]; then \
-			echo "Warning: No archives registered in TARGET_ARCHIVES for $$abi"; \
-			if [ -d "$$build_dir/target" ]; then \
-				cp -r $$build_dir/target/* $(TARGET_DIR)/ 2>/dev/null || true; \
-			fi; \
+		FAT_LIB="$$BUILD_STAGING_DIR/usr/local/lib/librgss_runtime.a"; \
+		if [ -f "$$FAT_LIB" ]; then \
+			mkdir -p $(TARGET_DIR)/fat-libs/$$abi; \
+			cp "$$FAT_LIB" $(TARGET_DIR)/fat-libs/$$abi/librgss_runtime.a; \
+			echo "  fat-libs/$$abi/librgss_runtime.a ($$(du -h "$$FAT_LIB" | cut -f1))"; \
 		else \
-			echo "Found registered archives: $$TARGET_ARCHIVES"; \
+			echo "  Warning: Fat library not found at $$FAT_LIB"; \
+		fi; \
+		TARGET_ARCHIVES=$$(grep -E "TARGET_ARCHIVES:" $$build_dir/CMakeCache.txt 2>/dev/null | sed -E 's/.*=(.*)$$/\1/'); \
+		if [ -n "$$TARGET_ARCHIVES" ]; then \
 			FAILED=0; \
 			IFS=';' read -ra ARCHIVES <<< "$$TARGET_ARCHIVES"; \
 			for archive in "$${ARCHIVES[@]}"; do \
 				if [ -z "$$archive" ]; then continue; fi; \
 				ARCHIVE_PATH="$$BUILD_STAGING_DIR/$$archive"; \
-				echo "Checking archive: $$archive"; \
 				if [ -f "$$ARCHIVE_PATH" ]; then \
-					echo "  Copying $$archive..."; \
-					cp "$$ARCHIVE_PATH" $(TARGET_DIR)/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+					cp "$$ARCHIVE_PATH" $(TARGET_DIR)/archives/ 2>/dev/null || { echo "  Warning: Failed to copy $$archive"; FAILED=1; }; \
+					echo "  archives/$$archive"; \
 				else \
 					echo "  ERROR: Archive not found: $$ARCHIVE_PATH"; \
 					FAILED=1; \
@@ -969,8 +914,54 @@ install:
 			fi; \
 		fi; \
 	done
-	@echo "Build artifacts installed to: ./$(TARGET_DIR)"
-	@ls -lh $(TARGET_DIR)/*.zip 2>/dev/null | awk '{print "  " $$9 " (" $$5 ")"}' || echo "  No archives found"
+	@echo ""
+	@echo "Build outputs exported to: ./$(TARGET_DIR)"
+	@find $(TARGET_DIR) -type f | sort | awk '{print "  " $$0}'
+
+# Install = export + publish
+install: export
+	@$(MAKE) publish-kmp
+
+# Publish KMP module to Maven Local (local mode)
+# Reads fat libs from TARGET_DIR/fat-libs/<abi>/ (produced by 'make export')
+# and delegates to the appropriate publish script based on platform.
+publish-kmp:
+	@echo ""
+	@echo "=========================================="
+	@echo "Publishing KMP module..."
+	@echo "=========================================="
+	@if [ ! -d "$(TARGET_DIR)/fat-libs" ]; then \
+		echo "Error: $(TARGET_DIR)/fat-libs not found. Run 'make export' first."; \
+		exit 1; \
+	fi
+	@IS_ANDROID=false; IS_IOS=false; IS_DESKTOP=false; \
+	for tp in $(TOOLCHAIN_PARAMS_LIST); do \
+		if grep -q "DANDROID_ABI=" "$$tp" 2>/dev/null; then IS_ANDROID=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=iOS" "$$tp" 2>/dev/null; then IS_IOS=true; \
+		elif grep -q "DCMAKE_SYSTEM_NAME=Linux" "$$tp" 2>/dev/null; then IS_DESKTOP=true; \
+		fi; \
+	done; \
+	SCRIPT_ARGS="--root-dir $(ROOT_DIR) --target-dir $(TARGET_DIR)"; \
+	for abi_dir in $(TARGET_DIR)/fat-libs/*/; do \
+		[ -d "$$abi_dir" ] || continue; \
+		abi=$$(basename "$$abi_dir"); \
+		fat_lib="$$abi_dir/librgss_runtime.a"; \
+		if [ -f "$$fat_lib" ]; then \
+			SCRIPT_ARGS="$$SCRIPT_ARGS --abi $$abi --fat-lib $$fat_lib"; \
+		fi; \
+	done; \
+	if [ "$$IS_ANDROID" = "true" ]; then \
+		set -e; \
+		$(ROOT_DIR)/scripts/publish-kmp-android.sh $$SCRIPT_ARGS; \
+	elif [ "$$IS_DESKTOP" = "true" ]; then \
+		set -e; \
+		$(ROOT_DIR)/scripts/publish-kmp-desktop.sh $$SCRIPT_ARGS; \
+	elif [ "$$IS_IOS" = "true" ]; then \
+		set -e; \
+		$(ROOT_DIR)/scripts/publish-kmp-ios.sh $$SCRIPT_ARGS; \
+	else \
+		echo "No KMP publishing needed for this platform"; \
+	fi
 
 clean:
 	@echo "Cleaning build artifacts (local mode)..."
@@ -1217,6 +1208,7 @@ sed \
 	-e "s|@TARGET_DIR@|$TARGET_DIR|g" \
 	-e "s|@ROOT_DIR@|$ROOT_DIR|g" \
 	-e "s|@EXTRA_CMAKE_ARGS@|$EXTRA_CMAKE_ARGS|g" \
+	-e "s|@HAS_ANDROID@|$HAS_ANDROID|g" \
 	"$ROOT_DIR/Makefile" > "$ROOT_DIR/Makefile.new"
 
 # Insert package clean and log targets

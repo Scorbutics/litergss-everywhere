@@ -1,6 +1,7 @@
 # Build directories
 build/
 target/
+build-kmp-*/
 
 # Symlinks
 /cmake/core
