@@ -36,7 +36,7 @@ index 0737ec5..e78d86d 100644
      elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
          set(FIND_SFML_OS_LINUX 1)
  
-@@ -35,8 +37,16 @@ if(SFML_STATIC_LIBRARIES)
+@@ -35,8 +37,19 @@ if(SFML_STATIC_LIBRARIES)
          endif()
  
          # No lookup in environment variables (PATH on Windows), as they may contain wrong library versions
@@ -45,7 +45,10 @@ index 0737ec5..e78d86d 100644
 +        # Cross-compilation (Android/iOS): restrict to explicit FIND_SFML_PATHS only
 +        # so that host (e.g. Homebrew) libraries are never picked up.
 +        # Native builds: allow system paths for X11, OpenGL, etc.
-+        if(FIND_SFML_OS_ANDROID OR FIND_SFML_OS_IOS)
++        if(FIND_SFML_OS_ANDROID)
++            find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
++                         PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
++        elseif(FIND_SFML_OS_IOS)
 +            find_library(${THIS_FRIENDLY_NAME}_LIB NAMES ${THIS_SEARCH_NAMES}
 +                         PATHS ${FIND_SFML_PATHS} PATH_SUFFIXES lib NO_DEFAULT_PATH)
 +        else()
