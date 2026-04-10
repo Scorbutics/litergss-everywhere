@@ -226,6 +226,10 @@ jobs:
         if: "!matrix.use_docker"
         run: make build
 
+      - name: Test (local, native builds only)
+        if: "!matrix.use_docker && startsWith(matrix.platform, 'linux')"
+        run: make test
+
       - name: Install (local)
         if: "!matrix.use_docker"
         run: make install

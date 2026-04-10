@@ -65,6 +65,15 @@ add_external_dependency(
 # FINAL OUTPUT
 # ============================================================================
 
+# ============================================================================
+# EXPECTED SYMBOLS (shared between nm verify and smoke test)
+# ============================================================================
+include(${CMAKE_SOURCE_DIR}/cmake/litergss-app/expected_symbols.cmake)
+set(VERIFY_SYMBOLS_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/litergss-app/scripts/verify_symbols.cmake")
+
+# Generate the header so smoke_test.c can verify all symbols at link+run time
+rgss_generate_expected_symbols_header("${CMAKE_BINARY_DIR}/generated")
+
 if(BUILD_SHARED_WRAPPER)
     # ------------------------------------------------------------------------
     # SHARED WRAPPER MODE (rgss_runtime.so)
@@ -145,6 +154,12 @@ if(BUILD_SHARED_WRAPPER)
     # If so, add it to LIBS_TO_LINK
     
     install(TARGETS rgss_runtime DESTINATION lib)
+    # No separate symbol verification needed: if a symbol is missing,
+    # the shared library link above will fail with an unresolved reference.
+
+    # Bridge variables for the smoke test section below
+    set(RGSS_SMOKE_TEST_ENABLED TRUE)
+    set(RGSS_SMOKE_TEST_LINK_MODE "shared")
 
 else()
     # ------------------------------------------------------------------------
@@ -272,6 +287,28 @@ else()
             DEPENDS ${FAT_LIBRARY_OUTPUT}
         )
 
+        # Verify symbols are present in the fat static library.
+        # For native builds the smoke test provides a stronger check
+        # (compile + link + run), so the nm fallback is only needed
+        # when cross-compiling.
+        if(CMAKE_CROSSCOMPILING)
+            add_custom_command(
+                TARGET rgss_fat_library POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                    -DVERIFY_NM=${CMAKE_NM}
+                    -DVERIFY_LIBRARY=${FAT_LIBRARY_OUTPUT}
+                    "-DVERIFY_SYMBOLS=${RGSS_EXPECTED_SYMBOLS}"
+                    -DVERIFY_LIBRARY_TYPE=static
+                    -P ${VERIFY_SYMBOLS_SCRIPT}
+                COMMENT "Verifying symbols in lib${FAT_LIBRARY_NAME}.a (cross-compile nm check)"
+                VERBATIM
+            )
+        endif()
+
+        # Bridge variables for the smoke test section below
+        set(RGSS_SMOKE_TEST_ENABLED TRUE)
+        set(RGSS_SMOKE_TEST_LINK_MODE "static")
+
         # Add clean target for fat library
         add_custom_target(rgss_fat_library_clean
             COMMAND ${CMAKE_COMMAND} -E rm -f ${FAT_LIBRARY_OUTPUT}
@@ -339,4 +376,60 @@ else()
     endif()
 
     message(STATUS "LiteRGSS2 configured - archive will be: ${LITERGSS_ARCHIVE_NAME}")
+endif()
+
+# ============================================================================
+# SMOKE TEST (native builds only)
+# ============================================================================
+# When not cross-compiling, compile and run a smoke test against the output
+# library to verify the build artifact is functional, not just symbol-complete.
+if(RGSS_SMOKE_TEST_ENABLED AND NOT CMAKE_CROSSCOMPILING)
+    enable_testing()
+
+    set(SMOKE_TEST_SRC "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
+    add_executable(rgss_smoke_test ${SMOKE_TEST_SRC})
+
+    # Same include paths as extension-init.c compilation (see embedded-ruby-vm.cmake)
+    target_include_directories(rgss_smoke_test PRIVATE
+        "${CMAKE_BINARY_DIR}/generated"
+        "${BUILD_STAGING_DIR}/usr/local/include"
+        "${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static"
+        "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby"
+        "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}"
+    )
+
+    if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
+        # Shared wrapper: link against the CMake target directly
+        target_link_libraries(rgss_smoke_test PRIVATE rgss_runtime)
+        add_dependencies(rgss_smoke_test rgss_runtime)
+    elseif(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "static")
+        # Fat static library: link against the archive + system dependencies
+        # System deps are needed because the static archive doesn't resolve them.
+        find_package(Threads REQUIRED)
+        find_package(X11 REQUIRED)
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(rgss_smoke_test PRIVATE
+            "${FAT_LIBRARY_OUTPUT}"
+            Threads::Threads
+            ${CMAKE_DL_LIBS}
+            m
+            ${X11_LIBRARIES}
+            ${X11_Xrandr_LIB}
+            ${X11_Xcursor_LIB}
+            OpenGL::GL
+            udev
+        )
+        add_dependencies(rgss_smoke_test rgss_fat_library)
+    endif()
+
+    add_test(NAME rgss_smoke_test COMMAND rgss_smoke_test)
+    set_tests_properties(rgss_smoke_test PROPERTIES TIMEOUT 10)
+
+    message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
+else()
+    if(CMAKE_CROSSCOMPILING)
+        message(STATUS "Smoke test disabled (cross-compiling)")
+    elseif(NOT RGSS_SMOKE_TEST_ENABLED)
+        message(STATUS "Smoke test disabled (no testable output library)")
+    endif()
 endif()

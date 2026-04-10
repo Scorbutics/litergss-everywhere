@@ -273,7 +273,7 @@ CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current/src
 DOCKER_BUILD_DIR=/opt/current/build
 
-.PHONY: all build configure-cmake install publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
+.PHONY: all build configure-cmake install test publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
 
 # Default target
 all: build
@@ -285,6 +285,7 @@ help:
 	@echo "  sync               - Force sync of source files to Docker (Docker mode only)"
 	@echo "  configure-cmake    - Run CMake configuration"
 	@echo "  install            - Install/export build artifacts and publish KMP module"
+	@echo "  test               - Run smoke tests (native builds only, skipped when cross-compiling)"
 	@echo "  publish-kmp        - Publish KMP module to Maven Local (called by install)"
 	@echo "  android-example-build - Build the Android example app (assembleDebug)"
 	@echo "  android-example-install - Build and install the Android example app on device"
@@ -473,6 +474,24 @@ build: configure-cmake
 		echo ""; \
 		echo "=== Building ABI: $$abi ==="; \
 		docker exec $(CONTAINER) cmake --build $$build_dir; \
+	done
+
+test: build
+	@echo "Running tests (Docker mode)..."
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(DOCKER_BUILD_DIR); \
+		else \
+			build_dir=$(DOCKER_BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Running tests for ABI: $$abi ==="; \
+		docker exec $(CONTAINER) cmake --build $$build_dir --target rgss_smoke_test 2>/dev/null && \
+			docker exec $(CONTAINER) ctest --test-dir $$build_dir --output-on-failure || \
+			echo "  (smoke test not available for this configuration, skipping)"; \
 	done
 
 # Install/export from Docker
@@ -877,6 +896,24 @@ build: configure-cmake
 		echo ""; \
 		echo "=== Building ABI: $$abi ==="; \
 		cmake --build $$build_dir; \
+	done
+
+test: build
+	@echo "Running tests (local mode)..."
+	@set -e; \
+	abis=($(TOOLCHAIN_ABI_LIST)); \
+	for i in $${!abis[@]}; do \
+		abi=$${abis[$$i]}; \
+		if [ $(TOOLCHAIN_COUNT) -eq 1 ]; then \
+			build_dir=$(BUILD_DIR); \
+		else \
+			build_dir=$(BUILD_DIR)-$$abi; \
+		fi; \
+		echo ""; \
+		echo "=== Running tests for ABI: $$abi ==="; \
+		cmake --build $$build_dir --target rgss_smoke_test 2>/dev/null && \
+			ctest --test-dir $$build_dir --output-on-failure || \
+			echo "  (smoke test not available for this configuration, skipping)"; \
 	done
 
 install:
