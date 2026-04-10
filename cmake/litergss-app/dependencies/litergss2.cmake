@@ -97,6 +97,7 @@ if(BUILD_SHARED_WRAPPER)
     # Using full paths to staging dir
     set(LIBS_TO_LINK
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a" # Always static as per above
+        "${BUILD_STAGING_DIR}/usr/local/lib/libSFMLAudio.a" # Ruby SFMLAudio extension
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-graphics.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-window.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"
@@ -265,7 +266,7 @@ else()
                 -DCOMBINE_OBJCOPY=${CMAKE_OBJCOPY}
                 "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external
+            DEPENDS litergss2_external ruby-sfml-audio_external
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )
