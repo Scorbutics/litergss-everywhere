@@ -887,11 +887,18 @@ jobs:
 
             if [ -n "$VERSION_ID" ]; then
               echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
-              gh api --method DELETE \
-                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null || \
+              # Try deleting the version; if it's the last version, delete the whole package instead
+              if ! gh api --method DELETE \
+                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
+                ! gh api --method DELETE \
+                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
+                echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
                 gh api --method DELETE \
-                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null || \
-                echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+                  "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                  gh api --method DELETE \
+                  "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                  echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+              fi
             fi
           done
           echo "SNAPSHOT cleanup complete."
