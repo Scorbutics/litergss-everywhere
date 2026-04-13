@@ -1,21 +1,19 @@
-# Example iOS App Integration (KMP)
+# iOS Integration Example (KMP)
 
-This example demonstrates how to integrate the embedded Ruby VM into a KMP project targeting iOS.
+A KMP project that builds an iOS framework embedding the Ruby VM.
 
-## Overview
+For general iOS/KMP setup, see the [Integration Guide](../../docs/INTEGRATION.md#ios--kmp).
 
-This is a KMP (Kotlin Multiplatform) project that shows:
-- Resolving the RubyVM KMP module via Gradle (`commonMain` dependency)
-- Downloading and linking the iOS native static library (`librgss_runtime.a`)
-- Building an iOS framework that embeds the Ruby VM
+## Prerequisites
+
+- macOS with Xcode installed
+- JDK 17+, Gradle 8.5+
 
 ## How It Works
 
-### Dependency Resolution
+The RubyVM library is consumed through two Gradle dependencies:
 
-The RubyVM library is consumed through **two** Gradle dependencies:
-
-1. **Kotlin API** (klib) — resolved automatically per-target via the KMP metadata module:
+1. **Kotlin API** (klib) — resolved automatically per-target via KMP metadata:
    ```kotlin
    commonMain {
        dependencies {
@@ -24,7 +22,7 @@ The RubyVM library is consumed through **two** Gradle dependencies:
    }
    ```
 
-2. **Native static library** (`librgss_runtime.a`) — downloaded as a ZIP from Maven and linked at framework build time:
+2. **Native static library** — downloaded as a ZIP from Maven and linked at framework build time:
    ```kotlin
    val nativeIosDevice by configurations.creating
    dependencies {
@@ -32,10 +30,7 @@ The RubyVM library is consumed through **two** Gradle dependencies:
    }
    ```
 
-### iOS Framework Linking
-
-The iOS framework binary needs explicit linker flags to force-load the native library
-and link required Apple system frameworks. This is configured in `build.gradle.kts`:
+The framework binary needs explicit linker flags to force-load the native library:
 
 ```kotlin
 target.binaries.framework {
@@ -47,75 +42,47 @@ target.binaries.framework {
 }
 ```
 
-This is the one piece of consumer-side configuration required — the native library
-can't be bundled inside the klib, so it must be linked explicitly.
+## Setup
 
-## Prerequisites
+### Option A: Using GitHub Packages
 
-- macOS with Xcode installed
-- JDK 17 or later
-- Gradle 8.5 or later
-
-## Setup Instructions
-
-### Option A: Using locally published KMP module
-
-From the `litergss-everywhere` root:
-
-```bash
-# 1. Build the iOS fat libraries (device + simulator)
-./configure \
-    --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
-    --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
-    --enable-static --target-dir=target-ios
-make build
-make export
-
-# 2. Publish KMP module locally
-make publish-kmp
-
-# 3. Build the example
-cd examples/ios-integration
-./gradlew linkReleaseFrameworkIosSimulatorArm64
-```
-
-### Option B: Using GitHub Packages
-
-Add your GitHub credentials to `~/.gradle/gradle.properties`:
+Add GitHub credentials to `~/.gradle/gradle.properties`:
 
 ```properties
 gpr.user=YOUR_GITHUB_USERNAME
 gpr.token=YOUR_GITHUB_TOKEN
 ```
 
-Then build:
+```bash
+cd examples/ios-integration
+./gradlew linkReleaseFrameworkIosSimulatorArm64
+```
+
+### Option B: Build from Source
 
 ```bash
+# From litergss-everywhere root
+./configure --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params --enable-static
+make build && make export
+make publish-kmp
+
+# Build the example framework
 cd examples/ios-integration
 ./gradlew linkReleaseFrameworkIosSimulatorArm64
 ```
 
 ### Integrating the Framework in Xcode
 
-After building, the framework will be at:
-```
-build/bin/iosSimulatorArm64/releaseFramework/RGSSExample.framework
-```
+The built framework is at `build/bin/iosSimulatorArm64/releaseFramework/RGSSExample.framework`.
 
-Add it to your Xcode project:
 1. Drag the `.framework` into your Xcode project
-2. In your Swift code: `import RGSSExample`
-3. Use the RubyVM Kotlin API from Swift
+2. `import RGSSExample` in your Swift code
 
-## Alternative: Pure Swift Integration
+### Alternative: Pure Swift (no KMP)
 
-If you don't need KMP and just want to use the Ruby VM from Swift,
-use the pre-built XCFramework via Swift Package Manager instead:
+If you don't need KMP, use the pre-built XCFramework via Swift Package Manager:
 
 ```swift
-// In your Package.swift or Xcode > Add Package Dependencies:
-// https://github.com/Scorbutics/litergss-everywhere.git
+// Package.swift or Xcode > Add Package Dependencies
 import RubyVM
 ```
-
-See the root `Package.swift` for details.
