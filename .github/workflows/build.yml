@@ -917,11 +917,11 @@ jobs:
             exit 1
           fi
 
-          echo "Publishing AAR as com.scorbutics.rubyvm:kmp-publish-android:${VERSION}"
+          echo "Publishing AAR as com.scorbutics.rubyvm:rgss-runtime-android:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-android
+            -DartifactId=rgss-runtime-android
             -Dversion="$VERSION"
             -Dpackaging=aar
             -Dfile="$AAR_FILE"
@@ -951,11 +951,11 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:kmp-publish-desktop:${VERSION}"
+          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:rgss-runtime-desktop:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-desktop
+            -DartifactId=rgss-runtime-desktop
             -Dversion="$VERSION"
             -Dpackaging=jar
             -Dfile="$JAR_FILE"
@@ -985,11 +985,11 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing Linux Native klib as com.scorbutics.rubyvm:kmp-publish-linuxx64:${VERSION}"
+          echo "Publishing Linux Native klib as com.scorbutics.rubyvm:rgss-runtime-linuxx64:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-linuxx64
+            -DartifactId=rgss-runtime-linuxx64
             -Dversion="$VERSION"
             -Dpackaging=klib
             -Dfile="$KLIB_FILE"
@@ -1019,11 +1019,11 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:kmp-publish-desktop-macos:${VERSION}"
+          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:rgss-runtime-desktop-macos:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-desktop-macos
+            -DartifactId=rgss-runtime-desktop-macos
             -Dversion="$VERSION"
             -Dpackaging=jar
             -Dfile="$JAR_FILE"
@@ -1048,20 +1048,20 @@ jobs:
 
           # Publish the .module file (Gradle module metadata) — this is the key artifact
           # that enables commonMain dependency resolution across all targets.
-          MODULE_FILE=$(find staging/ios/maven-kmp/kmp-publish -name '*.module' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish -name '*.pom' | head -1)
+          MODULE_FILE=$(find staging/ios/maven-kmp/rgss-runtime -name '*.module' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime -name '*.pom' | head -1)
 
           if [ -z "$MODULE_FILE" ] || [ -z "$POM_FILE" ]; then
-            echo "Warning: KMP metadata not found in staging/ios/maven-kmp/kmp-publish"
+            echo "Warning: KMP metadata not found in staging/ios/maven-kmp/rgss-runtime"
             find staging/ios/maven-kmp -type f 2>/dev/null
             exit 0
           fi
 
-          echo "Publishing KMP metadata as com.scorbutics.rubyvm:kmp-publish:${VERSION}"
+          echo "Publishing KMP metadata as com.scorbutics.rubyvm:rgss-runtime:${VERSION}"
 
           mvn deploy:deploy-file \
             -DgroupId=com.scorbutics.rubyvm \
-            -DartifactId=kmp-publish \
+            -DartifactId=rgss-runtime \
             -Dversion="$VERSION" \
             -Dpackaging=module \
             -Dfile="$MODULE_FILE" \
@@ -1076,8 +1076,8 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
 
-          KLIB_FILE=$(find staging/ios/maven-kmp/kmp-publish-iosarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish-iosarm64 -name '*.pom' | head -1)
+          KLIB_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iosarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iosarm64 -name '*.pom' | head -1)
 
           if [ -z "$KLIB_FILE" ]; then
             echo "Warning: No iOS arm64 klib found"
@@ -1085,11 +1085,11 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing iOS arm64 klib as com.scorbutics.rubyvm:kmp-publish-iosarm64:${VERSION}"
+          echo "Publishing iOS arm64 klib as com.scorbutics.rubyvm:rgss-runtime-iosarm64:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-iosarm64
+            -DartifactId=rgss-runtime-iosarm64
             -Dversion="$VERSION"
             -Dpackaging=klib
             -Dfile="$KLIB_FILE"
@@ -1110,8 +1110,8 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
 
-          KLIB_FILE=$(find staging/ios/maven-kmp/kmp-publish-iossimulatorarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/kmp-publish-iossimulatorarm64 -name '*.pom' | head -1)
+          KLIB_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iossimulatorarm64 -name '*.klib' | head -1)
+          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iossimulatorarm64 -name '*.pom' | head -1)
 
           if [ -z "$KLIB_FILE" ]; then
             echo "Warning: No iOS simulator arm64 klib found"
@@ -1119,11 +1119,11 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing iOS simulator arm64 klib as com.scorbutics.rubyvm:kmp-publish-iossimulatorarm64:${VERSION}"
+          echo "Publishing iOS simulator arm64 klib as com.scorbutics.rubyvm:rgss-runtime-iossimulatorarm64:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=kmp-publish-iossimulatorarm64
+            -DartifactId=rgss-runtime-iossimulatorarm64
             -Dversion="$VERSION"
             -Dpackaging=klib
             -Dfile="$KLIB_FILE"

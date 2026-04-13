@@ -128,18 +128,20 @@ done
 echo ""
 echo "--- Publishing AAR with all ABIs ---"
 cd "$KMP_PUBLISH_DIR"
-./gradlew clean publishAndroidReleasePublicationToMavenLocal -PnativeLibraryName=rgss_runtime
+./gradlew clean publishAndroidReleasePublicationToMavenLocal \
+	-PnativeLibraryName=rgss_runtime \
+	-PkmpArtifactName=rgss-runtime
 cd "$ROOT_DIR"
 
 echo ""
 echo "AAR published to Maven Local"
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-android" -type f 2>/dev/null | head -10
 
 # Phase 3: Copy Maven artifacts to target dir
 mkdir -p "$TARGET_DIR/maven/"
-if [ -d "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android" ]; then
+if [ -d "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-android" ]; then
 	mkdir -p "$TARGET_DIR/maven/com/scorbutics/rubyvm/"
-	cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-android" \
+	cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-android" \
 		"$TARGET_DIR/maven/com/scorbutics/rubyvm/"
 	echo "Maven artifacts exported to: $TARGET_DIR/maven/"
 	echo ""

@@ -92,14 +92,15 @@ done
 echo "--- Publishing Desktop JAR ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew publishDesktopPublicationToMavenLocal \
-	-PnativeLibraryName=rgss_runtime
+	-PnativeLibraryName=rgss_runtime \
+	-PkmpArtifactName=rgss-runtime
 cd "$ROOT_DIR"
 
 echo ""
 echo "Desktop JAR published to Maven Local"
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-desktop" -type f 2>/dev/null | head -10
 
 # Phase 3: Copy Maven artifacts to target dir
 mkdir -p "$TARGET_DIR/maven/"
-cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-desktop" \
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-desktop" \
 	"$TARGET_DIR/maven/" 2>/dev/null || true

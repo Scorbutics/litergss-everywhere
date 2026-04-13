@@ -78,7 +78,8 @@ done
 echo "--- Building XCFramework ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew assembleRubyVMReleaseXCFramework \
-	-PnativeLibraryName=rgss_runtime
+	-PnativeLibraryName=rgss_runtime \
+	-PkmpArtifactName=rgss-runtime
 cd "$ROOT_DIR"
 
 echo ""
@@ -92,14 +93,15 @@ cd "$KMP_PUBLISH_DIR"
 ./gradlew publishKotlinMultiplatformPublicationToMavenLocal \
 	publishIosArm64PublicationToMavenLocal \
 	publishIosSimulatorArm64PublicationToMavenLocal \
-	-PnativeLibraryName=rgss_runtime
+	-PnativeLibraryName=rgss_runtime \
+	-PkmpArtifactName=rgss-runtime
 cd "$ROOT_DIR"
 
 echo ""
 echo "KMP metadata + iOS klibs published to Maven Local"
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish" -maxdepth 2 -type f 2>/dev/null | head -10
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" -type f 2>/dev/null | head -10
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime" -maxdepth 2 -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-iosarm64" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-iossimulatorarm64" -type f 2>/dev/null | head -10
 
 # Phase 4: Package iOS native static libraries for Maven distribution
 # Consumers need these .a files at link time when building their iOS framework.
@@ -132,9 +134,9 @@ find "$TARGET_DIR/xcframework" -type f | head -20
 
 # Copy Maven artifacts (metadata + iOS klibs)
 mkdir -p "$TARGET_DIR/maven-kmp/"
-cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish" \
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime" \
 	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true
-cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iosarm64" \
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-iosarm64" \
 	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true
-cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-iossimulatorarm64" \
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-iossimulatorarm64" \
 	"$TARGET_DIR/maven-kmp/" 2>/dev/null || true

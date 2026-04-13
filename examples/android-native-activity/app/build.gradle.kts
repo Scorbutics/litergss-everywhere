@@ -52,5 +52,5 @@ dependencies {
 
     // KMP module with embedded Ruby VM + LiteRGSS runtime
     // librgss_runtime.so includes SFML, LiteCGSS, LiteRGSS, and the NativeActivity main() entry point
-    implementation("com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT")
+    implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")
 }

@@ -47,17 +47,13 @@ build/jni-libs/arm64-v8a/librgss_runtime.a  # Android-specific
 
 ### 3. Gradle Publishing
 
-The KMP module can now be published as a reusable dependency:
+The KMP module is automatically published to GitHub Packages by the CI pipeline on every push. Tagged releases (`vX.Y.Z`) publish stable versions; all other pushes publish `1.0.0-SNAPSHOT`.
+
+You can also publish manually to Maven Local for local development:
 
 ```bash
-# Publish to Maven Local
 cd external/embedded-ruby-vm/kmp
 ./gradlew publishToMavenLocal -PnativeLibraryName=rgss_runtime
-
-# Publish to GitHub Packages
-./gradlew publish \
-  -Pgpr.user=YOUR_USERNAME \
-  -Pgpr.token=YOUR_TOKEN
 ```
 
 ## Quick Start
@@ -70,27 +66,66 @@ cd external/embedded-ruby-vm/kmp
 make litergss_fat_library
 ```
 
-**Step 2: Publish KMP module**
+**Step 2: Publish KMP module (local)**
 ```bash
 cd external/embedded-ruby-vm/kmp
 ./gradlew publishToMavenLocal -PnativeLibraryName=rgss_runtime
 ```
 
-### For App Developers (Kotlin-only)
+### For App Developers (Kotlin-only, via GitHub Packages)
 
-**Step 1: Add dependency in your Android app**
+**Step 1: Create a GitHub Personal Access Token (PAT)**
+
+You need a PAT with `read:packages` scope to consume packages from GitHub Packages.
+Generate one at https://github.com/settings/tokens — select "Classic" and check the `read:packages` scope.
+
+**Step 2: Configure credentials**
+
+Add to your project's `gradle.properties` (or `~/.gradle/gradle.properties` for global config):
+
+```properties
+gpr.user=YOUR_GITHUB_USERNAME
+gpr.token=YOUR_GITHUB_PAT
+```
+
+> **Do not commit tokens.** Use `~/.gradle/gradle.properties` or environment variables instead.
+
+**Step 3: Add the GitHub Packages repository and dependency**
+
 ```kotlin
-// build.gradle.kts
+// settings.gradle.kts (recommended) or build.gradle.kts
 repositories {
-    mavenLocal()
-}
-
-dependencies {
-    implementation("com.scorbutics.rubyvm:kmp-android:1.0.0-SNAPSHOT")
+    google()
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/Scorbutics/litergss-everywhere")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+                ?: System.getenv("GITHUB_USERNAME")
+            password = providers.gradleProperty("gpr.token").orNull
+                ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
 }
 ```
 
-**Step 2: Configure and use**
+```kotlin
+// build.gradle.kts
+dependencies {
+    // Android AAR
+    implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")
+
+    // Desktop JVM (Linux)
+    // implementation("com.scorbutics.rubyvm:rgss-runtime-desktop:1.0.0-SNAPSHOT")
+
+    // Desktop JVM (macOS)
+    // implementation("com.scorbutics.rubyvm:rgss-runtime-desktop-macos:1.0.0-SNAPSHOT")
+}
+```
+
+For release versions, replace `1.0.0-SNAPSHOT` with the tagged version (e.g. `1.2.0`).
+
+**Step 4: Configure and use**
 ```kotlin
 // MainActivity.kt
 import com.scorbutics.rubyvm.LibraryConfig
@@ -105,7 +140,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         RubyVMNative.initialize()
         val result = RubyVMNative.eval("puts 'Hello from Ruby!'")
     }
@@ -196,7 +231,6 @@ litergss-everywhere/
 │           │   └── jvmMain/kotlin/
 │           │       └── NativeLibraryLoader.kt  # MODIFIED
 │           ├── build.gradle.kts                # MODIFIED: Publishing
-│           ├── publishing.gradle.kts           # NEW: Maven publishing
 │           └── gradle.properties.example       # NEW: Configuration examples
 ├── docs/
 │   └── KMP_INTEGRATION_GUIDE.md               # NEW: Complete usage guide
@@ -213,7 +247,7 @@ litergss-everywhere/
 
 ```kotlin
 dependencies {
-    implementation("com.scorbutics.rubyvm:kmp-android:1.0.0-SNAPSHOT")
+    implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")
 }
 
 // In your code
@@ -275,15 +309,120 @@ targetArch=arm64                  # Target architecture
 buildType=Release                 # Build type
 ```
 
+## Consuming from GitHub Packages
+
+The CI pipeline automatically publishes KMP artifacts to GitHub Packages on every push. These are the primary way for app developers to consume the library.
+
+### Authentication
+
+GitHub Packages requires authentication even for public packages. You need a **Personal Access Token** (PAT) with `read:packages` scope.
+
+1. Go to https://github.com/settings/tokens
+2. Generate a **Classic** token with `read:packages` scope
+3. Store credentials in `~/.gradle/gradle.properties` (never commit this):
+
+```properties
+gpr.user=YOUR_GITHUB_USERNAME
+gpr.token=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Alternatively, use environment variables:
+
+```bash
+export GITHUB_USERNAME=your-username
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Repository Configuration
+
+Add the GitHub Packages Maven repository to your project:
+
+```kotlin
+// settings.gradle.kts (project-wide)
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/Scorbutics/litergss-everywhere")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull
+                    ?: System.getenv("GITHUB_USERNAME")
+                password = providers.gradleProperty("gpr.token").orNull
+                    ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+}
+```
+
+### Available Artifacts
+
+All artifacts use group ID `com.scorbutics.rubyvm`:
+
+| Artifact ID | Type | Platform | Description |
+|---|---|---|---|
+| `rgss-runtime` | `.module` | All | KMP metadata (Gradle module metadata for multi-target resolution) |
+| `rgss-runtime-android` | `.aar` | Android | Android library with JNI bindings |
+| `rgss-runtime-desktop` | `.jar` | Linux JVM | Desktop JVM library (Linux x86_64) |
+| `rgss-runtime-desktop-macos` | `.jar` | macOS JVM | Desktop JVM library (macOS) |
+| `rgss-runtime-linuxx64` | `.klib` | Linux Native | Kotlin/Native library (Linux x86_64) |
+| `rgss-runtime-iosarm64` | `.klib` | iOS Device | Kotlin/Native library (iOS arm64) |
+| `rgss-runtime-iossimulatorarm64` | `.klib` | iOS Simulator | Kotlin/Native library (iOS simulator arm64) |
+
+### Versioning
+
+- **SNAPSHOT builds**: Every push to `master` publishes version `1.0.0-SNAPSHOT`
+- **Release builds**: Pushing a tag `vX.Y.Z` publishes version `X.Y.Z`
+
+### Example Dependencies
+
+```kotlin
+// Android app
+dependencies {
+    implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")
+}
+
+// Desktop JVM app (Linux)
+dependencies {
+    implementation("com.scorbutics.rubyvm:rgss-runtime-desktop:1.0.0-SNAPSHOT")
+}
+
+// Desktop JVM app (macOS)
+dependencies {
+    implementation("com.scorbutics.rubyvm:rgss-runtime-desktop-macos:1.0.0-SNAPSHOT")
+}
+
+// KMP common dependency (uses Gradle metadata for target resolution)
+// kotlin {
+//     sourceSets {
+//         commonMain {
+//             dependencies {
+//                 implementation("com.scorbutics.rubyvm:rgss-runtime:1.0.0-SNAPSHOT")
+//             }
+//         }
+//     }
+// }
+```
+
 ## Workflow Summary
 
+### Using GitHub Packages (recommended for consumers)
+
+1. **Add GitHub Packages repository** to your Gradle config (see [Quick Start](#for-app-developers-kotlin-only-via-github-packages))
+2. **Add dependency** → `implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")`
+3. **Configure name** → `LibraryConfig.libraryName = "rgss_runtime"`
+4. **Use library** → `RubyVMNative.initialize()`
+
+### Using Maven Local (for local development)
+
 1. **Build fat library** → `make litergss_fat_library`
-2. **Publish KMP module** → `./gradlew publishToMavenLocal`
-3. **Add dependency** → `implementation("com.scorbutics.rubyvm:kmp-android:1.0.0")`
+2. **Publish KMP module** → `cd external/embedded-ruby-vm/kmp && ./gradlew publishToMavenLocal`
+3. **Add `mavenLocal()` repository** and dependency
 4. **Configure name** → `LibraryConfig.libraryName = "rgss_runtime"`
 5. **Use library** → `RubyVMNative.initialize()`
 
-Or for native integration:
+### Native integration (linking the static library directly)
 
 1. **Build fat library** → `make litergss_fat_library`
 2. **Copy to project** → `cp librgss_runtime.a app/libs/arm64-v8a/`

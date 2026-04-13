@@ -297,6 +297,10 @@ make
 
 **Fix**: Only call `rb_provide()` in static builds. Use `extension-init.c` which handles this conditionally.
 
+## Consuming Pre-built Artifacts
+
+If you don't need to build from source, the CI pipeline publishes ready-to-use KMP artifacts to GitHub Packages. See [FAT_LIBRARY_INTEGRATION.md — Consuming from GitHub Packages](FAT_LIBRARY_INTEGRATION.md#consuming-from-github-packages) for authentication setup, available artifacts, and dependency configuration.
+
 ## Recommendations
 
 - **iOS**: Static linking only (enforced by platform)

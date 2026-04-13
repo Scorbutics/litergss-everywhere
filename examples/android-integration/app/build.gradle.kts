@@ -43,5 +43,5 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
 
     // KMP module with embedded Ruby VM
-    implementation("com.scorbutics.rubyvm:kmp-publish-android:1.0.0-SNAPSHOT")
+    implementation("com.scorbutics.rubyvm:rgss-runtime-android:1.0.0-SNAPSHOT")
 }

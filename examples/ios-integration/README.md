@@ -19,7 +19,7 @@ The RubyVM library is consumed through **two** Gradle dependencies:
    ```kotlin
    commonMain {
        dependencies {
-           implementation("com.scorbutics.rubyvm:kmp-publish:1.0.0-SNAPSHOT")
+           implementation("com.scorbutics.rubyvm:rgss-runtime:1.0.0-SNAPSHOT")
        }
    }
    ```

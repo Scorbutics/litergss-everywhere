@@ -82,7 +82,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 // Single KMP dependency — Gradle auto-resolves per target
-                implementation("com.scorbutics.rubyvm:kmp-publish:1.0.0-SNAPSHOT")
+                implementation("com.scorbutics.rubyvm:rgss-runtime:1.0.0-SNAPSHOT")
             }
         }
 

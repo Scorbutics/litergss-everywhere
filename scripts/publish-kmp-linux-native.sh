@@ -68,14 +68,15 @@ done
 echo "--- Publishing Linux Native klib ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew publishLinuxX64PublicationToMavenLocal \
-	-PnativeLibraryName=rgss_runtime
+	-PnativeLibraryName=rgss_runtime \
+	-PkmpArtifactName=rgss-runtime
 cd "$ROOT_DIR"
 
 echo ""
 echo "Linux Native klib published to Maven Local"
-find "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-linuxx64" -type f 2>/dev/null | head -10
+find "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-linuxx64" -type f 2>/dev/null | head -10
 
 # Phase 3: Copy Maven artifacts to target dir
 mkdir -p "$TARGET_DIR/maven-native/"
-cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/kmp-publish-linuxx64" \
+cp -r "$HOME/.m2/repository/com/scorbutics/rubyvm/rgss-runtime-linuxx64" \
 	"$TARGET_DIR/maven-native/" 2>/dev/null || true
