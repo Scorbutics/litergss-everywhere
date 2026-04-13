@@ -869,19 +869,21 @@ jobs:
           # List all packages in the repository
           PACKAGES=$(gh api \
             "/orgs/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null || \
-            gh api \
+            --paginate --jq '.[].name' 2>/dev/null) || \
+          PACKAGES=$(gh api \
             "/users/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null || true)
+            --paginate --jq '.[].name' 2>/dev/null) || \
+          PACKAGES=""
 
           for PACKAGE in $PACKAGES; do
             # Find the version ID matching our SNAPSHOT version
             VERSION_ID=$(gh api \
               "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null || \
-              gh api \
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+            VERSION_ID=$(gh api \
               "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null || true)
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+            VERSION_ID=""
 
             if [ -n "$VERSION_ID" ]; then
               echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
