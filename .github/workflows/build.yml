@@ -857,6 +857,43 @@ jobs:
           </settings>
           SETTINGS_EOF
 
+      - name: Delete existing SNAPSHOT package versions
+        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          OWNER="${{ github.repository_owner }}"
+          echo "Deleting existing SNAPSHOT package versions (${VERSION}) before re-publishing..."
+
+          # List all packages in the repository
+          PACKAGES=$(gh api \
+            "/orgs/${OWNER}/packages?package_type=maven" \
+            --paginate --jq '.[].name' 2>/dev/null || \
+            gh api \
+            "/users/${OWNER}/packages?package_type=maven" \
+            --paginate --jq '.[].name' 2>/dev/null || true)
+
+          for PACKAGE in $PACKAGES; do
+            # Find the version ID matching our SNAPSHOT version
+            VERSION_ID=$(gh api \
+              "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null || \
+              gh api \
+              "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null || true)
+
+            if [ -n "$VERSION_ID" ]; then
+              echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
+              gh api --method DELETE \
+                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null || \
+                gh api --method DELETE \
+                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null || \
+                echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+            fi
+          done
+          echo "SNAPSHOT cleanup complete."
+
       - name: Publish AAR to GitHub Packages
         if: needs.prepare.outputs.has_android == 'true'
         run: |
