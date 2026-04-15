@@ -76,7 +76,7 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
-            VERSION="1.0.0-SNAPSHOT"
+            VERSION="$(cat external/embedded-ruby-vm/NEXT_VERSION | tr -d '[:space:]')-SNAPSHOT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
