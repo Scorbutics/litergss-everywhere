@@ -69,8 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: external/embedded-ruby-vm/NEXT_VERSION
-          sparse-checkout-cone-mode: false
+          submodules: false
       - id: set-params
         shell: bash
         run: |
@@ -80,7 +79,11 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
-            VERSION="$(cat external/embedded-ruby-vm/NEXT_VERSION | tr -d '[:space:]')-SNAPSHOT"
+            # Read the submodule commit, then fetch NEXT_VERSION from it via the API
+            SM_COMMIT=$(git ls-tree HEAD external/embedded-ruby-vm | awk '{print $3}')
+            SM_REPO=$(git config --file .gitmodules submodule.external/embedded-ruby-vm.url | sed 's|.*github.com[:/]||;s|\.git$||')
+            VERSION="$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-SNAPSHOT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
