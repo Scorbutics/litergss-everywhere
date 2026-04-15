@@ -20,8 +20,8 @@ It builds LiteRGSS2 and all its dependencies into a single static library (`libr
 | Platform | Architectures | Status |
 |----------|--------------|--------|
 | Android | arm64-v8a, x86_64 | Supported |
-| Linux | x86_64, arm64 | Supported |
-| macOS | arm64, x86_64 | Supported |
+| Linux | x86_64 | Supported |
+| macOS | arm64 | Supported |
 | iOS | arm64, simulator | Supported |
 
 ## Getting Started
