@@ -67,6 +67,10 @@ jobs:
       android_toolchain_args: ${{ steps.set-params.outputs.android_toolchain_args }}
       ios_targets_json: ${{ steps.set-params.outputs.ios_targets_json }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: external/embedded-ruby-vm/NEXT_VERSION
+          sparse-checkout-cone-mode: false
       - id: set-params
         shell: bash
         run: |
