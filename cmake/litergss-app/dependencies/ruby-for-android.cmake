@@ -8,9 +8,9 @@
 #   - usr/local/include/ — dependency headers (openssl, zlib)
 #   - assets/ — Ruby stdlib zip files
 
-# 3.1.2-0: first release including libphysfs.a + libphysfs-ruby.a
+# 3.1.1-3: first release including libphysfs.a + libphysfs-ruby.a
 # (the ruby-physfs gem statically compiled against PhysicsFS 3.2.0).
-set(RUBY_FOR_ANDROID_VERSION "3.1.2-0")
+set(RUBY_FOR_ANDROID_VERSION "3.1.1-3")
 set(RUBY_MINOR_VERSION "3.1.0")
 
 # Map platform/arch to the archive name used by ruby-for-android releases
