@@ -22,13 +22,11 @@ set(LITERGSS2_EXTRA_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/LiteCGSS -D
 # litergss2 configure command (CMake-based)
 # Note: Now builds as static library for all platforms internally
 # We force BUILD_SHARED_LIBS=OFF for the inner library to ensure we get a static .a to link
+get_sub_cmake_cross_args(_LITERGSS2_CMAKE_ARGS)
 set(LITERGSS2_CONFIGURE_CMD
     ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/litergss2-CMakeLists.txt ${LITERGSS2_BUILD_DIR}/CMakeLists.txt
     COMMAND ${CMAKE_COMMAND}
-    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-    -DANDROID_ABI=${ANDROID_ABI}
-    -DANDROID_PLATFORM=${ANDROID_PLATFORM}
-    -DCMAKE_BUILD_TYPE=Release
+    ${_LITERGSS2_CMAKE_ARGS}
     "-DCMAKE_C_FLAGS=${CFLAGS} ${LITERGSS2_EXTRA_CFLAGS}"
     "-DCMAKE_CXX_FLAGS=${CXXFLAGS} ${LITERGSS2_EXTRA_CFLAGS}"
     "-DCMAKE_EXE_LINKER_FLAGS=${LDFLAGS} ${RUBY_LIB_DIR_LFLAGS}"

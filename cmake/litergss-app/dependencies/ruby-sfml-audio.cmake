@@ -18,13 +18,11 @@ set(RUBY_SFML_AUDIO_SOURCE_DIR "${CMAKE_BINARY_DIR}/ruby-sfml-audio/build_dir/${
 
 # ruby-sfml-audio configure command (CMake-based)
 # Note: Now builds as static library for all platforms
+get_sub_cmake_cross_args(_RUBY_SFML_AUDIO_CMAKE_ARGS)
 set(RUBY_SFML_AUDIO_CONFIGURE_CMD
     ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_LIST_DIR}/files/ruby-sfml-audio-CMakeLists.txt ${RUBY_SFML_AUDIO_SOURCE_DIR}/CMakeLists.txt
     COMMAND ${CMAKE_COMMAND}
-    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-    -DANDROID_ABI=${ANDROID_ABI}
-    -DANDROID_PLATFORM=${ANDROID_PLATFORM}
-    -DCMAKE_BUILD_TYPE=Release
+    ${_RUBY_SFML_AUDIO_CMAKE_ARGS}
     "-DCMAKE_C_FLAGS=${CFLAGS} ${RUBY_INCLUDE_DIR_CFLAGS}"
     "-DCMAKE_CXX_FLAGS=${CXXFLAGS} -std=c++17 ${RUBY_INCLUDE_DIR_CFLAGS}"
     "-DCMAKE_EXE_LINKER_FLAGS=${LDFLAGS} ${RUBY_LIB_DIR_LFLAGS}"
