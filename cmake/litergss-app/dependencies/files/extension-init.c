@@ -28,8 +28,17 @@
 /* Forward declarations of extension initialization functions */
 extern void Init_LiteRGSS(void);
 extern void Init_SFMLAudio(void);
+extern void Init_physfs(void);
 
 void initialize_litergss_extensions(void) {
+    /* Initialize the ruby-physfs gem first — pokemonsdk Ruby code that
+     * runs during LiteRGSS initialization may already need PhysFS::mount.
+     * The gem is statically compiled into libphysfs-ruby.a (built by
+     * ruby-for-android) and gets folded into librgss_runtime.a; rb_provide
+     * makes `require 'physfs'` a no-op. */
+    Init_physfs();
+    rb_provide("physfs");
+
     /* Initialize LiteRGSS extension */
     Init_LiteRGSS();
     rb_provide("LiteRGSS");

@@ -240,6 +240,11 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-main.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
+            # ruby-physfs gem (Ruby C-extension on top of libphysfs.a). Built
+            # by ruby-for-android; provides Init_physfs which the host app
+            # invokes via ruby_set_custom_ext_init() so `require 'physfs'`
+            # resolves without any .so loading at runtime.
+            "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs-ruby.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libogg.a"
