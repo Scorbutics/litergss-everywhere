@@ -440,6 +440,9 @@ configure-cmake: docker-init
 			if [ -d /opt/deps-cache/downloads ]; then \
 				echo \"Using pre-cached dependencies from /opt/deps-cache/downloads\"; \
 				DEPS_CACHE_ARGS=\"-DBUILD_DOWNLOAD_DIR=/opt/deps-cache/downloads\"; \
+			elif [ -d \"\$$SOURCE_DIR/$(BUILD_DIR)/downloads\" ]; then \
+				echo \"Using pre-cached dependencies from \$$SOURCE_DIR/$(BUILD_DIR)/downloads\"; \
+				DEPS_CACHE_ARGS=\"-DBUILD_DOWNLOAD_DIR=\$$SOURCE_DIR/$(BUILD_DIR)/downloads\"; \
 			fi && \
 			rm -f CMakeCache.txt && \
 			if grep -q \"DANDROID_ABI=\" \"\$$TOOLCHAIN_PARAMS_FILE\"; then \
