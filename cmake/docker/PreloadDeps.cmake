@@ -50,12 +50,22 @@ file(MAKE_DIRECTORY "${GIT_CACHE_DIR}")
 set(URL_SUCCESS 0)
 set(URL_SKIPPED 0)
 set(URL_FAILED 0)
+set(URL_DYNAMIC 0)
 set(GIT_SUCCESS 0)
 set(GIT_SKIPPED 0)
 set(GIT_FAILED 0)
 
 math(EXPR LAST_IDX "${DEP_COUNT} - 1")
 foreach(I RANGE 0 ${LAST_IDX})
+    if(DEP_${I}_TYPE STREQUAL "skip-dynamic")
+        # URL depends on toolchain variables (TARGET_ARCH, etc.) that aren't
+        # available in `cmake -P` mode. The build itself will download these
+        # into BUILD_DOWNLOAD_DIR once the toolchain is loaded.
+        message(STATUS "  [skip-dynamic] ${DEP_${I}_NAME} ${DEP_${I}_VERSION} (URL is platform/arch-specific; build will fetch)")
+        math(EXPR URL_DYNAMIC "${URL_DYNAMIC} + 1")
+        continue()
+    endif()
+
     if(DEP_${I}_TYPE STREQUAL "url")
         set(DEST "${DOWNLOAD_DIR}/${DEP_${I}_FILENAME}")
 
@@ -79,34 +89,54 @@ foreach(I RANGE 0 ${LAST_IDX})
             endif()
         endif()
 
-        message(STATUS "  [download] ${DEP_${I}_NAME} ${DEP_${I}_VERSION}...")
-        file(DOWNLOAD
-            "${DEP_${I}_URL}"
-            "${DEST}"
-            STATUS DL_STATUS
-            SHOW_PROGRESS
-        )
-        list(GET DL_STATUS 0 DL_CODE)
-        if(DL_CODE EQUAL 0)
-            # Verify hash
-            if(DEP_${I}_HASH)
-                string(REGEX MATCH "SHA256=([a-fA-F0-9]+)" _ "${DEP_${I}_HASH}")
-                set(EXPECTED_HASH "${CMAKE_MATCH_1}")
+        # DEP_<i>_URL is a CMake list; mirrors are tried in order until one
+        # succeeds with a matching hash.
+        set(URL_LIST "${DEP_${I}_URL}")
+        list(LENGTH URL_LIST URL_COUNT)
+        set(EXPECTED_HASH "")
+        if(DEP_${I}_HASH)
+            string(REGEX MATCH "SHA256=([a-fA-F0-9]+)" _ "${DEP_${I}_HASH}")
+            set(EXPECTED_HASH "${CMAKE_MATCH_1}")
+        endif()
+
+        set(DL_OK FALSE)
+        set(MIRROR_IDX 0)
+        foreach(URL_TRY ${URL_LIST})
+            math(EXPR MIRROR_IDX "${MIRROR_IDX} + 1")
+            if(URL_COUNT GREATER 1)
+                message(STATUS "  [download] ${DEP_${I}_NAME} ${DEP_${I}_VERSION} (mirror ${MIRROR_IDX}/${URL_COUNT}): ${URL_TRY}")
+            else()
+                message(STATUS "  [download] ${DEP_${I}_NAME} ${DEP_${I}_VERSION}...")
+            endif()
+            file(DOWNLOAD
+                "${URL_TRY}"
+                "${DEST}"
+                STATUS DL_STATUS
+                SHOW_PROGRESS
+            )
+            list(GET DL_STATUS 0 DL_CODE)
+            if(NOT DL_CODE EQUAL 0)
+                list(GET DL_STATUS 1 DL_ERROR)
+                message(STATUS "    failed: ${DL_ERROR}")
+                file(REMOVE "${DEST}")
+                continue()
+            endif()
+            if(EXPECTED_HASH)
                 file(SHA256 "${DEST}" ACTUAL_HASH)
                 if(NOT ACTUAL_HASH STREQUAL EXPECTED_HASH)
-                    message(WARNING "  Hash mismatch for ${DEP_${I}_NAME}!")
-                    message(WARNING "    Expected: ${EXPECTED_HASH}")
-                    message(WARNING "    Actual:   ${ACTUAL_HASH}")
+                    message(WARNING "    hash mismatch (expected ${EXPECTED_HASH}, got ${ACTUAL_HASH}) — discarding and trying next mirror")
                     file(REMOVE "${DEST}")
-                    math(EXPR URL_FAILED "${URL_FAILED} + 1")
                     continue()
                 endif()
             endif()
+            set(DL_OK TRUE)
+            break()
+        endforeach()
+
+        if(DL_OK)
             math(EXPR URL_SUCCESS "${URL_SUCCESS} + 1")
         else()
-            list(GET DL_STATUS 1 DL_ERROR)
-            message(WARNING "  Failed to download ${DEP_${I}_NAME}: ${DL_ERROR}")
-            file(REMOVE "${DEST}")
+            message(WARNING "  Failed to download ${DEP_${I}_NAME}: all ${URL_COUNT} mirror(s) exhausted")
             math(EXPR URL_FAILED "${URL_FAILED} + 1")
         endif()
 
@@ -149,6 +179,9 @@ message(STATUS "=== Dependency preload summary ===")
 message(STATUS "URL dependencies:")
 message(STATUS "  Downloaded: ${URL_SUCCESS}")
 message(STATUS "  Skipped (cached): ${URL_SKIPPED}")
+if(URL_DYNAMIC GREATER 0)
+    message(STATUS "  Skipped (dynamic URL — fetched at build time): ${URL_DYNAMIC}")
+endif()
 if(URL_FAILED GREATER 0)
     message(STATUS "  Failed: ${URL_FAILED}")
 endif()

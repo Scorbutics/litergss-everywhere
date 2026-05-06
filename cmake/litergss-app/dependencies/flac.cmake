@@ -2,7 +2,13 @@
 # Configuration for FLAC dependency
 
 set(FLAC_VERSION "1.3.2")
-set(FLAC_URL "https://downloads.xiph.org/releases/flac/flac-${FLAC_VERSION}.tar.xz")
+# downloads.xiph.org (canonical, OSU OSL hosted) is frequently unreachable from
+# CI. flac 1.3.2 is too old to appear on github.com/xiph/flac releases (which
+# start at 1.3.3); SourceForge mirrors the original release with a matching hash.
+set(FLAC_URL
+    "https://downloads.xiph.org/releases/flac/flac-${FLAC_VERSION}.tar.xz"
+    "https://downloads.sourceforge.net/project/flac/flac-src/flac-${FLAC_VERSION}.tar.xz"
+)
 set(FLAC_HASH "SHA256=91cfc3ed61dc40f47f050a109b08610667d73477af6ef36dcad31c31a4a8d53f")
 
 # Configure command (autoconf-based)

@@ -2,7 +2,12 @@
 # Configuration for libogg dependency
 
 set(LIBOGG_VERSION "1.3.4")
-set(LIBOGG_URL "https://downloads.xiph.org/releases/ogg/libogg-${LIBOGG_VERSION}.tar.gz")
+# downloads.xiph.org (canonical, OSU OSL hosted) is frequently unreachable from
+# CI; fall back to the GitHub mirror which serves the same archive.
+set(LIBOGG_URL
+    "https://downloads.xiph.org/releases/ogg/libogg-${LIBOGG_VERSION}.tar.gz"
+    "https://github.com/xiph/ogg/releases/download/v${LIBOGG_VERSION}/libogg-${LIBOGG_VERSION}.tar.gz"
+)
 set(LIBOGG_HASH "SHA256=fe5670640bd49e828d64d2879c31cb4dde9758681bb664f9bdbf159a01b0c76e")
 
 # Configure command (autoconf-based)

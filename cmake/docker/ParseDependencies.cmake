@@ -25,14 +25,30 @@ function(parse_dependency_file FILE_PATH INDEX)
         return()
     endif()
 
-    # Step 1: Extract all set(VAR "value") calls into local variables
-    # Match: set(VARNAME "value") - handles both quoted and ${}-containing values
-    string(REGEX MATCHALL "set\\([A-Za-z0-9_]+ \"[^\"]*\"\\)" ALL_SETS "${CONTENT}")
+    # Step 1: Extract all set(VAR "v1" [...]) calls into local variables.
+    # Supports multi-line lists like:
+    #   set(LIBOGG_URL
+    #       "https://primary/..."
+    #       "https://mirror/..."
+    #   )
+    # The captured value is stored as a CMake list (";"-separated) so downstream
+    # code can iterate mirrors. Single-string set() calls store as a 1-element list.
+    string(REGEX MATCHALL "set\\([A-Za-z0-9_]+[ \t\r\n]+(\"[^\"]*\"[ \t\r\n]*)+\\)" ALL_SETS "${CONTENT}")
     foreach(S ${ALL_SETS})
-        string(REGEX MATCH "set\\(([A-Za-z0-9_]+) \"([^\"]*)\"\\)" _ "${S}")
-        if(CMAKE_MATCH_1)
-            set(_VAR_${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
+        # Variable name (first identifier after 'set(')
+        string(REGEX MATCH "set\\(([A-Za-z0-9_]+)" _ "${S}")
+        set(_VARNAME "${CMAKE_MATCH_1}")
+        if(NOT _VARNAME)
+            continue()
         endif()
+        # All quoted values inside this set() call
+        string(REGEX MATCHALL "\"[^\"]*\"" _QSTRINGS "${S}")
+        set(_VALUE_LIST "")
+        foreach(_QS ${_QSTRINGS})
+            string(REGEX REPLACE "^\"(.*)\"$" "\\1" _QV "${_QS}")
+            list(APPEND _VALUE_LIST "${_QV}")
+        endforeach()
+        set(_VAR_${_VARNAME} "${_VALUE_LIST}")
     endforeach()
 
     # Step 2: Extract dependency name from add_external_dependency(NAME xxx ...)
@@ -124,19 +140,34 @@ function(parse_dependency_file FILE_PATH INDEX)
         endif()
     endforeach()
 
-    # Step 5: Derive archive filename from URL
-    set(DEP_FILENAME "")
-    if(DEP_URL)
-        # Get last path component of URL
-        string(REGEX MATCH "[^/]+$" DEP_FILENAME "${DEP_URL}")
+    # Step 5: Detect unresolved placeholders. URLs that depend on toolchain
+    # variables (TARGET_ARCH, TARGET_PLATFORM, IOS_PLATFORM, ...) cannot be
+    # resolved by this static parser since `cmake -P` runs without a toolchain
+    # context. Mark such deps so PreloadDeps can skip them and let the build
+    # itself fetch the archive once the toolchain is loaded.
+    set(DEP_DYNAMIC FALSE)
+    if(DEP_URL MATCHES "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}")
+        set(DEP_DYNAMIC TRUE)
     endif()
 
-    # Step 6: Set results in parent scope
+    # Step 6: Derive archive filename from the first (primary) URL.
+    # All mirrors are expected to serve the same filename.
+    set(DEP_FILENAME "")
+    if(DEP_URL)
+        list(GET DEP_URL 0 _PRIMARY_URL)
+        string(REGEX MATCH "[^/]+$" DEP_FILENAME "${_PRIMARY_URL}")
+    endif()
+
+    # Step 7: Set results in parent scope
     set(DEP_${INDEX}_NAME "${DEP_NAME}" PARENT_SCOPE)
     set(DEP_${INDEX}_VERSION "${DEP_VERSION}" PARENT_SCOPE)
 
     if(DEP_URL)
-        set(DEP_${INDEX}_TYPE "url" PARENT_SCOPE)
+        if(DEP_DYNAMIC)
+            set(DEP_${INDEX}_TYPE "skip-dynamic" PARENT_SCOPE)
+        else()
+            set(DEP_${INDEX}_TYPE "url" PARENT_SCOPE)
+        endif()
         set(DEP_${INDEX}_URL "${DEP_URL}" PARENT_SCOPE)
         set(DEP_${INDEX}_HASH "${DEP_HASH}" PARENT_SCOPE)
         set(DEP_${INDEX}_FILENAME "${DEP_FILENAME}" PARENT_SCOPE)
