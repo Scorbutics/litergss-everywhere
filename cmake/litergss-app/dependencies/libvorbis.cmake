@@ -5,8 +5,8 @@ set(LIBVORBIS_VERSION "1.3.7")
 # downloads.xiph.org (canonical, OSU OSL hosted) is frequently unreachable from
 # CI; fall back to the GitHub mirror which serves the same archive.
 set(LIBVORBIS_URL
-    "https://downloads.xiph.org/releases/vorbis/libvorbis-${LIBVORBIS_VERSION}.tar.xz"
     "https://github.com/xiph/vorbis/releases/download/v${LIBVORBIS_VERSION}/libvorbis-${LIBVORBIS_VERSION}.tar.xz"
+    "https://downloads.xiph.org/releases/vorbis/libvorbis-${LIBVORBIS_VERSION}.tar.xz"
 )
 set(LIBVORBIS_HASH "SHA256=b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b")
 
