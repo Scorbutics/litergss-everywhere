@@ -10,11 +10,7 @@
 # This depends on ruby-for-android (must be listed after it in APP_DEPENDENCIES)
 # since it needs Ruby headers for extension-init.c compilation.
 
-# 1.0.6-snapshot: first release built with -DEMBEDDED_RUBY_VM_WITH_PHYSFS=ON,
-# folding libphysfs-ruby.a into libembedded-ruby.a's whole-archive group so
-# Init_physfs survives unused-symbol stripping. Requires the matching
-# ruby-for-android release that ships libphysfs.a + libphysfs-ruby.a.
-set(EMBEDDED_RUBY_VM_VERSION "1.0.6-snapshot")
+set(EMBEDDED_RUBY_VM_VERSION "1.1.0-snapshot")
 
 # Map platform/arch to the archive name
 string(TOLOWER "${TARGET_PLATFORM}" _ERVM_PLATFORM)
