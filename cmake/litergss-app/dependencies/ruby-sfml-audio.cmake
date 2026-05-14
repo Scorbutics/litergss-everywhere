@@ -9,9 +9,8 @@ string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
 # Get Ruby arch and set include/lib paths from embedded-ruby-vm
 get_ruby_arch(RUBY_ARCH "ruby-sfml-audio")
-set(RUBY_MINOR_VERSION "3.1.0")
-# RUBY_INCLUDE_DIR_CFLAGS and RUBY_LIB_DIR_LFLAGS are already set by embedded-ruby-vm.cmake
-# No need to override them here
+# RUBY_MINOR_VERSION, RUBY_INCLUDE_DIR_CFLAGS, RUBY_LIB_DIR_LFLAGS are set
+# by ruby-for-android.cmake (loaded earlier per APP_DEPENDENCIES order).
 
 # Source directory for install command reference
 set(RUBY_SFML_AUDIO_SOURCE_DIR "${CMAKE_BINARY_DIR}/ruby-sfml-audio/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/ruby-sfml-audio-${RUBY_SFML_AUDIO_VERSION}")

@@ -8,8 +8,39 @@
 #   - usr/local/include/ — dependency headers (openssl, zlib)
 #   - assets/ — Ruby stdlib zip files
 
-set(RUBY_FOR_ANDROID_VERSION "3.1.1-7")
-set(RUBY_MINOR_VERSION "3.1.0")
+# Sync versions from the submodules so they can't drift:
+#   RUBY_FOR_ANDROID_VERSION ← external/embedded-ruby-vm/RUBY_LIBS_VERSION
+#   RUBY_MINOR_VERSION       ← external/ruby-for-android/.../ruby.cmake (RUBY_ABI_VERSION)
+set(_RFA_LIBS_VERSION_FILE "${CMAKE_SOURCE_DIR}/external/embedded-ruby-vm/RUBY_LIBS_VERSION")
+if(NOT EXISTS "${_RFA_LIBS_VERSION_FILE}")
+    message(FATAL_ERROR
+        "Cannot read ${_RFA_LIBS_VERSION_FILE}. "
+        "Initialize submodules first: git submodule update --init --recursive")
+endif()
+file(READ "${_RFA_LIBS_VERSION_FILE}" _RFA_LIBS_VERSION_RAW)
+string(STRIP "${_RFA_LIBS_VERSION_RAW}" _RFA_LIBS_VERSION_RAW)
+string(REGEX REPLACE "^v" "" RUBY_FOR_ANDROID_VERSION "${_RFA_LIBS_VERSION_RAW}")
+
+set(_RFA_RUBY_CMAKE_FILE "${CMAKE_SOURCE_DIR}/external/ruby-for-android/cmake/ruby-app/dependencies/ruby.cmake")
+if(NOT EXISTS "${_RFA_RUBY_CMAKE_FILE}")
+    message(FATAL_ERROR
+        "Cannot read ${_RFA_RUBY_CMAKE_FILE}. "
+        "Initialize submodules first: git submodule update --init --recursive")
+endif()
+file(READ "${_RFA_RUBY_CMAKE_FILE}" _RFA_RUBY_CMAKE_CONTENT)
+if(_RFA_RUBY_CMAKE_CONTENT MATCHES "set\\(RUBY_ABI_VERSION[ \t\r\n]+\"([^\"]+)\"")
+    set(RUBY_MINOR_VERSION "${CMAKE_MATCH_1}")
+else()
+    message(FATAL_ERROR
+        "Could not extract RUBY_ABI_VERSION from ${_RFA_RUBY_CMAKE_FILE}. "
+        "Has the submodule layout changed?")
+endif()
+unset(_RFA_LIBS_VERSION_FILE)
+unset(_RFA_LIBS_VERSION_RAW)
+unset(_RFA_RUBY_CMAKE_FILE)
+unset(_RFA_RUBY_CMAKE_CONTENT)
+
+message(STATUS "Ruby for Android: RUBY_FOR_ANDROID_VERSION=${RUBY_FOR_ANDROID_VERSION} RUBY_MINOR_VERSION=${RUBY_MINOR_VERSION}")
 
 # Map platform/arch to the archive name used by ruby-for-android releases
 string(TOLOWER "${TARGET_PLATFORM}" _RFA_PLATFORM)
