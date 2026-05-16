@@ -115,6 +115,26 @@ list(APPEND _ERVM_INSTALL_CMD
         ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
 )
 
+# Android only: compile litergss_surface_jni.c and inject it into the same
+# libembedded-ruby.a. This is the LiteRGSS hosted-Activity JNI bridge — pure
+# JNI glue that forwards Surface lifecycle / touch events to LiteCGSS's
+# cgss_android_* C-linkage shims (defined in libLiteCGSS_engine.a, resolved
+# at fat-lib link time). The bridge has no Ruby-VM concerns; libembedded-
+# ruby.a is just the convenient orchestrator-controlled archive to embed
+# extra orchestrator-level .o files into, exactly as extension-init.c above.
+if(_ERVM_PLATFORM STREQUAL "android")
+    list(APPEND _ERVM_INSTALL_CMD
+        COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
+            -o ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
+            ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c
+        COMMAND ${CMAKE_AR} r
+            ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
+            ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
+        COMMAND ${CMAKE_RANLIB}
+            ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
+    )
+endif()
+
 add_external_dependency(
     NAME                embedded-ruby-vm
     VERSION             ${EMBEDDED_RUBY_VM_VERSION}
