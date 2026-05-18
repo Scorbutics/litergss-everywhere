@@ -42,7 +42,13 @@ message(STATUS "Embedded Ruby VM: ${EMBEDDED_RUBY_VM_URL}")
 set(_ERVM_SOURCE_DIR "${CMAKE_BINARY_DIR}/embedded-ruby-vm/build_dir/${TARGET_ARCH}-${_ERVM_PLATFORM}/embedded-ruby-vm-${EMBEDDED_RUBY_VM_VERSION}")
 
 # Install: copy libraries and headers into BUILD_STAGING_DIR
-# Archive structure (flat): libembedded-ruby.a, libassets.a, libminizip.a, include/
+# Archive structure (flat): libembedded-ruby.a, libassets.a, libminizip.a,
+# libphysfs.a, libphysfs-ruby.a, include/
+#
+# libphysfs.a and libphysfs-ruby.a are produced by embedded-ruby-vm itself
+# (see external/embedded-ruby-vm/cmake/Physfs.cmake + RubyPhysfs.cmake). They
+# back `require 'physfs'` in Ruby scripts. The fat-library combine step in
+# litergss2.cmake already references both — we just stage them here.
 set(_ERVM_INSTALL_CMD
     # Copy libraries
     ${CMAKE_COMMAND} -E copy_if_different
@@ -54,6 +60,12 @@ set(_ERVM_INSTALL_CMD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${_ERVM_SOURCE_DIR}/libminizip.a
         ${BUILD_STAGING_DIR}/usr/local/lib/libminizip.a
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${_ERVM_SOURCE_DIR}/libphysfs.a
+        ${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${_ERVM_SOURCE_DIR}/libphysfs-ruby.a
+        ${BUILD_STAGING_DIR}/usr/local/lib/libphysfs-ruby.a
 
     # Copy headers (archive already has embedded-ruby-vm/ subdirectory inside include/)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
