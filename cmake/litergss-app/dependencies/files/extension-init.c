@@ -46,6 +46,23 @@ void initialize_litergss_extensions(void) {
     /* Initialize SFMLAudio extension */
     Init_SFMLAudio();
     rb_provide("SFMLAudio");
+
+    /* Inject the PhysFS gem's reentrant Monitor into LiteRGSS so that
+     * LiteCGSS's direct PHYSFS_* calls (font streams, image loaders, etc.)
+     * serialise behind the SAME GVL-aware lock as the physfs gem's own
+     * entry points. Without this, two Ruby Threads can race on PhysFS's
+     * internal pthread stateLock from opposite sides of the gem boundary,
+     * producing the GVL-vs-stateLock inversion deadlock that physfs's
+     * Monitor was added to prevent (see physfs/ext/physfs/PhysFSLock.h).
+     *
+     * Safe to call unconditionally here: both gems are now initialised,
+     * and LiteRGSS.vfs_lock= validates the lock at install time. */
+    {
+        VALUE physfs_mod  = rb_const_get(rb_cObject, rb_intern("PhysFS"));
+        VALUE litergss_m  = rb_const_get(rb_cObject, rb_intern("LiteRGSS"));
+        VALUE monitor     = rb_funcall(physfs_mod, rb_intern("monitor"), 0);
+        rb_funcall(litergss_m, rb_intern("vfs_lock="), 1, monitor);
+    }
 }
 
 /**
