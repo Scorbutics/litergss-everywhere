@@ -50,6 +50,7 @@ void cgss_android_notify_host_surface_resized(int width, int height);
 void cgss_android_inject_touch_down(int pointerId, float x, float y);
 void cgss_android_inject_touch_move(int pointerId, float x, float y);
 void cgss_android_inject_touch_up(int pointerId, float x, float y);
+void cgss_android_request_host_surface_close(void);
 
 /* Single live ANativeWindow*, mirroring the singleton model on the LiteCGSS
  * side. The reference is acquired by ANativeWindow_fromSurface (which
@@ -137,4 +138,12 @@ Java_com_scorbutics_litergss_NativeSurface_injectTouchUp(JNIEnv* env, jclass cla
     (void) env;
     (void) clazz;
     cgss_android_inject_touch_up((int) pointerId, (float) x, (float) y);
+}
+
+JNIEXPORT void JNICALL
+Java_com_scorbutics_litergss_NativeSurface_requestClose(JNIEnv* env, jclass clazz)
+{
+    (void) env;
+    (void) clazz;
+    cgss_android_request_host_surface_close();
 }
