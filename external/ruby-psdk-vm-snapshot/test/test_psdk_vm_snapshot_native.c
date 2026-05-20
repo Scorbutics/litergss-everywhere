@@ -25,20 +25,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* embedded-ruby-vm ships the public API loader as TWO variants —
- * static/ for archive-link builds and shared/ for dlopen builds. The
- * generic `embedded-ruby-vm/ruby-api-loader.h` only exists in the
- * embedded-ruby-vm sub-project's build dir (configure_file output) and
- * isn't part of the installed include layout, so consumers pick the
- * variant explicitly. CMake passes -DPSDK_VM_SNAPSHOT_USE_SHARED_API
- * when RGSS_SMOKE_TEST_LINK_MODE=shared (i.e. we're linking against
- * the rgss_runtime shared lib via dlsym); otherwise we use the static
- * variant against the fat archive. */
-#ifdef PSDK_VM_SNAPSHOT_USE_SHARED_API
-#  include "embedded-ruby-vm/shared/ruby-api-loader.h"
-#else
-#  include "embedded-ruby-vm/static/ruby-api-loader.h"
-#endif
+/* Always use the shared loader. The static variant transitively
+ * includes private headers (embedded-ruby-vm/ruby-interpreter.h,
+ * ruby-script.h) that aren't shipped in the embedded-ruby-vm release
+ * tarball — the prebuilt archive only ships public headers. The shared
+ * loader resolves the API via dlsym at runtime; combined with the
+ * test binary's -rdynamic flag, statically-linked symbols in the fat
+ * archive are visible via dlopen(NULL), and shared-build symbols come
+ * in through rgss_runtime.so's normal dynamic load. One code path,
+ * both link modes. */
+#include "embedded-ruby-vm/shared/ruby-api-loader.h"
 #include "embedded-ruby-vm/assets-install.h"
 #include "embedded-ruby-vm/assets-error.h"
 
@@ -106,21 +102,17 @@ int main(int argc, char* argv[]) {
         result = 10; goto cleanup;
     }
 
-    /* Load the Ruby API library (libembedded-ruby.so / static). */
-    const char* deps_paths[] = {
-        "../lib/libembedded-ruby.deps",
-        "./libembedded-ruby.deps",
-        "libembedded-ruby.deps",
-        NULL
-    };
-    const char* lib_paths[] = {
-        "../lib/libembedded-ruby.so",
-        "./libembedded-ruby.so",
-        "libembedded-ruby.so",
-        NULL
-    };
-    if (ruby_api_bootstrap(&api, deps_paths, lib_paths, layout->native_libs_dir) != 0) {
-        fprintf(stderr, "ruby_api_bootstrap failed\n");
+    /* Resolve API symbols. dlopen(NULL) returns a handle whose symbol
+     * scope covers the main executable plus everything dynamically
+     * linked into it — works for both link modes:
+     *   - static: the fat archive's symbols are in the executable's
+     *     own object code, exported via -rdynamic.
+     *   - shared: rgss_runtime.so is a dynamic dep of the executable,
+     *     so its symbols are reachable via the main-program handle.
+     * We don't go through ruby_api_bootstrap because it requires a
+     * concrete .so path (which doesn't exist for static builds). */
+    if (ruby_api_load(NULL, &api) != 0) {
+        fprintf(stderr, "ruby_api_load(NULL) failed\n");
         result = 11; goto cleanup;
     }
 
