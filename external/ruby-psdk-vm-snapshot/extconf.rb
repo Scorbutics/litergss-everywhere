@@ -1,16 +1,17 @@
 require 'mkmf'
 
 # This extension reaches into struct RClass directly (the `super`
-# pointer). MRI 3.2 made struct RClass opaque, so the same C compiles
-# only against 3.0 / 3.1. Target is Ruby 3.1.1 (the embedded litergss
-# VM); if you're on a newer Ruby, run tests against the embedded VM
-# instead, or install a 3.1.x for the dev box.
-if RUBY_VERSION >= '3.2'
+# pointer). The layout we replicate inside psdk_vm_snapshot_native.c
+# comes from MRI 3.1.x's internal/class.h. The C file has a parallel
+# #error guard (RUBY_API_VERSION_MAJOR/MINOR check) enforcing the same
+# constraint when built via CMake — keep the two in sync.
+unless RUBY_VERSION.start_with?('3.1.')
   abort <<~MSG
-    psdk_vm_snapshot_native targets MRI 3.0–3.1 only (current: #{RUBY_VERSION}).
-    On 3.2+ `struct RClass` is opaque; we'd need internal/class.h.
-    Either install Ruby 3.1.x for dev-box tests, or run tests
-    against the embedded VM where 3.1.1 is the build target.
+    ruby-psdk-vm-snapshot targets MRI 3.1.x only (current: #{RUBY_VERSION}).
+    The struct RClass layout in psdk_vm_snapshot_native.c is taken from
+    MRI 3.1.x's internal/class.h. To support a new minor: verify the
+    layout, add a branch in the .c file, and update both this check
+    and the #if guard in the C source.
   MSG
 end
 

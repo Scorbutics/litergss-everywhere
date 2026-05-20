@@ -42,6 +42,48 @@
 #include <dlfcn.h>
 #include <stdio.h>
 
+/* Hard guard. The struct RClass layout and the dlsym lookup below are
+ * specific to MRI 3.1.x. If you've bumped Ruby, you need to:
+ *   1. Verify struct RClass's `super` field placement in the new
+ *      version's internal/class.h. Update the redeclaration below.
+ *   2. Verify `rb_class_remove_from_module_subclasses` still exists
+ *      under that name (it may have been renamed or made truly static).
+ *   3. Re-run the rgss_psdk_vm_snapshot_test suite end-to-end.
+ *   4. Update this guard and extconf.rb to allow the new minor.
+ *
+ * Without this guard, silently building against (e.g.) 3.2 would
+ * read garbage from RCLASS(c)->super at runtime — exactly the kind
+ * of hard-to-track corruption the test pipeline can't reliably catch. */
+#if !defined(RUBY_API_VERSION_MAJOR) || !defined(RUBY_API_VERSION_MINOR)
+#  error "ruby/version.h didn't define RUBY_API_VERSION_MAJOR/MINOR; cannot verify ABI compatibility."
+#elif RUBY_API_VERSION_MAJOR != 3 || RUBY_API_VERSION_MINOR != 1
+#  error \
+    "ruby-psdk-vm-snapshot targets MRI 3.1.x only. " \
+    "The struct RClass layout below comes from MRI 3.1.x internal/class.h; " \
+    "add a branch for the new minor and verify the layout before relaxing this guard."
+#endif
+
+/* MRI 3.1's public header forward-declares `struct RClass` as opaque
+ * (see ruby/internal/core/rclass.h: "Opaque, declared here for
+ * RCLASS() macro"). The complete layout lives in internal/class.h,
+ * which is not shipped with stock libruby installs — so
+ * `RCLASS(c)->super` fails to compile against a public-only install.
+ *
+ * Provide the 3.1.x layout locally. Each compilation unit can complete
+ * a forward declaration with its own definition, and C has no struct-
+ * level ODR, so this coexists fine with libruby's own internal
+ * definition at link time. The memory layout must match exactly —
+ * audit on every Ruby version bump.
+ *
+ * Source: MRI 3.1.x internal/class.h. Stable across 3.1 patch releases.
+ * The trailing `ptr` field is a `struct rb_classext_struct *` we never
+ * dereference, modelled as void* to avoid pulling in internal headers. */
+struct RClass {
+    struct RBasic basic;
+    VALUE super;
+    void *ptr;
+};
+
 /* Internal API, exported by MRI but not in the public ruby.h. Declared
  * here to avoid #include "internal/vm.h", which isn't always shipped
  * with stock Ruby installs. Stable since 2.x. */
