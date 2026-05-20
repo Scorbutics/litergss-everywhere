@@ -32,6 +32,10 @@ set(RGSS_EXPECTED_SYMBOLS
     # LiteRGSS extensions
     Init_LiteRGSS
     Init_SFMLAudio
+    # In-tree extension: see external/ruby-psdk-vm-snapshot/README.md.
+    # Host calls Init_* via ruby_set_custom_ext_init() to expose
+    # PSDKVMSnapshot::Native.unprepend to Ruby.
+    Init_psdk_vm_snapshot_native
 )
 
 # Generate rgss_expected_symbols.h in the build directory.

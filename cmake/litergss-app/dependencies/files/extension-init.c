@@ -29,6 +29,7 @@
 extern void Init_LiteRGSS(void);
 extern void Init_SFMLAudio(void);
 extern void Init_physfs(void);
+extern void Init_psdk_vm_snapshot_native(void);
 
 void initialize_litergss_extensions(void) {
     /* Initialize the ruby-physfs gem first — pokemonsdk Ruby code that
@@ -38,6 +39,13 @@ void initialize_litergss_extensions(void) {
      * makes `require 'physfs'` a no-op. */
     Init_physfs();
     rb_provide("physfs");
+
+    /* PSDK VM snapshot extension (external/ruby-psdk-vm-snapshot). No
+     * dependencies on the other Ruby-side modules — initialised early
+     * so PSDKVMSnapshot::Native is available before any PSDK-side Ruby
+     * code runs and calls capture! / restore!. */
+    Init_psdk_vm_snapshot_native();
+    rb_provide("psdk_vm_snapshot_native");
 
     /* Initialize LiteRGSS extension */
     Init_LiteRGSS();

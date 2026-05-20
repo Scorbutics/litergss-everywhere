@@ -242,6 +242,11 @@ else()
             # invokes via ruby_set_custom_ext_init() so `require 'physfs'`
             # resolves without any .so loading at runtime.
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs-ruby.a"
+            # In-tree PSDK VM snapshot extension (external/ruby-psdk-vm-snapshot).
+            # Provides Init_psdk_vm_snapshot_native; the host application must
+            # invoke it via ruby_set_custom_ext_init() so PSDKVMSnapshot::Native
+            # is reachable from Ruby. See external/ruby-psdk-vm-snapshot/README.md.
+            "${BUILD_STAGING_DIR}/usr/local/lib/libpsdk-vm-snapshot.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libogg.a"
@@ -461,6 +466,80 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     set_tests_properties(rgss_smoke_test PROPERTIES TIMEOUT 10)
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
+
+    # ----------------------------------------------------------------------
+    # PSDK VM snapshot extension test
+    # ----------------------------------------------------------------------
+    # Functional test for the in-tree ruby-psdk-vm-snapshot extension:
+    # a C harness drives a Ruby/minitest suite inside the embedded VM,
+    # registering Init_psdk_vm_snapshot_native via the same callback path
+    # the host application uses. Lives here (not in ruby-psdk-vm-snapshot's
+    # own .cmake) because _RGSS_CAN_RUN_TESTS / RGSS_SMOKE_TEST_LINK_MODE
+    # are first defined in this file.
+    set(_PSDK_VM_SNAPSHOT_DIR  "${CMAKE_SOURCE_DIR}/external/ruby-psdk-vm-snapshot")
+    set(_PSDK_VM_SNAPSHOT_HARNESS "${_PSDK_VM_SNAPSHOT_DIR}/test/test_psdk_vm_snapshot_native.c")
+    set(_PSDK_VM_SNAPSHOT_RB      "${_PSDK_VM_SNAPSHOT_DIR}/test/test_psdk_vm_snapshot_native.rb")
+
+    add_executable(rgss_psdk_vm_snapshot_test ${_PSDK_VM_SNAPSHOT_HARNESS})
+
+    target_compile_definitions(rgss_psdk_vm_snapshot_test PRIVATE
+        "TEST_RUBY_SCRIPT_PATH=\"${_PSDK_VM_SNAPSHOT_RB}\""
+    )
+    target_compile_options(rgss_psdk_vm_snapshot_test PRIVATE -Wno-register)
+    target_include_directories(rgss_psdk_vm_snapshot_test PRIVATE
+        "${CMAKE_BINARY_DIR}/generated"
+        "${BUILD_STAGING_DIR}/usr/local/include"
+    )
+    if(APPLE)
+        target_link_options(rgss_psdk_vm_snapshot_test PRIVATE -Wl,-export_dynamic)
+    else()
+        target_link_options(rgss_psdk_vm_snapshot_test PRIVATE -rdynamic)
+    endif()
+
+    # Same link strategy as rgss_smoke_test: link against the fat lib
+    # (which now contains Init_psdk_vm_snapshot_native) + system deps.
+    if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
+        target_link_libraries(rgss_psdk_vm_snapshot_test PRIVATE rgss_runtime)
+        add_dependencies(rgss_psdk_vm_snapshot_test rgss_runtime)
+    elseif(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "static")
+        find_package(Threads REQUIRED)
+        target_link_libraries(rgss_psdk_vm_snapshot_test PRIVATE
+            "${FAT_LIBRARY_OUTPUT}"
+            Threads::Threads
+            ${CMAKE_DL_LIBS}
+            m
+        )
+        if(APPLE)
+            find_package(OpenGL REQUIRED)
+            target_link_libraries(rgss_psdk_vm_snapshot_test PRIVATE
+                OpenGL::GL
+                "-framework Cocoa"
+                "-framework IOKit"
+                "-framework CoreFoundation"
+                "-framework CoreVideo"
+                "-framework Carbon"
+                compression
+                iconv
+            )
+        else()
+            find_package(X11 REQUIRED)
+            find_package(OpenGL REQUIRED)
+            target_link_libraries(rgss_psdk_vm_snapshot_test PRIVATE
+                ${X11_LIBRARIES}
+                ${X11_Xrandr_LIB}
+                ${X11_Xcursor_LIB}
+                OpenGL::GL
+                udev
+            )
+        endif()
+        add_dependencies(rgss_psdk_vm_snapshot_test rgss_fat_library)
+    endif()
+
+    add_test(NAME rgss_psdk_vm_snapshot_test COMMAND rgss_psdk_vm_snapshot_test)
+    # Generous: spins up the full embedded VM and runs ~30 minitest cases.
+    set_tests_properties(rgss_psdk_vm_snapshot_test PROPERTIES TIMEOUT 60)
+
+    message(STATUS "PSDK VM snapshot test enabled (link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
 else()
     if(NOT _RGSS_CAN_RUN_TESTS)
         message(STATUS "Smoke test disabled (cross-compiling: ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR} on ${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR})")
