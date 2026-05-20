@@ -21,7 +21,11 @@
  *     restore (ivars/cvars/constants — which it already handles).
  *
  * Risks we mitigate:
- *   - Method cache: invalidated via rb_clear_method_cache_by_class.
+ *   - Method cache: invalidated through public API (rb_define_method
+ *     + rb_undef_method of a dummy name forces the class's method-state
+ *     counter to bump). Chosen over the internal rb_clear_method_cache_
+ *     by_class because the Android NDK libruby build strips internal
+ *     symbols, breaking a direct link.
  *   - Origin IClass (created by prepend's class-split): naturally
  *     skipped because its RBASIC_CLASS is the target itself, never
  *     the module we're searching for.
@@ -85,10 +89,29 @@ struct RClass {
     void *ptr;
 };
 
-/* Internal API, exported by MRI but not in the public ruby.h. Declared
- * here to avoid #include "internal/vm.h", which isn't always shipped
- * with stock Ruby installs. Stable since 2.x. */
-extern void rb_clear_method_cache_by_class(VALUE klass);
+/* Public-API method-cache invalidation. The natural choice would be
+ * rb_clear_method_cache_by_class, but that's an internal symbol and
+ * the Android NDK build of libruby strips internal symbols (Linux/
+ * macOS distro Rubies typically don't). We need invalidation to fire
+ * after a chain splice, otherwise dispatch keeps going through the
+ * spliced-out IClass via cached entries.
+ *
+ * Public alternative: rb_define_method + rb_undef_method on a dummy
+ * symbol forces MRI to bump the class's method-state counter, which
+ * invalidates per-class cache entries. Net visible state on `klass`
+ * is unchanged, modulo the temporary appearance of the dummy method
+ * between the two calls (inside the same C function, no Ruby code
+ * runs in between). */
+static VALUE psdk_cache_bust_stub(VALUE self) {
+    (void)self;
+    return Qnil;
+}
+
+static void psdk_invalidate_method_cache(VALUE klass) {
+    static const char* const NAME = "__psdk_vm_snapshot_cache_bust__";
+    rb_define_method(klass, NAME, (VALUE (*)(ANYARGS))psdk_cache_bust_stub, 0);
+    rb_undef_method(klass, NAME);
+}
 
 /* Removes an IClass from its source module's subclass linked list.
  * Declared in MRI's internal/class.h. Looked up at module init via
@@ -151,7 +174,7 @@ psdk_unprepend(VALUE self, VALUE target, VALUE mod)
             if (s_remove_from_subclasses) {
                 s_remove_from_subclasses(cur);
             }
-            rb_clear_method_cache_by_class(target);
+            psdk_invalidate_method_cache(target);
             return Qtrue;
         }
         prev = cur;

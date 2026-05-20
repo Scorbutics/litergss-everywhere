@@ -4,10 +4,14 @@
  * C harness that drives the Ruby minitest suite for the
  * psdk_vm_snapshot_native extension. The harness:
  *
- *   1. Bootstraps the Ruby runtime (asset extraction → API load).
- *   2. Reads test/test_psdk_vm_snapshot_native.rb from disk
+ *   1. Bootstraps the Ruby runtime (asset extraction).
+ *   2. Creates an interpreter via direct calls to the embedded-ruby-vm
+ *      C API (function prototypes are forward-declared below since
+ *      embedded-ruby-vm doesn't currently ship a clean public header
+ *      for them).
+ *   3. Reads test/test_psdk_vm_snapshot_native.rb from disk
  *      (CMake passes its absolute path via -DTEST_RUBY_SCRIPT_PATH=...).
- *   3. Executes the script synchronously and returns its exit code.
+ *   4. Executes the script synchronously and returns its exit code.
  *
  * Registration of Init_psdk_vm_snapshot_native + rb_provide is handled
  * by extension-init.c's __attribute__((constructor)) auto-register,
@@ -21,22 +25,38 @@
  * usual `require 'minitest/autorun'` form.
  */
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Always use the shared loader. The static variant transitively
- * includes private headers (embedded-ruby-vm/ruby-interpreter.h,
- * ruby-script.h) that aren't shipped in the embedded-ruby-vm release
- * tarball — the prebuilt archive only ships public headers. The shared
- * loader resolves the API via dlsym at runtime; combined with the
- * test binary's -rdynamic flag, statically-linked symbols in the fat
- * archive are visible via dlopen(NULL), and shared-build symbols come
- * in through rgss_runtime.so's normal dynamic load. One code path,
- * both link modes. */
-#include "embedded-ruby-vm/shared/ruby-api-loader.h"
+#include "embedded-ruby-vm/log-listener.h"
 #include "embedded-ruby-vm/assets-install.h"
 #include "embedded-ruby-vm/assets-error.h"
+
+/* The embedded-ruby-vm release tarball ships only public headers, and
+ * ruby-interpreter.h is currently flagged private — it conflates the
+ * actual public API (function prototypes below) with internal struct
+ * layout. Declare the prototypes we need locally as opaque so the
+ * harness can call them directly through the statically-linked fat
+ * archive. If the API surface drifts, the linker will catch it.
+ *
+ * If embedded-ruby-vm ever splits its public/private headers cleanly
+ * (function prototypes promoted to a real public header), delete this
+ * block and #include the public header instead. */
+typedef struct RubyInterpreter RubyInterpreter;
+typedef struct RubyScript RubyScript;
+
+extern RubyInterpreter* ruby_interpreter_create(const char* application_path,
+                                                const char* ruby_base_directory,
+                                                const char* native_libs_location,
+                                                LogListener listener);
+extern void ruby_interpreter_destroy(RubyInterpreter* interpreter);
+extern int  ruby_interpreter_execute_sync(RubyInterpreter* interpreter,
+                                          RubyScript* script);
+
+extern RubyScript* ruby_script_create_from_content(const char* content, size_t length);
+extern void        ruby_script_destroy(RubyScript* script);
 
 #ifndef TEST_RUBY_SCRIPT_PATH
 #  error "TEST_RUBY_SCRIPT_PATH must be set via -DTEST_RUBY_SCRIPT_PATH=..."
@@ -84,7 +104,6 @@ int main(int argc, char* argv[]) {
     (void)argc; (void)argv;
 
     int result = 0;
-    RubyAPI api;
     AssetsError assets_error;
     AssetsLayout* layout = NULL;
     RubyInterpreter* interpreter = NULL;
@@ -102,23 +121,11 @@ int main(int argc, char* argv[]) {
         result = 10; goto cleanup;
     }
 
-    /* Resolve API symbols. dlopen(NULL) returns a handle whose symbol
-     * scope covers the main executable plus everything dynamically
-     * linked into it — works for both link modes:
-     *   - static: the fat archive's symbols are in the executable's
-     *     own object code, exported via -rdynamic.
-     *   - shared: rgss_runtime.so is a dynamic dep of the executable,
-     *     so its symbols are reachable via the main-program handle.
-     * We don't go through ruby_api_bootstrap because it requires a
-     * concrete .so path (which doesn't exist for static builds). */
-    if (ruby_api_load(NULL, &api) != 0) {
-        fprintf(stderr, "ruby_api_load(NULL) failed\n");
-        result = 11; goto cleanup;
-    }
-
-    /* extension-init.c's constructor has already called
-     * api.set_custom_ext_init() with a callback that runs every bundled
-     * Init_* (including ours). Don't overwrite that. */
+    /* extension-init.c's constructor (statically linked into the fat
+     * archive) has already called ruby_set_custom_ext_init with a
+     * callback that runs every bundled Init_* (including ours). We
+     * don't override that — doing so would skip LiteRGSS / SFMLAudio /
+     * physfs initialisation. */
 
     LogListener listener = {
         .context = NULL,
@@ -126,7 +133,7 @@ int main(int argc, char* argv[]) {
         .on_log_message = on_log,
     };
 
-    interpreter = api.interpreter.create(
+    interpreter = ruby_interpreter_create(
         ".",                       /* execution_location */
         layout->ruby_stdlib_path,  /* ruby_base_dir */
         layout->native_libs_dir,   /* native_libs_dir */
@@ -143,19 +150,19 @@ int main(int argc, char* argv[]) {
         result = 13; goto cleanup;
     }
 
-    script = api.script.create_from_content(script_content, script_len);
+    script = ruby_script_create_from_content(script_content, script_len);
     if (!script) {
         fprintf(stderr, "Failed to create RubyScript\n");
         result = 14; goto cleanup;
     }
 
-    /* Execute. Returns the exit code from the Ruby side — we wrote the
-     * .rb to call exit(0/1) based on Minitest.run's result. */
-    result = api.interpreter.execute_sync(interpreter, script);
+    /* Execute. Returns the exit code from the Ruby side — the .rb
+     * file calls exit(0/1) based on Minitest.run's result. */
+    result = ruby_interpreter_execute_sync(interpreter, script);
 
 cleanup:
-    if (script) api.script.destroy(script);
-    if (interpreter) api.interpreter.destroy(interpreter);
+    if (script) ruby_script_destroy(script);
+    if (interpreter) ruby_interpreter_destroy(interpreter);
     free(script_content);
     if (layout) assets_free_layout(layout);
     if (g_log) fclose(g_log);
