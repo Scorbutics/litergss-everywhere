@@ -485,7 +485,14 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     target_compile_definitions(rgss_psdk_vm_snapshot_test PRIVATE
         "TEST_RUBY_SCRIPT_PATH=\"${_PSDK_VM_SNAPSHOT_RB}\""
     )
-    target_compile_options(rgss_psdk_vm_snapshot_test PRIVATE -Wno-register)
+    # The two ruby-api-loader.h variants live under static/ and shared/;
+    # the generic forwarder is generated, not installed. Tell the harness
+    # which one to include based on the link mode.
+    if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
+        target_compile_definitions(rgss_psdk_vm_snapshot_test PRIVATE
+            PSDK_VM_SNAPSHOT_USE_SHARED_API=1
+        )
+    endif()
     target_include_directories(rgss_psdk_vm_snapshot_test PRIVATE
         "${CMAKE_BINARY_DIR}/generated"
         "${BUILD_STAGING_DIR}/usr/local/include"

@@ -25,7 +25,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "embedded-ruby-vm/ruby-api-loader.h"
+/* embedded-ruby-vm ships the public API loader as TWO variants —
+ * static/ for archive-link builds and shared/ for dlopen builds. The
+ * generic `embedded-ruby-vm/ruby-api-loader.h` only exists in the
+ * embedded-ruby-vm sub-project's build dir (configure_file output) and
+ * isn't part of the installed include layout, so consumers pick the
+ * variant explicitly. CMake passes -DPSDK_VM_SNAPSHOT_USE_SHARED_API
+ * when RGSS_SMOKE_TEST_LINK_MODE=shared (i.e. we're linking against
+ * the rgss_runtime shared lib via dlsym); otherwise we use the static
+ * variant against the fat archive. */
+#ifdef PSDK_VM_SNAPSHOT_USE_SHARED_API
+#  include "embedded-ruby-vm/shared/ruby-api-loader.h"
+#else
+#  include "embedded-ruby-vm/static/ruby-api-loader.h"
+#endif
 #include "embedded-ruby-vm/assets-install.h"
 #include "embedded-ruby-vm/assets-error.h"
 

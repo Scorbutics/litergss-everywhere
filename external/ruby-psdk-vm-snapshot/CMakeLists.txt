@@ -30,8 +30,9 @@ set_target_properties(psdk-vm-snapshot PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # CMake accepts that directly as a list for target_include_directories.
 target_include_directories(psdk-vm-snapshot PRIVATE ${RUBY_INCLUDE_DIRS})
 
-# Quiet a Ruby header warning emitted on GCC/clang when including
-# the public ruby.h — does not affect correctness.
-target_compile_options(psdk-vm-snapshot PRIVATE -Wno-register)
+# Note: -Wno-register intentionally NOT set here — it's a C++-only
+# flag (the `register` keyword is still valid in C), and GCC's C
+# front-end emits a "command-line option not valid for C" warning when
+# it sees it. The Ruby headers don't trigger register warnings in C mode.
 
 install(TARGETS psdk-vm-snapshot ARCHIVE DESTINATION lib)
