@@ -39,6 +39,7 @@
  */
 
 #include <ruby.h>
+#include <ruby/version.h>  /* RUBY_API_VERSION_MAJOR/MINOR — not pulled in by ruby.h on all builds. */
 #include <dlfcn.h>
 #include <stdio.h>
 
