@@ -162,4 +162,30 @@ object NativeSurface {
     }
 
     @JvmStatic private external fun nativeSetVirtualKeyboardCallback(armed: Boolean)
+
+    /**
+     * Opt the calling process into the preserved (process-shared)
+     * sf::RenderWindow path inside cgss::DisplayWindow.
+     *
+     * Set true from the host Activity that wants its DisplayWindow.new
+     * to reuse the same underlying sf::RenderWindow + WindowImplAndroid
+     * + EGL context across DisplayWindow lifetimes (typically the game
+     * Activity that may construct several DisplayWindows over its run).
+     * Default false: each DisplayWindow gets its own owned RenderWindow
+     * destroyed with it — what loader.rb needs so the splash interpreter
+     * tears down cleanly.
+     *
+     * Effect is process-wide and persists until cleared.
+     *
+     * Caveat: the preserved WindowImplAndroid keeps the ALooper of
+     * whichever thread first constructed it. A subsequent
+     * DisplayWindow.new from a DIFFERENT thread will hit "No looper
+     * for this thread". Safe as long as the host activity uses a
+     * single PsdkInterpreter (single render thread) for its whole
+     * lifetime.
+     */
+    @JvmStatic external fun setReuseSharedWindow(enabled: Boolean)
+
+    /** Read-back accessor for [setReuseSharedWindow]; for diagnostics / tests. */
+    @JvmStatic external fun isReuseSharedWindowEnabled(): Boolean
 }

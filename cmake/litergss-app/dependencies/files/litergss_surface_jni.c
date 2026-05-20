@@ -70,6 +70,9 @@ typedef void (*cgss_android_virtual_keyboard_callback_t)(int show);
 void cgss_android_set_virtual_keyboard_callback(cgss_android_virtual_keyboard_callback_t cb);
 void cgss_android_request_virtual_keyboard(int show);
 
+void cgss_android_set_reuse_shared_window(int enabled);
+int cgss_android_is_reuse_shared_window_enabled(void);
+
 /* Single live ANativeWindow*, mirroring the singleton model on the LiteCGSS
  * side. The reference is acquired by ANativeWindow_fromSurface (which
  * increments the refcount) and released here on detach / re-attach. */
@@ -359,4 +362,27 @@ Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIE
     (void) env;
     (void) clazz;
     cgss_android_set_virtual_keyboard_callback(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
+}
+
+/* ------------------------------------------------------------------
+ * Shared-RenderWindow opt-in. Set by the host activity (GameActivity)
+ * before its PsdkInterpreter starts so cgss::DisplayWindow's ctor
+ * picks sharedGameWindow() over the per-instance owned variant. See
+ * cgss::android::setReuseSharedWindow's KDoc for the lifecycle caveats.
+ * ------------------------------------------------------------------ */
+JNIEXPORT void JNICALL
+Java_com_scorbutics_litergss_NativeSurface_setReuseSharedWindow(JNIEnv* env, jclass clazz,
+                                                                 jboolean enabled)
+{
+    (void) env;
+    (void) clazz;
+    cgss_android_set_reuse_shared_window(enabled == JNI_TRUE ? 1 : 0);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_scorbutics_litergss_NativeSurface_isReuseSharedWindowEnabled(JNIEnv* env, jclass clazz)
+{
+    (void) env;
+    (void) clazz;
+    return cgss_android_is_reuse_shared_window_enabled() ? JNI_TRUE : JNI_FALSE;
 }
