@@ -64,4 +64,102 @@ object NativeSurface {
 
     /** Forward an Android pointer-up event into SFML's queue. */
     @JvmStatic external fun injectTouchUp(pointerId: Int, x: Float, y: Float)
+
+    /**
+     * Forward a hardware key-down event.
+     *
+     * `androidKeyCode` is the raw [android.view.KeyEvent.keyCode], not a
+     * pre-translated SFML key — the native side reuses SFML's existing
+     * Android-to-SFML keycode table. `metaState` is
+     * [android.view.KeyEvent.metaState]. `repeatCount > 0` (OS auto-
+     * repeat) is silently dropped on the native side; consumers like PSDK
+     * run their own software repeat handler.
+     */
+    @JvmStatic external fun injectKeyDown(androidKeyCode: Int, metaState: Int, repeatCount: Int)
+
+    /** Forward a hardware key-up event. See [injectKeyDown] for argument semantics. */
+    @JvmStatic external fun injectKeyUp(androidKeyCode: Int, metaState: Int)
+
+    /**
+     * Forward a single Unicode codepoint as `sf::Event::TextEntered`.
+     *
+     * Use for both hardware-key text (host should call
+     * `KeyEvent.getUnicodeChar(metaState)` and forward the result) and
+     * soft-keyboard input (TextWatcher on a hidden EditText). Codepoint 0
+     * is a no-op on the native side.
+     */
+    @JvmStatic external fun injectText(unicodeCodepoint: Int)
+
+    /** Forward a `sf::Event::GainedFocus`. Required after resume — without it, PSDK's `Graphics.focus?` stays false and every `Input.*?` query returns false. */
+    @JvmStatic external fun injectFocusGained()
+
+    /** Forward a `sf::Event::LostFocus`. */
+    @JvmStatic external fun injectFocusLost()
+
+    /**
+     * Forward a gamepad button press/release.
+     *
+     * `androidKeyCode` must be one of the AKEYCODE_BUTTON_* / AKEYCODE_DPAD_*
+     * values that SFML's `androidJoystickKeyToIndex` recognises. Other
+     * keycodes are silently dropped.
+     */
+    @JvmStatic external fun injectJoystickButton(deviceId: Int, androidKeyCode: Int, pressed: Boolean)
+
+    /**
+     * Forward gamepad analog-axis state.
+     *
+     * Values are in Android's native [-1, 1] range; SFML scales them to
+     * [-100, 100] internally. Send all axes in one call — the SFML model
+     * tracks per-axis state and replaces it wholesale on each event.
+     */
+    @JvmStatic external fun injectJoystickAxis(
+        deviceId: Int,
+        axisX: Float, axisY: Float,
+        axisZ: Float, axisRz: Float,
+        hatX: Float,  hatY: Float,
+        lTrigger: Float, rTrigger: Float,
+    )
+
+    /** Forward a gamepad-connected event. */
+    @JvmStatic external fun injectJoystickConnected(deviceId: Int)
+
+    /** Forward a gamepad-disconnected event. */
+    @JvmStatic external fun injectJoystickDisconnected(deviceId: Int)
+
+    /**
+     * Listener invoked when native code requests the soft keyboard be
+     * shown or hidden. The host Activity registers one via
+     * [setVirtualKeyboardListener]; native code calls in via
+     * cgss::android::requestVirtualKeyboard (typically through a Ruby
+     * binding that opens / closes the IME).
+     *
+     * Threading: callback fires on whichever thread requested the
+     * keyboard (Ruby render thread in practice). Listeners that touch
+     * Android View state MUST hop to the UI thread themselves.
+     */
+    fun interface VirtualKeyboardListener {
+        fun onVirtualKeyboardRequested(show: Boolean)
+    }
+
+    @Volatile
+    private var virtualKeyboardListener: VirtualKeyboardListener? = null
+
+    /**
+     * Register (or clear, with null) the soft-keyboard request listener.
+     * Setting a listener arms the native callback; setting null disarms.
+     */
+    @JvmStatic
+    fun setVirtualKeyboardListener(listener: VirtualKeyboardListener?) {
+        virtualKeyboardListener = listener
+        nativeSetVirtualKeyboardCallback(listener != null)
+    }
+
+    /** JNI entry. Called by litergss_surface_jni.c via the registered callback. */
+    @JvmStatic
+    @Suppress("unused")
+    private fun dispatchVirtualKeyboardRequest(show: Boolean) {
+        virtualKeyboardListener?.onVirtualKeyboardRequested(show)
+    }
+
+    @JvmStatic private external fun nativeSetVirtualKeyboardCallback(armed: Boolean)
 }
