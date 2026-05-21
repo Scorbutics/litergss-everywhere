@@ -70,6 +70,8 @@ typedef void (*cgss_android_virtual_keyboard_callback_t)(int show);
 void cgss_android_set_virtual_keyboard_callback(cgss_android_virtual_keyboard_callback_t cb);
 void cgss_android_request_virtual_keyboard(int show);
 
+void cgss_android_set_host_jni_context(JavaVM* vm, jobject activity);
+
 void cgss_android_set_reuse_shared_window(int enabled);
 int cgss_android_is_reuse_shared_window_enabled(void);
 
@@ -360,6 +362,25 @@ Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIE
     (void) env;
     (void) clazz;
     cgss_android_set_virtual_keyboard_callback(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
+}
+
+/* ------------------------------------------------------------------
+ * Host Activity registration. SFML's hosted-mode JNI fallbacks (the
+ * virtual-keyboard path in particular) need both a JavaVM* (already
+ * cached as g_jvm above) and an Activity jobject — neither is
+ * available via SurfaceHolder.Callback. The host Activity registers
+ * itself once in onCreate and clears in onDestroy. Cached on the
+ * LiteCGSS side; reapplied across attach/detach surface cycles.
+ * ------------------------------------------------------------------ */
+
+JNIEXPORT void JNICALL
+Java_com_scorbutics_litergss_NativeSurface_nativeSetHostActivity(JNIEnv* env, jclass clazz,
+                                                                  jobject activity)
+{
+    (void) env;
+    (void) clazz;
+    /* g_jvm is set in JNI_OnLoad; activity may be NULL to clear. */
+    cgss_android_set_host_jni_context(g_jvm, activity);
 }
 
 /* ------------------------------------------------------------------
