@@ -121,33 +121,12 @@ Java_com_scorbutics_litergss_NativeSurface_detach(JNIEnv* env, jclass clazz)
 {
     (void) env;
     (void) clazz;
-
-    /* We deliberately do NOT release g_window here, even though this is the
-     * obvious place. cgss_android_detach_host_surface() only QUEUES a
-     * sf::Event::LostFocus into SFML's event queue — the render thread
-     * processes it later in WindowImplAndroid::processEvents, where it calls
-     * EglContext::destroySurface() → eglDestroySurface(m_display, m_surface).
-     * eglDestroySurface needs the ANativeWindow that eglCreateWindowSurface
-     * was originally bound to to still be alive, otherwise the EGL driver
-     * sees an invalid surface backing and returns EGL_BAD_SURFACE.
-     *
-     * Releasing g_window synchronously here on the UI thread risks dropping
-     * the last ref before EGL has had its chance to clean up. The race window
-     * is wide on Android: when the user backgrounds the app, the UI thread
-     * runs detach() and returns, but the render thread is descheduled and
-     * may not process LostFocus until the app is resumed (seconds later). By
-     * then any ANativeWindow we released here is long gone, and the
-     * render thread's eglDestroySurface fails — exact failure mode:
-     *   libEGL: eglDestroySurfaceImpl:860 error 300d (EGL_BAD_SURFACE)
-     *
-     * The release of g_window happens instead at the top of the NEXT
-     * attach() call (the existing "if (g_window != NULL) ANativeWindow_release"
-     * block at lines 100-104), or on terminal teardown when the process
-     * exits. Holding one extra ANativeWindow ref across a pause is cheap;
-     * the alternative (a synchronous render-thread handoff before returning
-     * from detach()) would block the UI thread and trip Android's ANR
-     * watchdog if the render thread is busy. */
     cgss_android_detach_host_surface();
+    if (g_window != NULL)
+    {
+        ANativeWindow_release(g_window);
+        g_window = NULL;
+    }
 }
 
 JNIEXPORT void JNICALL
