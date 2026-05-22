@@ -65,9 +65,16 @@ extern void        ruby_script_destroy(RubyScript* script);
 static FILE* g_log = NULL;
 
 static void on_log(LogListener* listener, const char* line,
-                   log_stream_t source, log_level_t level) {
+                   log_stream_t source, log_level_t level,
+                   int interpreter_id) {
     (void)listener;
     (void)source;
+    /* interpreter_id is informational here: the registry already routed
+     * this line to us (we're registered for exactly one id). The only
+     * potentially-interesting value is LOG_NATIVE_INTERPRETER_ID, which
+     * tells the head-of-registry listener it's receiving a native-side
+     * untagged line — this single-listener test doesn't care. */
+    (void)interpreter_id;
     const char* prefix = (level == LOG_LEVEL_ERROR) ? "[Ruby Error]" : "[Ruby]";
     fprintf(stderr, "%s %s\n", prefix, line);
     if (g_log) {
