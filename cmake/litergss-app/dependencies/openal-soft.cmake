@@ -1,9 +1,16 @@
 # openal-soft.cmake
 # Configuration for OpenAL Soft dependency
 
-set(OPENAL_VERSION "1.21.1")
+set(OPENAL_VERSION "1.24.3")
 set(OPENAL_URL "https://github.com/kcat/openal-soft/archive/refs/tags/${OPENAL_VERSION}.tar.gz")
-set(OPENAL_HASH "SHA256=8ac17e4e3b32c1af3d5508acfffb838640669b4274606b7892aa796ca9d7467f")
+set(OPENAL_HASH "SHA256=7e1fecdeb45e7f78722b776c5cf30bd33934b961d7fd2a11e0494e064cc631ce")
+
+# 1.24.2+ links its bundled fmt through $<BUILD_LOCAL_INTERFACE:...>, which needs CMake 3.26
+# (the Android docker image ships 3.22). BUILD_INTERFACE (CMake 3.0) is equivalent here since
+# we never export/install openal-soft targets (ALSOFT_INSTALL=OFF).
+set(OPENAL_PATCH_CMD
+    sed -i.bak "s/BUILD_LOCAL_INTERFACE:alsoft::fmt/BUILD_INTERFACE:alsoft::fmt/" CMakeLists.txt
+)
 
 # Set source directory for install command (absolute path)
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
@@ -48,6 +55,7 @@ add_external_dependency(
     VERSION ${OPENAL_VERSION}
     URL ${OPENAL_URL}
     URL_HASH ${OPENAL_HASH}
+    PATCH_COMMAND ${OPENAL_PATCH_CMD}
     CONFIGURE_COMMAND ${OPENAL_CONFIGURE_CMD}
     BUILD_COMMAND ${OPENAL_BUILD_CMD}
     INSTALL_COMMAND ${OPENAL_INSTALL_CMD}
