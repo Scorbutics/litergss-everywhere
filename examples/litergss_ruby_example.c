@@ -11,35 +11,32 @@
 
 // Include the Ruby API Loader (from embedded-ruby-vm)
 // In a real project, point this to where the header is installed
-#include "ruby-api-loader.h"
-#include "assets-install.h"
-#include "assets-error.h"
+#include "embedded-ruby-vm/ruby-api-loader.h"
+#include "embedded-ruby-vm/assets-install.h"
+#include "embedded-ruby-vm/assets-error.h"
 
-// Forward declaration of the extension initializer
-// This is provided by the compiled LiteRGSS library (extension-init.o in the archive)
-//extern void initialize_litergss_extensions(void);
-
-// TODO use extension-init.o from the litergss build instead
-extern void Init_LiteRGSS(void);
-extern void Init_SFMLAudio(void);
-void initialize_litergss_extensions(void) {
-    Init_LiteRGSS();
-    Init_SFMLAudio();
-}
-
+// Extension initializer provided by the fat library (extension-init.o).
+// It already registers itself from a constructor, but that object is only
+// linked in when something references it (or with --whole-archive):
+// registering it explicitly below keeps this example link-mode independent.
+extern void initialize_litergss_extensions(void);
 
 // Log callback
-static void on_log(LogListener* listener, const char* message) {
-    printf("[Ruby] %s\n", message);
+static void on_log(LogListener* listener, const char* message,
+                   log_stream_t source, log_level_t level, int interpreter_id) {
+    (void)listener;
+    (void)source;
+    (void)interpreter_id;
+    if (level == LOG_LEVEL_ERROR) {
+        fprintf(stderr, "[Ruby Error] %s\n", message);
+    } else {
+        printf("[Ruby] %s\n", message);
+    }
 }
 
-static void on_error(LogListener* listener, const char* message) {
-    fprintf(stderr, "[Ruby Error] %s\n", message);
-}
-
-int main(int argc, char** argv) {
+int main(void) {
     printf("Initializing LiteRGSS Environment...\n");
-    
+
     AssetsError assets_error;
     AssetsLayout* layout = NULL;
 
@@ -79,6 +76,7 @@ int main(int argc, char** argv) {
         // or just direct load if bootstrap fails checking dynamic paths
         if (ruby_api_load(NULL, &api) != 0) {
             fprintf(stderr, "Failed to load Ruby API\n");
+            assets_free_layout(layout);
             return 1;
         }
     }
@@ -89,19 +87,22 @@ int main(int argc, char** argv) {
     api.set_custom_ext_init(initialize_litergss_extensions);
 
     // 3. Create the Interpreter
-    LogListener listener = { .accept = on_log, .on_log_error = on_error };
-    
-    // Paths would typically be relative to the executable or in a standard location
-    RubyInterpreter* vm = api.interpreter.create(".", "./ruby", "./lib", listener);
+    LogListener listener;
+    log_listener_init(&listener);
+    listener.on_log_message = on_log;
+
+    RubyInterpreter* vm = api.interpreter.create(execution_location, ruby_base_dir, native_libs_dir, listener);
 
     if (!vm) {
         fprintf(stderr, "Failed to create Ruby interpreter\n");
+        ruby_api_unload(&api);
+        assets_free_layout(layout);
         return 1;
     }
 
     // 4. Verify Extensions are Available
     printf("Executing verification script...\n");
-    const char* check_script = 
+    const char* check_script =
         "begin\n"
         "  require 'LiteRGSS'\n"
         "  puts 'SUCCESS: LiteRGSS loaded!'\n"
@@ -124,6 +125,7 @@ int main(int argc, char** argv) {
     api.script.destroy(script);
     api.interpreter.destroy(vm);
     ruby_api_unload(&api);
+    assets_free_layout(layout);
 
     return result == 0 ? 0 : 1;
 }

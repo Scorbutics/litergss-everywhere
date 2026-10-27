@@ -28,7 +28,9 @@ set_target_properties(psdk-vm-snapshot PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # RUBY_INCLUDE_DIRS arrives as a single string with ';' separators;
 # CMake accepts that directly as a list for target_include_directories.
-target_include_directories(psdk-vm-snapshot PRIVATE ${RUBY_INCLUDE_DIRS})
+# SYSTEM: warnings from the Ruby headers must not trip -Werror below.
+target_include_directories(psdk-vm-snapshot SYSTEM PRIVATE ${RUBY_INCLUDE_DIRS})
+target_compile_options(psdk-vm-snapshot PRIVATE -Wall -Wextra -Werror)
 
 # Note: -Wno-register intentionally NOT set here — it's a C++-only
 # flag (the `register` keyword is still valid in C), and GCC's C

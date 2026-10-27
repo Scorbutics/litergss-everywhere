@@ -414,6 +414,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
         "${CMAKE_BINARY_DIR}/generated"
         "${BUILD_STAGING_DIR}/usr/local/include"
     )
+    target_compile_options(rgss_smoke_test PRIVATE -Wall -Wextra -Werror)
 
     # Export symbols so dlsym(RTLD_DEFAULT, ...) can find them in the executable
     if(APPLE)

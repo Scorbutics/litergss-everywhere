@@ -20,36 +20,30 @@
 
 // Include the Ruby API Loader from embedded-ruby-vm
 #include "embedded-ruby-vm/ruby-api-loader.h"
-#include "embedded-ruby-vm/install.h"
+#include "embedded-ruby-vm/assets-install.h"
 #include "embedded-ruby-vm/assets-error.h"
-#include "ruby/ruby.h"
 
-// Extension initializer provided by LiteRGSS
-// This function is compiled into the fat library
-// TODO use extension-init.o from the litergss build instead
-extern void Init_LiteRGSS(void);
-extern void Init_SFMLAudio(void);
-void initialize_litergss_extensions(void) {
-    fprintf(stdout, "      - Initializing LiteRGSS extensions...\n");
-    Init_LiteRGSS();
-    rb_provide("LiteRGSS");
-    Init_SFMLAudio();
-    rb_provide("SFMLAudio");
-    fprintf(stdout, "      ✓ LiteRGSS extensions initialized\n");
+// Extension initializer provided by the fat library (extension-init.o):
+// initializes physfs, the PSDK VM snapshot extension, LiteRGSS and SFMLAudio.
+// With --whole-archive it already registers itself from a constructor;
+// registering it explicitly below keeps the example link-mode independent.
+extern void initialize_litergss_extensions(void);
+
+// Logging callback
+static void on_log(LogListener* listener, const char* message,
+                   log_stream_t source, log_level_t level, int interpreter_id) {
+    (void)listener;
+    (void)source;
+    (void)interpreter_id;
+    if (level == LOG_LEVEL_ERROR) {
+        fprintf(stderr, "[Ruby Error] %s\n", message);
+    } else {
+        printf("[Ruby] %s\n", message);
+    }
 }
 
-// Logging callbacks
-static void on_log(LogListener* listener, const char* message) {
-    printf("[Ruby] %s\n", message);
-}
+int main(void) {
 
-static void on_error(LogListener* listener, const char* message) {
-    fprintf(stderr, "[Ruby Error] %s\n", message);
-}
-
-int main(int argc, char** argv) {
-
-        
     AssetsError assets_error;
     AssetsLayout* layout = NULL;
 
@@ -96,6 +90,7 @@ int main(int argc, char** argv) {
         // Fallback to direct load for static builds
         if (ruby_api_load(NULL, &api) != 0) {
             fprintf(stderr, "ERROR: Failed to load Ruby API\n");
+            assets_free_layout(layout);
             return 1;
         }
     }
@@ -109,10 +104,9 @@ int main(int argc, char** argv) {
 
     // Step 3: Create the Ruby Interpreter
     printf("[3/4] Creating Ruby interpreter...\n");
-    LogListener listener = {
-        .accept = on_log,
-        .on_log_error = on_error
-    };
+    LogListener listener;
+    log_listener_init(&listener);
+    listener.on_log_message = on_log;
 
     // Create interpreter with paths
     // In production, these would point to your game's script directories
@@ -126,6 +120,7 @@ int main(int argc, char** argv) {
     if (!vm) {
         fprintf(stderr, "ERROR: Failed to create Ruby interpreter\n");
         ruby_api_unload(&api);
+        assets_free_layout(layout);
         return 1;
     }
     printf("      ✓ Interpreter created\n\n");
@@ -173,6 +168,7 @@ int main(int argc, char** argv) {
     api.script.destroy(script);
     api.interpreter.destroy(vm);
     ruby_api_unload(&api);
+    assets_free_layout(layout);
 
     printf("\n==============================================\n");
     if (result == 0) {

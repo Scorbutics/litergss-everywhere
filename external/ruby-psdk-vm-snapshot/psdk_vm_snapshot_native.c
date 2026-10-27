@@ -109,7 +109,9 @@ static VALUE psdk_cache_bust_stub(VALUE self) {
 
 static void psdk_invalidate_method_cache(VALUE klass) {
     static const char* const NAME = "__psdk_vm_snapshot_cache_bust__";
-    rb_define_method(klass, NAME, (VALUE (*)(ANYARGS))psdk_cache_bust_stub, 0);
+    /* No (VALUE (*)(ANYARGS)) cast: under C23 (GCC 15 default) ANYARGS's
+     * empty () means (void), which the arity-checked dispatch rejects. */
+    rb_define_method(klass, NAME, psdk_cache_bust_stub, 0);
     rb_undef_method(klass, NAME);
 }
 
@@ -137,6 +139,7 @@ static remove_from_subclasses_fn s_remove_from_subclasses = NULL;
 static VALUE
 psdk_unprepend(VALUE self, VALUE target, VALUE mod)
 {
+    (void)self;
     if (!(RB_TYPE_P(target, T_CLASS) || RB_TYPE_P(target, T_MODULE))) {
         rb_raise(rb_eTypeError,
                  "expected Module or Class as first arg, got %"PRIsVALUE,
@@ -192,6 +195,7 @@ psdk_unprepend(VALUE self, VALUE target, VALUE mod)
 static VALUE
 psdk_subclass_cleanup_available(VALUE self)
 {
+    (void)self;
     return s_remove_from_subclasses ? Qtrue : Qfalse;
 }
 

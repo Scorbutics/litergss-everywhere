@@ -143,6 +143,10 @@ set(_ERVM_INSTALL_CMD
 # Needs Ruby headers (from ruby-for-android) and embedded-ruby-vm headers.
 separate_arguments(CMAKE_C_FLAGS_LIST NATIVE_COMMAND "${CMAKE_C_FLAGS}")
 
+# Our own sources: keep them warning-free. Ruby headers go through -isystem
+# so their warnings never reach -Werror.
+set(_ERVM_WARNING_FLAGS -Wall -Wextra -Werror)
+
 set(COMPILER_TARGET_FLAG "")
 if(CMAKE_C_COMPILER_TARGET)
     set(COMPILER_TARGET_FLAG "--target=${CMAKE_C_COMPILER_TARGET}")
@@ -179,10 +183,11 @@ endif()
 
 list(APPEND _ERVM_INSTALL_CMD
     COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST} ${_ERVM_APPLE_FLAGS}
+        ${_ERVM_WARNING_FLAGS}
         -I${BUILD_STAGING_DIR}/usr/local/include
         -I${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static
-        -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
-        -I${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}
+        -isystem ${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
+        -isystem ${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}
         -o ${CMAKE_BINARY_DIR}/extension-init.o
         ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c
     COMMAND ${CMAKE_AR} r
@@ -202,6 +207,7 @@ list(APPEND _ERVM_INSTALL_CMD
 if(_ERVM_PLATFORM STREQUAL "android")
     list(APPEND _ERVM_INSTALL_CMD
         COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
+            ${_ERVM_WARNING_FLAGS}
             -o ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
             ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c
         COMMAND ${CMAKE_AR} r
