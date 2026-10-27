@@ -24,7 +24,7 @@
 #include "embedded-ruby-vm/assets-error.h"
 
 // Extension initializer provided by the fat library (extension-init.o):
-// initializes physfs, the PSDK VM snapshot extension, LiteRGSS and SFMLAudio.
+// initializes physfs, LiteRGSS and SFMLAudio.
 // With --whole-archive it already registers itself from a constructor;
 // registering it explicitly below keeps the example link-mode independent.
 extern void initialize_litergss_extensions(void);
