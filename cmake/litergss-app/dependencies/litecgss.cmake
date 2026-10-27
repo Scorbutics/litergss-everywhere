@@ -3,7 +3,7 @@
 
 set(LITECGSS_VERSION "1.0.0")
 set(LITECGSS_GIT_URL "https://gitlab.com/NuriYuri/litecgss.git")
-set(LITECGSS_GIT_TAG "development")
+set(LITECGSS_GIT_TAG "fd9e44225e1c547b58bcb137fb1e69264d62ae76")  # development
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
@@ -55,7 +55,7 @@ add_external_dependency(
     VERSION                 ${LITECGSS_VERSION}
     GIT_REPOSITORY          ${LITECGSS_GIT_URL}
     GIT_TAG                 ${LITECGSS_GIT_TAG}
-    GIT_SHALLOW             TRUE
+    GIT_SHALLOW             FALSE  # pinned commits are not branch heads: shallow fetch cannot reach them
     GIT_SUBMODULES_RECURSE  TRUE
     
     CONFIGURE_COMMAND       ${LITECGSS_CONFIGURE_CMD}

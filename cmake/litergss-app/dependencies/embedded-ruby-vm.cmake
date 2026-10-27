@@ -10,7 +10,72 @@
 # This depends on ruby-for-android (must be listed after it in APP_DEPENDENCIES)
 # since it needs Ruby headers for extension-init.c compilation.
 
-set(EMBEDDED_RUBY_VM_VERSION "1.1.0-snapshot")
+# The prebuilt archive must come from the exact submodule commit: the Kotlin
+# sources (JNI method signatures) are taken from the submodule, so a native
+# built from another commit fails at runtime (e.g. NoSuchMethodError onLogMessage).
+# embedded-ruby-vm CI publishes one release per commit:
+#   vX.Y.Z                      when the commit carries a stable tag (kept forever)
+#   v<NEXT_VERSION>-<sha7>-snapshot otherwise (pruned after a while, see
+#                               embedded-ruby-vm/.github/workflows/prune-snapshots.yml)
+# Anything shipped must point the submodule at a stable tag.
+set(_ERVM_SUBMODULE_DIR "${CMAKE_SOURCE_DIR}/external/embedded-ruby-vm")
+set(EMBEDDED_RUBY_VM_RELEASE_REPO "Scorbutics/embedded-ruby-vm" CACHE STRING
+    "GitHub <owner>/<repo> hosting the embedded-ruby-vm prebuilt releases")
+set(EMBEDDED_RUBY_VM_RELEASE_TAG "" CACHE STRING
+    "Override the embedded-ruby-vm release tag (default: derived from the submodule commit)")
+
+if(EMBEDDED_RUBY_VM_RELEASE_TAG)
+    string(REGEX REPLACE "^v" "" EMBEDDED_RUBY_VM_VERSION "${EMBEDDED_RUBY_VM_RELEASE_TAG}")
+else()
+    if(NOT EXISTS "${_ERVM_SUBMODULE_DIR}/NEXT_VERSION")
+        message(FATAL_ERROR
+            "Cannot read ${_ERVM_SUBMODULE_DIR}/NEXT_VERSION. "
+            "Initialize submodules first: git submodule update --init --recursive")
+    endif()
+    file(READ "${_ERVM_SUBMODULE_DIR}/NEXT_VERSION" _ERVM_NEXT_VERSION)
+    string(STRIP "${_ERVM_NEXT_VERSION}" _ERVM_NEXT_VERSION)
+
+    # safe.directory: the docker build tree is owned by the host user, not root
+    execute_process(
+        COMMAND git -c safe.directory=* rev-parse HEAD
+        WORKING_DIRECTORY "${_ERVM_SUBMODULE_DIR}"
+        OUTPUT_VARIABLE _ERVM_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _ERVM_GIT_RESULT
+    )
+    if(NOT _ERVM_GIT_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "Cannot resolve the embedded-ruby-vm submodule commit. "
+            "Pass -DEMBEDDED_RUBY_VM_RELEASE_TAG=<tag> to pick a release explicitly.")
+    endif()
+    # A commit can carry several tags (e.g. v1.0.4 and v1.0.3-193f1c7-snapshot):
+    # list them all and keep the strict vX.Y.Z one
+    execute_process(
+        COMMAND git -c safe.directory=* tag --points-at HEAD
+        WORKING_DIRECTORY "${_ERVM_SUBMODULE_DIR}"
+        OUTPUT_VARIABLE _ERVM_TAGS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if("\n${_ERVM_TAGS}\n" MATCHES "\nv([0-9]+\\.[0-9]+\\.[0-9]+)\n")
+        set(EMBEDDED_RUBY_VM_VERSION "${CMAKE_MATCH_1}")
+    else()
+        string(SUBSTRING "${_ERVM_COMMIT}" 0 7 _ERVM_COMMIT_SHORT)
+        set(EMBEDDED_RUBY_VM_VERSION "${_ERVM_NEXT_VERSION}-${_ERVM_COMMIT_SHORT}-snapshot")
+    endif()
+
+    # Re-configure when the submodule moves, so the URL never goes stale
+    execute_process(
+        COMMAND git -c safe.directory=* rev-parse --path-format=absolute --git-path HEAD
+        WORKING_DIRECTORY "${_ERVM_SUBMODULE_DIR}"
+        OUTPUT_VARIABLE _ERVM_HEAD_FILE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(EXISTS "${_ERVM_HEAD_FILE}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_ERVM_HEAD_FILE}")
+    endif()
+endif()
 
 # Map platform/arch to the archive name
 string(TOLOWER "${TARGET_PLATFORM}" _ERVM_PLATFORM)
@@ -34,7 +99,7 @@ else()
 endif()
 
 set(EMBEDDED_RUBY_VM_ARCHIVE "embedded-ruby-vm-${_ERVM_ARCHIVE_PLATFORM}-${TARGET_ARCH}.tar.gz")
-set(EMBEDDED_RUBY_VM_URL "https://github.com/Scorbutics/embedded-ruby-vm/releases/download/v${EMBEDDED_RUBY_VM_VERSION}/${EMBEDDED_RUBY_VM_ARCHIVE}")
+set(EMBEDDED_RUBY_VM_URL "https://github.com/${EMBEDDED_RUBY_VM_RELEASE_REPO}/releases/download/v${EMBEDDED_RUBY_VM_VERSION}/${EMBEDDED_RUBY_VM_ARCHIVE}")
 
 message(STATUS "Embedded Ruby VM: ${EMBEDDED_RUBY_VM_URL}")
 

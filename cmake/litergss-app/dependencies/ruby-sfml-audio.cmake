@@ -3,7 +3,7 @@
 
 set(RUBY_SFML_AUDIO_VERSION "1.0.0")
 set(RUBY_SFML_AUDIO_GIT_URL "https://gitlab.com/NuriYuri/sfmlaudio.git")
-set(RUBY_SFML_AUDIO_GIT_TAG "HEAD")
+set(RUBY_SFML_AUDIO_GIT_TAG "341f6330a7fadb0738dcd973dacbb5be7e086bca")  # HEAD
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
@@ -52,7 +52,7 @@ add_external_dependency(
     VERSION             ${RUBY_SFML_AUDIO_VERSION}
     GIT_REPOSITORY      ${RUBY_SFML_AUDIO_GIT_URL}
     GIT_TAG             ${RUBY_SFML_AUDIO_GIT_TAG}
-    GIT_SHALLOW         TRUE
+    GIT_SHALLOW         FALSE  # pinned commits are not branch heads: shallow fetch cannot reach them
 
     CONFIGURE_COMMAND   ${RUBY_SFML_AUDIO_CONFIGURE_CMD}
 

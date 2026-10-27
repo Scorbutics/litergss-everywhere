@@ -130,6 +130,27 @@ make clean
 make
 ```
 
+## Reproducible Builds
+
+### embedded-ruby-vm version
+
+The prebuilt embedded-ruby-vm archive is selected from the `external/embedded-ruby-vm` submodule commit, so the native library always matches the Kotlin sources built alongside it:
+
+- commit carries a stable tag `vX.Y.Z` → release `vX.Y.Z` (kept forever)
+- otherwise → release `v<NEXT_VERSION>-<sha7>-snapshot`, published by embedded-ruby-vm CI for every master commit
+
+Snapshots are pruned weekly (the 20 most recent and those younger than 90 days are kept). Override the selection with `-DEMBEDDED_RUBY_VM_RELEASE_TAG=<tag>`, and point at a fork's releases with `-DEMBEDDED_RUBY_VM_RELEASE_REPO=<owner>/<repo>`.
+
+### Releasing
+
+Anything shipped (litergss-everywhere tag, PSDK-android release) must not depend on a snapshot:
+
+1. Tag the embedded-ruby-vm commit as `vX.Y.Z` and push the tag; wait for its CI release.
+2. Point the submodule at that commit and commit the bump.
+3. Tag litergss-everywhere.
+
+The other git dependencies (LiteCGSS, LiteRGSS2, SFML, sfmlaudio) are pinned to commit SHAs in `cmake/litergss-app/dependencies/`; bump them explicitly.
+
 ## Troubleshooting
 
 ### `cmake/core not found`
