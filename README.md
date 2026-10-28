@@ -2,13 +2,13 @@
 
 A cross-compilation system for [LiteRGSS](https://github.com/Scorbutics/LiteRGSS2) (Lightweight Ruby Game Scripting System) targeting Android, Linux, macOS, and iOS.
 
-It builds LiteRGSS2 and all its dependencies into a single static library (`librgss_runtime.a`) that bundles a complete Ruby 3.1 runtime, graphics (SFML), audio codecs, and the [embedded-ruby-vm](external/embedded-ruby-vm/) Kotlin Multiplatform wrapper.
+It builds LiteRGSS2 and all its dependencies into a single static library (`librgss_runtime.a`) that bundles a complete Ruby runtime (3.0, 3.2 or 3.3, one build per variant), graphics (SFML), audio codecs, and the [embedded-ruby-vm](external/embedded-ruby-vm/) Kotlin Multiplatform wrapper.
 
 ## What's Included
 
 | Component | Description |
 |-----------|-------------|
-| Ruby 3.1 runtime | Full interpreter + standard library |
+| Ruby 3.0 / 3.2 / 3.3 runtime | Full interpreter + standard library (`--with-ruby-variant`) |
 | Embedded Ruby VM | Cross-platform Kotlin/C wrapper ([docs](external/embedded-ruby-vm/README.md)) |
 | LiteRGSS2 | Ruby game scripting extensions |
 | SFML | Graphics, windowing, audio |

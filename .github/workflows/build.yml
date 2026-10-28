@@ -33,6 +33,15 @@ on:
           - "arm64-v8a,x86_64"
           - "arm64-v8a"
           - "x86_64"
+      ruby_variant:
+        description: "Ruby minor version to embed"
+        required: false
+        default: "3.0"
+        type: choice
+        options:
+          - "3.0"
+          - "3.2"
+          - "3.3"
       build_type:
         description: "Build type"
         required: false
@@ -47,6 +56,8 @@ env:
   DEFAULT_PLATFORMS: "android,linux-x86_64,ios,macos"
   DEFAULT_ANDROID_ABIS: "arm64-v8a,x86_64"
   DEFAULT_BUILD_TYPE: "release"
+  # Ruby variant of master/PR builds and of the Package.swift on master
+  DEFAULT_RUBY_VARIANT: "3.0"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -62,6 +73,8 @@ jobs:
       has_macos: ${{ steps.set-params.outputs.has_macos }}
       is_release: ${{ steps.set-params.outputs.is_release }}
       version: ${{ steps.set-params.outputs.version }}
+      ruby_variant: ${{ steps.set-params.outputs.ruby_variant }}
+      is_default_variant: ${{ steps.set-params.outputs.is_default_variant }}
       android_abis: ${{ steps.set-params.outputs.android_abis }}
       android_abis_json: ${{ steps.set-params.outputs.android_abis_json }}
       android_toolchain_args: ${{ steps.set-params.outputs.android_toolchain_args }}
@@ -73,18 +86,33 @@ jobs:
       - id: set-params
         shell: bash
         run: |
-          # Determine if this is a release (tag push)
+          # One build embeds one Ruby variant (minor version), so every release
+          # tag and Maven version carries it: vX.Y.Z-ruby3.0 / X.Y.Z-ruby3.0[-SNAPSHOT].
+          # A tag builds its own variant; other triggers build the input or default one.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "is_release=true" >> "$GITHUB_OUTPUT"
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-ruby([0-9]+\.[0-9]+)$ ]]; then
+              echo "::error::Release tags must be vX.Y.Z-rubyA.B (e.g. v1.2.0-ruby3.0), got $GITHUB_REF_NAME"
+              exit 1
+            fi
+            RUBY_VARIANT="${BASH_REMATCH[1]}"
             VERSION="${GITHUB_REF_NAME#v}"
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
+            RUBY_VARIANT="${{ github.event.inputs.ruby_variant || env.DEFAULT_RUBY_VARIANT }}"
             # Read the submodule commit, then fetch NEXT_VERSION from it via the API
             SM_COMMIT=$(git ls-tree HEAD external/embedded-ruby-vm | awk '{print $3}')
             SM_REPO=$(git config --file .gitmodules submodule.external/embedded-ruby-vm.url | sed 's|.*github.com[:/]||;s|\.git$||')
             VERSION="$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-SNAPSHOT"
+              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}-SNAPSHOT"
           fi
+          echo "ruby_variant=$RUBY_VARIANT" >> "$GITHUB_OUTPUT"
+          if [ "$RUBY_VARIANT" = "${{ env.DEFAULT_RUBY_VARIANT }}" ]; then
+            echo "is_default_variant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_default_variant=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Ruby variant: $RUBY_VARIANT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
@@ -180,6 +208,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android \
@@ -246,6 +275,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -323,6 +353,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/${{ matrix.target }}-toolchain.params \
             --enable-static \
@@ -384,6 +415,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \
@@ -436,6 +468,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             ${{ needs.prepare.outputs.android_toolchain_args }} \
             --build-dir=build-android \
@@ -520,6 +553,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -571,6 +605,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
             --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
@@ -633,6 +668,7 @@ jobs:
       - name: Configure
         run: |
           ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \
@@ -805,7 +841,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Package.swift with XCFramework checksum
-        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true'
+        # Package.swift on master tracks the default Ruby variant
+        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

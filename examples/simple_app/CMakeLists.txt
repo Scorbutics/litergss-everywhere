@@ -76,9 +76,11 @@ else()
     )
 endif()
 
-# Add include directories
+# Add include directories (Ruby headers sit in ruby-<ABI>/, e.g. ruby-3.0.0/,
+# depending on the Ruby variant the runtime was built with)
+file(GLOB RGSS_RUBY_INCLUDE_DIR LIST_DIRECTORIES true "${RGSS_INCLUDE_DIR}/ruby-[0-9]*")
 target_include_directories(simple_app PRIVATE
-    ${RGSS_INCLUDE_DIR}/ruby-3.1.0
+    ${RGSS_RUBY_INCLUDE_DIR}
     ${RGSS_INCLUDE_DIR}
 )
 

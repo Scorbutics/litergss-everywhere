@@ -141,13 +141,17 @@ The prebuilt embedded-ruby-vm archive is selected from the `external/embedded-ru
 
 Snapshots are pruned weekly (the 20 most recent and those younger than 90 days are kept). Override the selection with `-DEMBEDDED_RUBY_VM_RELEASE_TAG=<tag>`, and point at a fork's releases with `-DEMBEDDED_RUBY_VM_RELEASE_REPO=<owner>/<repo>`.
 
+### Ruby variant
+
+One build embeds one Ruby minor version, selected with `./configure --with-ruby-variant=3.0|3.2|3.3` (default 3.0, `-DRUBY_VARIANT` in CMake). The ruby-for-android release of each variant is pinned in `external/embedded-ruby-vm/RUBY_LIBS_VERSIONS`, and the embedded-ruby-vm release holds every variant (`embedded-ruby-vm-<platform>-ruby<variant>.tar.gz`). Clean the build directory when switching variants.
+
 ### Releasing
 
 Anything shipped (litergss-everywhere tag, PSDK-android release) must not depend on a snapshot:
 
 1. Tag the embedded-ruby-vm commit as `vX.Y.Z` and push the tag; wait for its CI release.
 2. Point the submodule at that commit and commit the bump.
-3. Tag litergss-everywhere.
+3. Tag litergss-everywhere once per Ruby variant: `vX.Y.Z-ruby3.0`, `vX.Y.Z-ruby3.2`, `vX.Y.Z-ruby3.3`. Each tag builds and publishes its own variant (GitHub release and Maven version `X.Y.Z-ruby<variant>`); only the default variant (3.0) updates `Package.swift` on master.
 
 The other git dependencies (LiteCGSS, LiteRGSS2, SFML, sfmlaudio) are pinned to commit SHAs in `cmake/litergss-app/dependencies/`; bump them explicitly.
 

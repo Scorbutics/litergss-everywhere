@@ -441,6 +441,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
                 "-framework CoreFoundation"
                 "-framework CoreVideo"
                 "-framework Carbon"
+                "-framework Security"  # Ruby 3.0: SecRandomCopyBytes
                 compression
                 iconv
             )

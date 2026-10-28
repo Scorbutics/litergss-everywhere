@@ -45,6 +45,8 @@ Configuration Options:
   --enable-static           Build static libraries (.a files) - default
   --enable-debug            Build with debug symbols and logging (CMAKE_BUILD_TYPE=Debug)
   --enable-release          Build with optimizations (CMAKE_BUILD_TYPE=Release)
+  --with-ruby-variant=X.Y   Ruby minor version to embed: 3.0 (default), 3.2 or 3.3
+                            (the variants pinned in external/embedded-ruby-vm/RUBY_LIBS_VERSIONS)
   --prefix=PREFIX           Installation prefix (default: /usr/local)
   --build-dir=DIR           Build directory (default: build)
   --target-dir=DIR          Output directory for artifacts (default: target)
@@ -111,6 +113,10 @@ while [ $# -gt 0 ]; do
 			;;
 		--enable-release)
 			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release"
+			shift
+			;;
+		--with-ruby-variant=*)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DRUBY_VARIANT=${1#*=}"
 			shift
 			;;
 		--prefix=*)

@@ -14,7 +14,7 @@ For the full Ruby VM API (RubyInterpreter, batch execution, logging, threading),
 
 ### Option A: GitHub Packages (Recommended)
 
-The CI pipeline publishes artifacts on every push. Tagged releases (`vX.Y.Z`) publish stable versions; other pushes publish `1.0.0-SNAPSHOT`.
+The CI pipeline publishes artifacts on every push. Each build embeds one Ruby variant (3.0, 3.2 or 3.3: a Pokemon Studio game only runs on the Ruby minor that compiled it), carried by the version: tagged releases (`vX.Y.Z-ruby3.0`) publish `X.Y.Z-ruby3.0`, other pushes publish `<next version>-ruby3.0-SNAPSHOT` (the default variant). Pick the variant matching your game, e.g. `rgss-runtime-android:1.2.0-ruby3.2`.
 
 **1. Set up GitHub Packages authentication**
 

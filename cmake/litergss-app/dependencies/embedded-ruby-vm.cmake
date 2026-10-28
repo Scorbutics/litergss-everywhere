@@ -13,7 +13,7 @@
 # The prebuilt archive must come from the exact submodule commit: the Kotlin
 # sources (JNI method signatures) are taken from the submodule, so a native
 # built from another commit fails at runtime (e.g. NoSuchMethodError onLogMessage).
-# embedded-ruby-vm CI publishes one release per commit:
+# embedded-ruby-vm CI publishes one release per commit, holding every Ruby variant:
 #   vX.Y.Z                      when the commit carries a stable tag (kept forever)
 #   v<NEXT_VERSION>-<sha7>-snapshot otherwise (pruned after a while, see
 #                               embedded-ruby-vm/.github/workflows/prune-snapshots.yml)
@@ -98,7 +98,12 @@ else()
     set(_ERVM_ARCHIVE_PLATFORM "${_ERVM_PLATFORM}")
 endif()
 
-set(EMBEDDED_RUBY_VM_ARCHIVE "embedded-ruby-vm-${_ERVM_ARCHIVE_PLATFORM}-${TARGET_ARCH}.tar.gz")
+# A release holds the artifacts of every Ruby variant (RUBY_VARIANT, set by
+# ruby-for-android.cmake, which must be listed before this file)
+if(NOT RUBY_VARIANT)
+    message(FATAL_ERROR "RUBY_VARIANT is not set: ruby-for-android must come before embedded-ruby-vm")
+endif()
+set(EMBEDDED_RUBY_VM_ARCHIVE "embedded-ruby-vm-${_ERVM_ARCHIVE_PLATFORM}-${TARGET_ARCH}-ruby${RUBY_VARIANT}.tar.gz")
 set(EMBEDDED_RUBY_VM_URL "https://github.com/${EMBEDDED_RUBY_VM_RELEASE_REPO}/releases/download/v${EMBEDDED_RUBY_VM_VERSION}/${EMBEDDED_RUBY_VM_ARCHIVE}")
 
 message(STATUS "Embedded Ruby VM: ${EMBEDDED_RUBY_VM_URL}")

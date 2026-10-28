@@ -4,41 +4,49 @@
 #
 # After extraction, the following are available in BUILD_STAGING_DIR:
 #   - usr/local/lib/  — all static Ruby libraries (.a)
-#   - usr/local/include/ruby-3.1.0/ — Ruby headers
+#   - usr/local/include/ruby-<ABI>/ — Ruby headers (e.g. ruby-3.0.0)
 #   - usr/local/include/ — dependency headers (openssl, zlib)
 #   - assets/ — Ruby stdlib zip files
 
-# Sync versions from the submodules so they can't drift:
-#   RUBY_FOR_ANDROID_VERSION ← external/embedded-ruby-vm/RUBY_LIBS_VERSION
-#   RUBY_MINOR_VERSION       ← external/ruby-for-android/.../ruby.cmake (RUBY_ABI_VERSION)
-set(_RFA_LIBS_VERSION_FILE "${CMAKE_SOURCE_DIR}/external/embedded-ruby-vm/RUBY_LIBS_VERSION")
-if(NOT EXISTS "${_RFA_LIBS_VERSION_FILE}")
-    message(FATAL_ERROR
-        "Cannot read ${_RFA_LIBS_VERSION_FILE}. "
-        "Initialize submodules first: git submodule update --init --recursive")
-endif()
-file(READ "${_RFA_LIBS_VERSION_FILE}" _RFA_LIBS_VERSION_RAW)
-string(STRIP "${_RFA_LIBS_VERSION_RAW}" _RFA_LIBS_VERSION_RAW)
-string(REGEX REPLACE "^v" "" RUBY_FOR_ANDROID_VERSION "${_RFA_LIBS_VERSION_RAW}")
+# Ruby variant: the Ruby minor version to embed. Pokemon Studio compiles game
+# bytecode with Ruby 3.0, 3.2 or 3.3 depending on the OS, and bytecode only
+# loads on the minor that produced it, so each variant is a separate build.
+set(RUBY_VARIANT "3.0" CACHE STRING "Ruby minor version to embed (a key of embedded-ruby-vm's RUBY_LIBS_VERSIONS)")
 
-set(_RFA_RUBY_CMAKE_FILE "${CMAKE_SOURCE_DIR}/external/ruby-for-android/cmake/ruby-app/dependencies/ruby.cmake")
-if(NOT EXISTS "${_RFA_RUBY_CMAKE_FILE}")
+# Sync versions from the submodules so they can't drift:
+#   RUBY_FOR_ANDROID_VERSION ← the RUBY_VARIANT line of external/embedded-ruby-vm/RUBY_LIBS_VERSIONS
+#   RUBY_MINOR_VERSION       ← the variant's ABI version (<variant>.0, e.g. 3.0.0)
+set(_RFA_LIBS_VERSIONS_FILE "${CMAKE_SOURCE_DIR}/external/embedded-ruby-vm/RUBY_LIBS_VERSIONS")
+if(NOT EXISTS "${_RFA_LIBS_VERSIONS_FILE}")
     message(FATAL_ERROR
-        "Cannot read ${_RFA_RUBY_CMAKE_FILE}. "
+        "Cannot read ${_RFA_LIBS_VERSIONS_FILE}. "
         "Initialize submodules first: git submodule update --init --recursive")
 endif()
-file(READ "${_RFA_RUBY_CMAKE_FILE}" _RFA_RUBY_CMAKE_CONTENT)
-if(_RFA_RUBY_CMAKE_CONTENT MATCHES "set\\(RUBY_ABI_VERSION[ \t\r\n]+\"([^\"]+)\"")
-    set(RUBY_MINOR_VERSION "${CMAKE_MATCH_1}")
-else()
+file(STRINGS "${_RFA_LIBS_VERSIONS_FILE}" _RFA_LIBS_LINES REGEX "^[0-9]")
+unset(RUBY_FOR_ANDROID_VERSION)
+set(_RFA_VARIANTS "")
+foreach(_line ${_RFA_LIBS_LINES})
+    if(_line MATCHES "^([0-9]+\\.[0-9]+)[ \t]+v([^ \t]+)")
+        list(APPEND _RFA_VARIANTS "${CMAKE_MATCH_1}")
+        if(CMAKE_MATCH_1 STREQUAL RUBY_VARIANT)
+            set(RUBY_FOR_ANDROID_VERSION "${CMAKE_MATCH_2}")
+        endif()
+    endif()
+endforeach()
+if(NOT RUBY_FOR_ANDROID_VERSION)
     message(FATAL_ERROR
-        "Could not extract RUBY_ABI_VERSION from ${_RFA_RUBY_CMAKE_FILE}. "
-        "Has the submodule layout changed?")
+        "Ruby variant '${RUBY_VARIANT}' is not pinned in ${_RFA_LIBS_VERSIONS_FILE} "
+        "(available: ${_RFA_VARIANTS})")
 endif()
-unset(_RFA_LIBS_VERSION_FILE)
-unset(_RFA_LIBS_VERSION_RAW)
-unset(_RFA_RUBY_CMAKE_FILE)
-unset(_RFA_RUBY_CMAKE_CONTENT)
+# ruby-for-android tags are v<ruby version>-<build>: the pin must be that variant
+if(NOT RUBY_FOR_ANDROID_VERSION MATCHES "^${RUBY_VARIANT}\\.")
+    message(FATAL_ERROR
+        "${_RFA_LIBS_VERSIONS_FILE} pins v${RUBY_FOR_ANDROID_VERSION} for Ruby ${RUBY_VARIANT}")
+endif()
+set(RUBY_MINOR_VERSION "${RUBY_VARIANT}.0")
+unset(_RFA_LIBS_VERSIONS_FILE)
+unset(_RFA_LIBS_LINES)
+unset(_RFA_VARIANTS)
 
 message(STATUS "Ruby for Android: RUBY_FOR_ANDROID_VERSION=${RUBY_FOR_ANDROID_VERSION} RUBY_MINOR_VERSION=${RUBY_MINOR_VERSION}")
 
@@ -138,8 +146,8 @@ endfunction()
 # Install script: extracts the archive contents into BUILD_STAGING_DIR
 # The archive structure is:
 #   external/lib/{triplet}/static/  -> usr/local/lib/
-#   external/include/ruby/          -> usr/local/include/ruby-3.1.0/ruby/
-#   external/include/{triplet}/static/ -> usr/local/include/ruby-3.1.0/
+#   external/include/ruby/          -> usr/local/include/ruby-<ABI>/ruby/
+#   external/include/{triplet}/static/ -> usr/local/include/ruby-<ABI>/
 #   external/include/openssl/      -> usr/local/include/
 #   external/include/zlib.h etc.   -> usr/local/include/
 #   assets/files/                   -> assets/
