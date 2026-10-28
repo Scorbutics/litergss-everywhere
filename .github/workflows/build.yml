@@ -692,19 +692,20 @@ jobs:
           retention-days: 1
 
   # ===========================================================================
-  #  PACKAGE — assemble final release from all platform outputs
+  #  PACKAGE — assemble the release and publish the Maven packages, in two
+  #  jobs so the Android / Linux ones never wait for the (scarce) macOS
+  #  runners: package-linux creates the GitHub Release, package-apple adds
+  #  the iOS / macOS files to it afterwards.
   # ===========================================================================
-  package:
-    needs: [prepare, install-android, install-linux-x86_64, install-ios, install-macos]
+  package-linux:
+    needs: [prepare, install-android, install-linux-x86_64]
     if: >-
       always()
       && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
       && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
-      && (needs.install-ios.result == 'success' || needs.install-ios.result == 'skipped')
-      && (needs.install-macos.result == 'success' || needs.install-macos.result == 'skipped')
-      && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success' || needs.install-ios.result == 'success' || needs.install-macos.result == 'success')
+      && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success')
     runs-on: ubuntu-latest
-    name: Package final artifacts
+    name: Package Android / Linux artifacts
     permissions:
       contents: write
       packages: write
@@ -730,20 +731,6 @@ jobs:
           name: intermediate-linux-x86_64
           path: staging/linux-x86_64
 
-      - name: Download iOS build
-        if: needs.prepare.outputs.has_ios == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-ios
-          path: staging/ios
-
-      - name: Download macOS build
-        if: needs.prepare.outputs.has_macos == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-macos
-          path: staging/macos
-
       - name: Assemble release
         run: |
           mkdir -p release
@@ -759,26 +746,6 @@ jobs:
             echo "Included Linux x86_64 artifacts:"
             ls -lh release/linux-x86_64/
           fi
-          if [ -d staging/ios ]; then
-            mkdir -p release/ios
-            # Copy build archives (flat, from both device + simulator ABIs)
-            find staging/ios -maxdepth 1 -type f -exec cp {} release/ios/ \;
-            echo "Included iOS artifacts:"
-            ls -lh release/ios/ 2>/dev/null || true
-            # Copy XCFramework if present
-            if [ -d staging/ios/xcframework ]; then
-              mkdir -p release/xcframework
-              cp -r staging/ios/xcframework/* release/xcframework/
-              echo "Included iOS XCFramework:"
-              find release/xcframework -type f | head -20
-            fi
-          fi
-          if [ -d staging/macos ]; then
-            mkdir -p release/macos
-            cp -r staging/macos/* release/macos/
-            echo "Included macOS artifacts:"
-            ls -lh release/macos/
-          fi
           echo ""
           echo "=== Final release contents ==="
           find release -type f | sort
@@ -786,7 +753,7 @@ jobs:
       - name: Upload final release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: litergss-release
+          name: litergss-release-linux
           path: release/
           if-no-files-found: error
           retention-days: 30
@@ -810,23 +777,6 @@ jobs:
             tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64 .
           fi
 
-          if [ -d staging/ios ]; then
-            # Archive iOS build outputs (excludes xcframework subdir)
-            tar -czf "release-assets/litergss-ios-${VERSION}.tar.gz" \
-              --exclude='xcframework' -C staging/ios .
-          fi
-
-          if [ -d staging/ios/xcframework ]; then
-            # ZIP format required for Swift Package Manager binary targets
-            cd staging/ios/xcframework
-            zip -r "$OLDPWD/release-assets/RubyVM-xcframework-${VERSION}.zip" .
-            cd "$OLDPWD"
-          fi
-
-          if [ -d staging/macos ]; then
-            tar -czf "release-assets/litergss-macos-arm64-${VERSION}.tar.gz" -C staging/macos .
-          fi
-
           echo "=== Release assets ==="
           ls -lh release-assets/
 
@@ -840,70 +790,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Package.swift with XCFramework checksum
-        # Package.swift on master tracks the default Ruby variant
-        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          ZIP_FILE="release-assets/RubyVM-xcframework-${VERSION}.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "Warning: XCFramework ZIP not found, skipping Package.swift update"
-            exit 0
-          fi
-
-          CHECKSUM=$(swift package compute-checksum "$ZIP_FILE" 2>/dev/null \
-            || shasum -a 256 "$ZIP_FILE" | awk '{print $1}')
-          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/RubyVM-xcframework-${VERSION}.zip"
-
-          echo "XCFramework URL: $URL"
-          echo "XCFramework checksum: $CHECKSUM"
-
-          # Checkout repo to update Package.swift
-          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" repo-checkout
-          cd repo-checkout
-
-          cat > Package.swift <<SWIFT_EOF
-          // swift-tools-version: 5.9
-          import PackageDescription
-
-          let package = Package(
-              name: "RubyVM",
-              platforms: [
-                  .iOS(.v14)
-              ],
-              products: [
-                  .library(name: "RubyVM", targets: ["RubyVM"])
-              ],
-              targets: [
-                  .binaryTarget(
-                      name: "RubyVM",
-                      url: "$URL",
-                      checksum: "$CHECKSUM"
-                  )
-              ]
-          )
-          SWIFT_EOF
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Package.swift
-          git commit -m "chore: update Package.swift for v${VERSION}"
-          git push origin master
-
       # --- Publish to GitHub Packages (Maven) ---
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Write Maven settings
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
+        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         run: |
           cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
@@ -918,13 +815,18 @@ jobs:
           SETTINGS_EOF
 
       - name: Delete existing SNAPSHOT package versions
-        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true' || needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true')
+        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only the packages this job publishes: the other package job may
+          # already have re-published its own.
+          SCOPE: linux
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           OWNER="${{ github.repository_owner }}"
-          echo "Deleting existing SNAPSHOT package versions (${VERSION}) before re-publishing..."
+          echo "Deleting existing SNAPSHOT package versions (${VERSION}, ${SCOPE} packages) before re-publishing..."
+          # Published by package-linux; every other package by package-apple.
+          LINUX_PACKAGES="rgss-runtime-android rgss-runtime-desktop rgss-runtime-linuxx64"
 
           # List all packages in the repository
           PACKAGES=$(gh api \
@@ -936,6 +838,12 @@ jobs:
           PACKAGES=""
 
           for PACKAGE in $PACKAGES; do
+            case " $LINUX_PACKAGES " in
+              *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
+              *) PACKAGE_SCOPE=apple ;;
+            esac
+            [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
+
             # Find the version ID matching our SNAPSHOT version
             VERSION_ID=$(gh api \
               "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
@@ -1064,6 +972,246 @@ jobs:
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
+  package-apple:
+    # After package-linux: it creates the GitHub Release this job adds to.
+    # Runs when the Android / Linux side succeeded or was not built.
+    needs: [prepare, install-android, install-linux-x86_64, install-ios, install-macos, package-linux]
+    if: >-
+      always()
+      && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
+      && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
+      && (needs.package-linux.result == 'success' || needs.package-linux.result == 'skipped')
+      && (needs.install-ios.result == 'success' || needs.install-ios.result == 'skipped')
+      && (needs.install-macos.result == 'success' || needs.install-macos.result == 'skipped')
+      && (needs.install-ios.result == 'success' || needs.install-macos.result == 'success')
+    runs-on: ubuntu-latest
+    name: Package iOS / macOS artifacts
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Download iOS build
+        if: needs.prepare.outputs.has_ios == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-ios
+          path: staging/ios
+
+      - name: Download macOS build
+        if: needs.prepare.outputs.has_macos == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-macos
+          path: staging/macos
+
+      - name: Assemble release
+        run: |
+          mkdir -p release
+          if [ -d staging/ios ]; then
+            mkdir -p release/ios
+            # Copy build archives (flat, from both device + simulator ABIs)
+            find staging/ios -maxdepth 1 -type f -exec cp {} release/ios/ \;
+            echo "Included iOS artifacts:"
+            ls -lh release/ios/ 2>/dev/null || true
+            # Copy XCFramework if present
+            if [ -d staging/ios/xcframework ]; then
+              mkdir -p release/xcframework
+              cp -r staging/ios/xcframework/* release/xcframework/
+              echo "Included iOS XCFramework:"
+              find release/xcframework -type f | head -20
+            fi
+          fi
+          if [ -d staging/macos ]; then
+            mkdir -p release/macos
+            cp -r staging/macos/* release/macos/
+            echo "Included macOS artifacts:"
+            ls -lh release/macos/
+          fi
+          echo ""
+          echo "=== Final release contents ==="
+          find release -type f | sort
+
+      - name: Upload final release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: litergss-release-apple
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+
+      # --- GitHub Release (only on tag pushes) ---
+
+      - name: Assemble release archives
+        if: needs.prepare.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p release-assets
+
+          if [ -d staging/ios ]; then
+            # Archive iOS build outputs (excludes xcframework subdir)
+            tar -czf "release-assets/litergss-ios-${VERSION}.tar.gz" \
+              --exclude='xcframework' -C staging/ios .
+          fi
+
+          if [ -d staging/ios/xcframework ]; then
+            # ZIP format required for Swift Package Manager binary targets
+            cd staging/ios/xcframework
+            zip -r "$OLDPWD/release-assets/RubyVM-xcframework-${VERSION}.zip" .
+            cd "$OLDPWD"
+          fi
+
+          if [ -d staging/macos ]; then
+            tar -czf "release-assets/litergss-macos-arm64-${VERSION}.tar.gz" -C staging/macos .
+          fi
+
+          echo "=== Release assets ==="
+          ls -lh release-assets/
+
+      - name: Add to the GitHub Release
+        # package-linux created the release (with its notes); only add files.
+        # Creates it when Android / Linux were not built.
+        if: needs.prepare.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LiteRGSS ${{ github.ref_name }}
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Package.swift with XCFramework checksum
+        # Package.swift on master tracks the default Ruby variant
+        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ZIP_FILE="release-assets/RubyVM-xcframework-${VERSION}.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "Warning: XCFramework ZIP not found, skipping Package.swift update"
+            exit 0
+          fi
+
+          CHECKSUM=$(swift package compute-checksum "$ZIP_FILE" 2>/dev/null \
+            || shasum -a 256 "$ZIP_FILE" | awk '{print $1}')
+          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/RubyVM-xcframework-${VERSION}.zip"
+
+          echo "XCFramework URL: $URL"
+          echo "XCFramework checksum: $CHECKSUM"
+
+          # Checkout repo to update Package.swift
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" repo-checkout
+          cd repo-checkout
+
+          cat > Package.swift <<SWIFT_EOF
+          // swift-tools-version: 5.9
+          import PackageDescription
+
+          let package = Package(
+              name: "RubyVM",
+              platforms: [
+                  .iOS(.v14)
+              ],
+              products: [
+                  .library(name: "RubyVM", targets: ["RubyVM"])
+              ],
+              targets: [
+                  .binaryTarget(
+                      name: "RubyVM",
+                      url: "$URL",
+                      checksum: "$CHECKSUM"
+                  )
+              ]
+          )
+          SWIFT_EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "chore: update Package.swift for v${VERSION}"
+          git push origin master
+
+      # --- Publish to GitHub Packages (Maven) ---
+
+      - name: Set up JDK
+        if: needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Write Maven settings
+        if: needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
+        run: |
+          cat > /tmp/maven-settings.xml <<SETTINGS_EOF
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${{ github.actor }}</username>
+                <password>${{ secrets.GITHUB_TOKEN }}</password>
+              </server>
+            </servers>
+          </settings>
+          SETTINGS_EOF
+
+      - name: Delete existing SNAPSHOT package versions
+        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only the packages this job publishes: the other package job may
+          # already have re-published its own.
+          SCOPE: apple
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          OWNER="${{ github.repository_owner }}"
+          echo "Deleting existing SNAPSHOT package versions (${VERSION}, ${SCOPE} packages) before re-publishing..."
+          # Published by package-linux; every other package by package-apple.
+          LINUX_PACKAGES="rgss-runtime-android rgss-runtime-desktop rgss-runtime-linuxx64"
+
+          # List all packages in the repository
+          PACKAGES=$(gh api \
+            "/orgs/${OWNER}/packages?package_type=maven" \
+            --paginate --jq '.[].name' 2>/dev/null) || \
+          PACKAGES=$(gh api \
+            "/users/${OWNER}/packages?package_type=maven" \
+            --paginate --jq '.[].name' 2>/dev/null) || \
+          PACKAGES=""
+
+          for PACKAGE in $PACKAGES; do
+            case " $LINUX_PACKAGES " in
+              *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
+              *) PACKAGE_SCOPE=apple ;;
+            esac
+            [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
+
+            # Find the version ID matching our SNAPSHOT version
+            VERSION_ID=$(gh api \
+              "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+            VERSION_ID=$(gh api \
+              "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
+              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+            VERSION_ID=""
+
+            if [ -n "$VERSION_ID" ]; then
+              echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
+              # Try deleting the version; if it's the last version, delete the whole package instead
+              if ! gh api --method DELETE \
+                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
+                ! gh api --method DELETE \
+                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
+                echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
+                gh api --method DELETE \
+                  "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                  gh api --method DELETE \
+                  "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                  echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+              fi
+            fi
+          done
+          echo "SNAPSHOT cleanup complete."
+
       - name: Publish Desktop JAR to GitHub Packages (macOS)
         if: needs.prepare.outputs.has_macos == 'true'
         run: |
@@ -1098,7 +1246,7 @@ jobs:
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
-      # --- iOS + KMP metadata (published from install-ios which runs on macOS) ---
+      # --- iOS + KMP metadata (built by install-ios, which runs on macOS) ---
 
       - name: Publish KMP metadata module to GitHub Packages
         if: needs.prepare.outputs.has_ios == 'true'
