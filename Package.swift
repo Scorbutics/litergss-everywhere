@@ -1,10 +1,6 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// This file is auto-updated by CI on each release.
-// To use in your Xcode project: File > Add Package Dependencies >
-// https://github.com/Scorbutics/litergss-everywhere.git
-
 let package = Package(
     name: "RubyVM",
     platforms: [
@@ -16,8 +12,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "RubyVM",
-            url: "https://github.com/Scorbutics/litergss-everywhere/releases/download/v1.0.0/RubyVM-xcframework-1.0.0.zip",
-            checksum: "PLACEHOLDER"
+            url: "https://github.com/Scorbutics/litergss-everywhere/releases/download/v1.1.0/RubyVM-xcframework-1.1.0.zip",
+            checksum: "d3491bc3d2595dfb31195343b149802bc44342529e829d01a610b227c2a8055b"
         )
     ]
 )
