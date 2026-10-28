@@ -452,6 +452,10 @@ jobs:
           make merge-exports MERGE_SOURCES="$MERGE_SOURCES"
 
       - name: Publish
+        env:
+          # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
+          # and a release tag ships artifacts whose POM says -SNAPSHOT.
+          KMP_VERSION: ${{ needs.prepare.outputs.version }}
         run: make publish-kmp
 
       - name: Find AAR artifact
@@ -523,6 +527,10 @@ jobs:
             ${{ needs.prepare.outputs.build_type_flag }}
 
       - name: Publish
+        env:
+          # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
+          # and a release tag ships artifacts whose POM says -SNAPSHOT.
+          KMP_VERSION: ${{ needs.prepare.outputs.version }}
         run: make publish-kmp
 
       - name: Upload target artifacts
@@ -581,6 +589,10 @@ jobs:
           make merge-exports MERGE_SOURCES="$MERGE_SOURCES"
 
       - name: Publish
+        env:
+          # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
+          # and a release tag ships artifacts whose POM says -SNAPSHOT.
+          KMP_VERSION: ${{ needs.prepare.outputs.version }}
         run: make publish-kmp
 
       - name: Upload target artifacts
@@ -629,6 +641,10 @@ jobs:
             ${{ needs.prepare.outputs.build_type_flag }}
 
       - name: Publish
+        env:
+          # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
+          # and a release tag ships artifacts whose POM says -SNAPSHOT.
+          KMP_VERSION: ${{ needs.prepare.outputs.version }}
         run: make publish-kmp
 
       - name: Upload target artifacts

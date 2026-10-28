@@ -79,7 +79,8 @@ echo "--- Building XCFramework ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew assembleRubyVMReleaseXCFramework \
 	-PnativeLibraryName=rgss_runtime \
-	-PkmpArtifactName=rgss-runtime
+	-PkmpArtifactName=rgss-runtime \
+	${KMP_VERSION:+-Pversion="$KMP_VERSION"}
 cd "$ROOT_DIR"
 
 echo ""
@@ -94,7 +95,8 @@ cd "$KMP_PUBLISH_DIR"
 	publishIosArm64PublicationToMavenLocal \
 	publishIosSimulatorArm64PublicationToMavenLocal \
 	-PnativeLibraryName=rgss_runtime \
-	-PkmpArtifactName=rgss-runtime
+	-PkmpArtifactName=rgss-runtime \
+	${KMP_VERSION:+-Pversion="$KMP_VERSION"}
 cd "$ROOT_DIR"
 
 echo ""

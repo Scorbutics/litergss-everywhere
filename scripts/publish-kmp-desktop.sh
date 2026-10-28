@@ -93,7 +93,8 @@ echo "--- Publishing Desktop JAR ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew publishDesktopPublicationToMavenLocal \
 	-PnativeLibraryName=rgss_runtime \
-	-PkmpArtifactName=rgss-runtime
+	-PkmpArtifactName=rgss-runtime \
+	${KMP_VERSION:+-Pversion="$KMP_VERSION"}
 cd "$ROOT_DIR"
 
 echo ""

@@ -69,7 +69,8 @@ echo "--- Publishing Linux Native klib ---"
 cd "$KMP_PUBLISH_DIR"
 ./gradlew publishLinuxX64PublicationToMavenLocal \
 	-PnativeLibraryName=rgss_runtime \
-	-PkmpArtifactName=rgss-runtime
+	-PkmpArtifactName=rgss-runtime \
+	${KMP_VERSION:+-Pversion="$KMP_VERSION"}
 cd "$ROOT_DIR"
 
 echo ""
