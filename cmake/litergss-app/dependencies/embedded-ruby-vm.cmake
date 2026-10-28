@@ -57,6 +57,27 @@ else()
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET
     )
+    if(NOT "\n${_ERVM_TAGS}\n" MATCHES "\nv([0-9]+\\.[0-9]+\\.[0-9]+)\n")
+        # CI checkouts (and shallow clones) fetch the submodule commit without
+        # its tags: ask the remote which tags point at it, otherwise a stable
+        # commit would resolve to a snapshot that may not exist.
+        execute_process(
+            COMMAND git -c safe.directory=* ls-remote --tags origin
+            WORKING_DIRECTORY "${_ERVM_SUBMODULE_DIR}"
+            OUTPUT_VARIABLE _ERVM_REMOTE_TAGS
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+            TIMEOUT 30
+        )
+        # Annotated tags are listed twice: refs/tags/vX and the peeled
+        # refs/tags/vX^{} line, which carries the commit
+        string(REGEX MATCHALL "${_ERVM_COMMIT}[ \t]+refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+(\\^{})?\n" _ERVM_REMOTE_MATCHES "${_ERVM_REMOTE_TAGS}\n")
+        foreach(_ERVM_REMOTE_MATCH ${_ERVM_REMOTE_MATCHES})
+            if(_ERVM_REMOTE_MATCH MATCHES "refs/tags/(v[0-9]+\\.[0-9]+\\.[0-9]+)")
+                set(_ERVM_TAGS "${_ERVM_TAGS}\n${CMAKE_MATCH_1}")
+            endif()
+        endforeach()
+    endif()
     if("\n${_ERVM_TAGS}\n" MATCHES "\nv([0-9]+\\.[0-9]+\\.[0-9]+)\n")
         set(EMBEDDED_RUBY_VM_VERSION "${CMAKE_MATCH_1}")
     else()
