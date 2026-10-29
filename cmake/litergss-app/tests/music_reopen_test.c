@@ -11,7 +11,9 @@
  * so a read of a released copy faults instead of reading stale heap memory.
  *
  * Only Ruby and the SFMLAudio extension are started: no standard library is
- * needed. MUSIC_FIXTURE_PATH is a short OGG file (fixtures/tone.ogg).
+ * needed. MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH are OGG files of
+ * different sizes (fixtures/tone.ogg, fixtures/tone-long.ogg): a copy of the
+ * same size could reuse the current buffer in place, releasing nothing.
  */
 
 #include <stdio.h>
@@ -23,8 +25,8 @@
 #include <malloc.h>
 #endif
 
-#ifndef MUSIC_FIXTURE_PATH
-#error "MUSIC_FIXTURE_PATH must be defined"
+#if !defined(MUSIC_FIXTURE_PATH) || !defined(MUSIC_LONGER_FIXTURE_PATH)
+#error "MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH must be defined"
 #endif
 
 /* Same glibc 2.38+ C23 redirect shims as smoke_test.c */
@@ -38,10 +40,9 @@ __attribute__((weak)) unsigned long __isoc23_strtoul(const char *nptr, char **en
 extern void Init_SFMLAudio(void);
 
 static const char* CHECK_SCRIPT =
-    "data = File.binread('" MUSIC_FIXTURE_PATH "')\n"
     "music = SFMLAudio::Music.new\n"
-    "raise 'first open_from_memory failed' unless music.open_from_memory(data)\n"
-    "raise 'second open_from_memory failed' unless music.open_from_memory(data.dup)\n"
+    "raise 'first open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_FIXTURE_PATH "'))\n"
+    "raise 'second open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_LONGER_FIXTURE_PATH "'))\n"
     "raise 'no duration after reopening' unless music.get_duration > 0\n";
 
 static VALUE init_audio(VALUE unused) {

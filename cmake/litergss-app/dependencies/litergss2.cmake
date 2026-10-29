@@ -429,11 +429,19 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
             target_link_libraries(${name} PRIVATE rgss_runtime)
             add_dependencies(${name} rgss_runtime)
         elseif(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "static")
-            # Fat static library: link against the archive + system dependencies
+            # Fat static library, linked whole like an app does (INTEGRATION.md):
+            # dlsym finds every expected symbol, not only the referenced ones.
             # System deps are needed because the static archive doesn't resolve them.
+            if(APPLE)
+                set(_rgss_fat_library_link "-Wl,-force_load,${FAT_LIBRARY_OUTPUT}")
+            else()
+                set(_rgss_fat_library_link -Wl,--whole-archive "${FAT_LIBRARY_OUTPUT}" -Wl,--no-whole-archive)
+            endif()
+            # The archive holds C++ (SFML, LiteCGSS): link with the C++ runtime
+            set_target_properties(${name} PROPERTIES LINKER_LANGUAGE CXX)
             find_package(Threads REQUIRED)
             target_link_libraries(${name} PRIVATE
-                "${FAT_LIBRARY_OUTPUT}"
+                ${_rgss_fat_library_link}
                 Threads::Threads
                 ${CMAKE_DL_LIBS}
                 m
@@ -478,9 +486,8 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     target_include_directories(rgss_music_reopen_test SYSTEM PRIVATE ${RUBY_FOR_ANDROID_INCLUDE_DIRS})
     target_compile_definitions(rgss_music_reopen_test PRIVATE
         MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
+        MUSIC_LONGER_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone-long.ogg"
     )
-    # SFMLAudio and SFML are C++: link with the C++ runtime
-    set_target_properties(rgss_music_reopen_test PROPERTIES LINKER_LANGUAGE CXX)
     set_tests_properties(rgss_music_reopen_test PROPERTIES TIMEOUT 60)
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
