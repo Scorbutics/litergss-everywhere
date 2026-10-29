@@ -3,7 +3,7 @@
 
 set(LITECGSS_VERSION "1.0.0")
 set(LITECGSS_GIT_URL "https://gitlab.com/NuriYuri/litecgss.git")
-set(LITECGSS_GIT_TAG "52b3a0b537410aba445306207f26898e2e71c6a3")  # development
+set(LITECGSS_GIT_TAG "d3a06b360b8be920068abb9bfe09ff3708db728c")  # development
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
