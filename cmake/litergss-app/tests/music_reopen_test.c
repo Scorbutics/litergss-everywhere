@@ -10,17 +10,18 @@
  * With glibc, M_MMAP_THRESHOLD makes every buffer copy a mapping of its own,
  * so a read of a released copy faults instead of reading stale heap memory.
  *
- * MUSIC_FIXTURE_PATH is a short OGG file (fixtures/tone.ogg).
+ * Only Ruby and the SFMLAudio extension are started: no standard library is
+ * needed. MUSIC_FIXTURE_PATH is a short OGG file (fixtures/tone.ogg).
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-#include "embedded-ruby-vm/assets-error.h"
-#include "embedded-ruby-vm/assets-install.h"
-#include "embedded-ruby-vm/log-listener.h"
-#include "embedded-ruby-vm/ruby-api-loader.h"
+/* Ruby headers do not build warning-free with -Wextra */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#include "ruby.h"
+#pragma GCC diagnostic pop
 
 #ifdef __GLIBC__
 #include <malloc.h>
@@ -38,74 +39,44 @@ __attribute__((weak)) unsigned long __isoc23_strtoul(const char *nptr, char **en
     return strtoul(nptr, endptr, base);
 }
 
-extern void initialize_litergss_extensions(void);
-
-static void on_log(LogListener* listener, const char* message,
-                   log_stream_t source, log_level_t level, int interpreter_id) {
-    (void)listener;
-    (void)source;
-    (void)level;
-    (void)interpreter_id;
-    printf("[ruby] %s\n", message);
-}
+extern void Init_SFMLAudio(void);
 
 static const char* CHECK_SCRIPT =
-    "require 'SFMLAudio'\n"
     "data = File.binread('" MUSIC_FIXTURE_PATH "')\n"
     "music = SFMLAudio::Music.new\n"
-    "exit(10) unless music.open_from_memory(data)\n"
-    "exit(11) unless music.open_from_memory(data.dup)\n"
-    "exit(12) unless music.get_duration > 0\n";
+    "raise 'first open_from_memory failed' unless music.open_from_memory(data)\n"
+    "raise 'second open_from_memory failed' unless music.open_from_memory(data.dup)\n"
+    "raise 'no duration after reopening' unless music.get_duration > 0\n";
 
-int main(void) {
-    AssetsError assets_error;
-    AssetsLayout* layout = NULL;
-    RubyInterpreter* vm = NULL;
-    RubyAPI api;
-    int result = 1;
+static VALUE init_audio(VALUE unused) {
+    (void)unused;
+    Init_SFMLAudio();
+    return Qnil;
+}
+
+int main(int argc, char** argv) {
+    int state = 0;
 
 #ifdef __GLIBC__
     mallopt(M_MMAP_THRESHOLD, 4096);
 #endif
 
-    assets_error_init(&assets_error);
-    layout = assets_bootstrap("./test-ruby-install-music", &assets_error);
-    if (layout == NULL) {
-        printf("FAIL: bootstrap: %s\n", assets_error.message);
-        return 1;
-    }
+    ruby_sysinit(&argc, &argv);
+    {
+        RUBY_INIT_STACK;
+        ruby_init();
 
-    if (ruby_api_bootstrap(&api, NULL, NULL, NULL) != 0 && ruby_api_load(NULL, &api) != 0) {
-        printf("FAIL: cannot load the Ruby API\n");
-        assets_free_layout(layout);
-        return 1;
-    }
-    api.set_custom_ext_init(initialize_litergss_extensions);
-
-    LogListener listener;
-    log_listener_init(&listener);
-    listener.on_log_message = on_log;
-
-    vm = api.interpreter.create(".", layout->ruby_stdlib_path, layout->native_libs_dir, listener);
-    if (vm == NULL) {
-        printf("FAIL: interpreter.create\n");
-        goto cleanup;
-    }
-
-    RubyScript* script = api.script.create_from_content(CHECK_SCRIPT, strlen(CHECK_SCRIPT));
-    int rc = api.interpreter.execute_sync(vm, script);
-    api.script.destroy(script);
-    if (rc != 0) {
-        printf("FAIL: reopening a Music exited with %d\n", rc);
-        goto cleanup;
+        rb_protect(init_audio, Qnil, &state);
+        if (state == 0) rb_eval_string_protect(CHECK_SCRIPT, &state);
+        if (state != 0) {
+            VALUE message = rb_funcall(rb_errinfo(), rb_intern("full_message"), 0);
+            printf("FAIL: %s\n", StringValueCStr(message));
+            ruby_cleanup(state);
+            return 1;
+        }
+        ruby_cleanup(0);
     }
 
     printf("PASS: a Music opens a second buffer\n");
-    result = 0;
-
-cleanup:
-    if (vm != NULL) api.interpreter.destroy(vm);
-    ruby_api_unload(&api);
-    assets_free_layout(layout);
-    return result;
+    return 0;
 }
