@@ -101,6 +101,39 @@ module Sf
   end
 end
 
+# What the overlay reads of a PSDK text field (UI::UserInput, a LiteRGSS::Text)
+# and its viewport
+FakeViewport = Struct.new(:rect, :ox, :oy, :zoom, :visible)
+FakeRect = Struct.new(:x, :y, :width, :height)
+module UI
+  class UserInput
+    attr_accessor :x, :y, :width, :height, :visible, :viewport
+
+    def initialize(viewport, x, y, width, height, default: '')
+      @viewport = viewport
+      @x = x
+      @y = y
+      @width = width
+      @height = height
+      @default = default
+      @visible = true
+      @disposed = false
+    end
+
+    def dispose
+      @disposed = true
+    end
+
+    def disposed?
+      @disposed
+    end
+  end
+end
+
+module GamePlay
+  class NameInput; end
+end
+
 require_relative '../litergss/touch_overlay'
 LiteRGSS::TouchOverlay.install
 
@@ -119,7 +152,59 @@ class TestTouchOverlay < Minitest::Test
 
   def teardown
     Object.send(:remove_const, :Input) if defined?(::Input)
+    LiteRGSS::TouchOverlay::TextEntry.reset
+    $scene = nil
+    Sf::Keyboard.virtual_keyboard_calls&.clear
   end
+
+  # A 320x180 game drawn x4 at (572, 180) in the 2424x1080 window, as
+  # Foret Eternelle on a phone
+  def game_viewport
+    FakeViewport.new(FakeRect.new(572, 180, 1280, 720), 0, 0, 4, true)
+  end
+
+  def test_a_tap_on_a_text_field_shows_the_keyboard_then_hides_it_with_the_field
+    frame # the overlay hooks UI::UserInput once the game defined it
+    field = UI::UserInput.new(game_viewport, 100, 20, 120, 16, default: 'Yana')
+    # Field at x 972..1452, y 260..324 on the window
+    @window.queue(:touch_began, 0, 1200, 290)
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
+    assert_equal [[0, 1200, 290]], @game[:touch_began], 'the game still gets the tap'
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
+    field.dispose
+    frame
+    assert_equal [true, false], Sf::Keyboard.virtual_keyboard_calls
+  end
+
+  def test_a_tap_beside_a_text_field_does_not_show_the_keyboard
+    frame
+    UI::UserInput.new(game_viewport, 100, 20, 120, 16)
+    @window.queue(:touch_began, 0, 700, 900)
+    frame
+    assert_nil Sf::Keyboard.virtual_keyboard_calls&.first
+  end
+
+  def test_a_tap_during_name_input_shows_the_keyboard_until_the_scene_ends
+    $scene = GamePlay::NameInput.new
+    @window.queue(:touch_began, 0, 1200, 600)
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
+    $scene = Object.new
+    frame
+    assert_equal [true, false], Sf::Keyboard.virtual_keyboard_calls
+  end
+
+  def test_a_keyboard_shown_with_the_button_stays_without_text_entry
+    @window.queue(:touch_began, 0, *center('keyboard'))
+    @window.queue(:touch_ended, 0, *center('keyboard'))
+    frame
+    frame
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
+  end
+
 
   def center(name)
     button = @window.touch_overlay.layout.buttons.find { |b| b.name == name }

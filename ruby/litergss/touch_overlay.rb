@@ -14,8 +14,9 @@
 #
 # The key a button sends is read from the game's Input::Keys (first keyboard
 # binding of its virtual key) when the game has one, else from DEFAULT_KEYS.
-# The keyboard button shows / hides the system's virtual keyboard, for the
-# screens asking to type (PSDK's name input...).
+# The keyboard button shows / hides the system's virtual keyboard. The
+# keyboard also shows by itself when the player taps a text entry of the game
+# (TextEntry), and hides once there is none left.
 #
 # A game drawing its own touch controls (Input::InputTouch, as pokemonsdk did
 # for Android) keeps them: the overlay never shows on its windows.
@@ -133,6 +134,83 @@ module LiteRGSS
       end
     end
 
+    # The text entry a game shows, found through the shared engine (PSDK) it
+    # runs on, never through the game's own scripts. Duck-typed: an engine
+    # without these classes simply has no automatic keyboard.
+    # - UI::UserInput, PSDK's text field (Bag / Storage search...): a
+    #   LiteRGSS::Text, whose position on the window is known;
+    # - GamePlay::NameInput, the name input scene: the whole screen is the
+    #   entry (its field differs between PSDK versions and games).
+    module TextEntry
+      @fields = []
+      @hooked = false
+
+      # Remembers every UI::UserInput created
+      module FieldTracking
+        # Passes keyword arguments through, whatever the engine's signature
+        ruby2_keywords def initialize(*args, &block)
+          super
+          TextEntry.track(self)
+        end
+      end
+
+      module_function
+
+      # UI::UserInput is defined by the game's scripts, after the overlay is
+      # installed: hook it once it exists
+      def hook
+        return if @hooked || !defined?(::UI::UserInput)
+
+        ::UI::UserInput.prepend(FieldTracking)
+        @hooked = true
+      end
+
+      def track(field)
+        @fields << field
+      end
+
+      # Forget the tracked fields (tests)
+      def reset
+        @fields.clear
+      end
+
+      # @return [Array] the fields on screen
+      def fields
+        @fields.reject! { |field| field.disposed? }
+        @fields.select { |field| field.visible && field.viewport&.visible != false }
+      end
+
+      def scene?
+        defined?(::GamePlay::NameInput) && $scene.is_a?(::GamePlay::NameInput) ? true : false
+      end
+
+      def any?
+        scene? || !fields.empty?
+      end
+
+      # Is a text entry at this window position?
+      def at?(x, y)
+        scene? || fields.any? { |field| include?(field, x, y) }
+      end
+
+      # The field's rectangle on the window: its viewport's rect, shifted by
+      # the viewport's origin and scaled by its zoom (a margin keeps small
+      # fields easy to tap)
+      def include?(field, x, y)
+        viewport = field.viewport
+        return false unless viewport
+
+        rect = viewport.rect
+        zoom = viewport.zoom.to_f
+        left = rect.x + (field.x - viewport.ox) * zoom
+        top = rect.y + (field.y - viewport.oy) * zoom
+        width = [field.width, field.respond_to?(:real_width) ? field.real_width : 0].max * zoom
+        height = [field.height, 16].max * zoom
+        margin = height / 2
+        x >= left - margin && x < left + width + margin && y >= top - margin && y < top + height + margin
+      end
+    end
+
     # The overlay of one window: its sprites, the fingers on its buttons and
     # the keys they hold down.
     class Overlay
@@ -159,10 +237,15 @@ module LiteRGSS
       # lifted: @fingers holds the button under it, or false between buttons.
       # A finger that began elsewhere belongs to the game (nil).
       def touch_began(finger, x, y)
-        button = @enabled && @layout.button_at(*to_window(x, y))
+        position = to_window(x, y)
+        button = @enabled && @layout.button_at(*position)
         @fingers[finger] = button ? button.name : nil
         @touched << button.name if button
-        forward(:touch_began, finger, x, y) unless button
+        return if button
+
+        # Checked in update, once the game took the touch into account
+        @game_tap = position
+        forward(:touch_began, finger, x, y)
       end
 
       def touch_moved(finger, x, y)
@@ -190,6 +273,7 @@ module LiteRGSS
         @touched.clear
         (@pressed.keys - held).each { |name| release(name) }
         (held - @pressed.keys).each { |name| press(name) }
+        update_text_entry
       end
 
       def enabled?
@@ -248,12 +332,30 @@ module LiteRGSS
         @window.sort_z
       end
 
+      def toggle_keyboard
+        show_keyboard(!@keyboard_shown)
+      end
+
       # The button stays lit while the keyboard is shown. The system can also
       # hide it (back gesture): then the next tap only syncs the state.
-      def toggle_keyboard
-        @keyboard_shown = !@keyboard_shown
-        Sf::Keyboard.virtual_keyboard = @keyboard_shown if Sf::Keyboard.respond_to?(:virtual_keyboard=)
-        @sprites&.[](KEYBOARD)&.opacity = @keyboard_shown ? PRESSED_OPACITY : OPACITY
+      # @param automatic [Boolean] shown for a text entry, hidden with it
+      def show_keyboard(shown, automatic: false)
+        @keyboard_shown = shown
+        @keyboard_automatic = shown && automatic
+        Sf::Keyboard.virtual_keyboard = shown if Sf::Keyboard.respond_to?(:virtual_keyboard=)
+        @sprites&.[](KEYBOARD)&.opacity = shown ? PRESSED_OPACITY : OPACITY
+      end
+
+      # Show the keyboard for a tap on a text entry, hide it with the entry
+      def update_text_entry
+        TextEntry.hook
+        tap = @game_tap
+        @game_tap = nil
+        if tap && !@keyboard_shown && TextEntry.at?(*tap)
+          show_keyboard(true, automatic: true)
+        elsif @keyboard_automatic && !TextEntry.any?
+          show_keyboard(false)
+        end
       end
 
       def owned?(finger)
