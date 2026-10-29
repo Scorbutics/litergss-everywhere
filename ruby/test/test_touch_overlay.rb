@@ -155,7 +155,17 @@ class TestTouchOverlay < Minitest::Test
     LiteRGSS::TouchOverlay::TextEntry.reset
     $scene = nil
     Sf::Keyboard.virtual_keyboard_calls&.clear
+    Overlay.scale = 1.0
+    Overlay.action_layout = :nintendo
+    Overlay.extra_buttons.each_key { |name| Overlay.remove_button(name) }
   end
+
+  # pokemonsdk's former InputTouch: a class with its singleton viewport
+  def own_touch_controls
+    Class.new { def self.singleton = nil }
+  end
+
+  PNG = "\x89PNG fake".b
 
   # A 320x180 game drawn x4 at (572, 180) in the 2424x1080 window, as
   # Foret Eternelle on a phone
@@ -267,7 +277,7 @@ class TestTouchOverlay < Minitest::Test
 
   def test_a_game_with_its_own_touch_controls_never_gets_the_overlay
     Object.const_set(:Input, Module.new)
-    Input.const_set(:InputTouch, Class.new)
+    Input.const_set(:InputTouch, own_touch_controls)
     window = LiteRGSS::DisplayWindow.new(2424, 1080)
     assert_nil window.touch_overlay
     assert_empty window.viewports
@@ -338,7 +348,7 @@ class TestTouchOverlay < Minitest::Test
 
   def test_a_game_with_its_own_touch_controls_disables_the_overlay
     Object.const_set(:Input, Module.new)
-    Input.const_set(:InputTouch, Class.new)
+    Input.const_set(:InputTouch, own_touch_controls)
     frame
     assert @window.viewports.all?(&:disposed?)
     @window.queue(:touch_began, 0, *center('a'))
@@ -413,5 +423,173 @@ class TestTouchOverlay < Minitest::Test
     buttons = @window.touch_overlay.layout.buttons.size
     assert_equal buttons, @window.viewports.count(&:disposed?)
     assert_equal buttons, @window.viewports.count { |v| !v.disposed? }
+  end
+
+  # Lethalmon's AndroidControls reopened Input::InputTouch to add its buttons:
+  # an empty class, not touch controls of the game
+  def test_a_game_reopening_input_touch_keeps_the_overlay
+    Object.const_set(:Input, Module.new)
+    Input.const_set(:InputTouch, Class.new)
+    frame
+    refute @window.viewports.all?(&:disposed?)
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
+  end
+
+  # A key binding menu moves a touch button's own scancode to another key
+  # (here, A's Enter to :B): the button keeps sending it, to press that key
+  def test_a_button_sends_its_own_scancode_when_the_game_binds_it
+    Object.const_set(:Input, Module.new)
+    Input.const_set(:Keys, { A: [-1, 40], B: [Sf::Keyboard::Scancode::Enter] })
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
+    assert_equal Sf::Keyboard::Scancode::Enter, Overlay.button_scancode('a')
+    # Unbound: the first keyboard binding of the button's key, its own one unchanged
+    Input::Keys[:B] = [-2]
+    assert_equal 40, Overlay.button_scancode('a')
+    assert_equal Sf::Keyboard::Scancode::Enter, Overlay.own_scancode('a')
+    assert_nil Overlay.own_scancode('keyboard')
+  end
+
+  def test_a_button_is_released_with_the_scancode_it_pressed
+    Object.const_set(:Input, Module.new)
+    Input.const_set(:Keys, { A: [-1, 40] })
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    Input::Keys[:A] = [Sf::Keyboard::Scancode::Enter]
+    @window.queue(:touch_ended, 0, *center('a'))
+    frame
+    assert_equal [40], @game[:key_released].map { |a| a[1] }
+  end
+
+  def test_the_last_pressed_button_is_consumed_once
+    assert_nil Overlay.consume_pressed_button
+    @window.queue(:touch_began, 0, *center('up'))
+    @window.queue(:touch_began, 1, *center('b'))
+    frame
+    assert_includes %w[up b], Overlay.consume_pressed_button
+    assert_nil Overlay.consume_pressed_button
+    # The keyboard button is not a game key
+    @window.queue(:touch_began, 2, *center('keyboard'))
+    frame
+    assert_nil Overlay.consume_pressed_button
+  end
+
+  def test_a_game_button_sends_no_key_and_reports_its_state
+    Overlay.add_button('reset', PNG, anchor: :top_right)
+    frame
+    @window.queue(:touch_began, 0, *center('reset'))
+    frame
+    assert Overlay.pressed?('reset')
+    assert Overlay.triggered?('reset')
+    assert_kind_of Float, Overlay.held_for('reset')
+    assert_empty @game[:key_pressed]
+    assert_empty @game[:touch_began]
+    frame
+    assert Overlay.pressed?('reset')
+    refute Overlay.triggered?('reset')
+    @window.queue(:touch_ended, 0, *center('reset'))
+    frame
+    refute Overlay.pressed?('reset')
+    assert_nil Overlay.held_for('reset')
+    assert_nil Overlay.consume_pressed_button
+  end
+
+  def test_game_buttons_fit_in_their_corner_without_overlapping
+    Overlay.scale = 1.5
+    Overlay.add_button('keys', PNG, anchor: :top_left)
+    Overlay.add_button('reset', PNG, anchor: :top_right)
+    Overlay.add_button('menu', PNG, anchor: :top_right)
+    [[2424, 1080], [1080, 2424], [1280, 720]].each do |width, height|
+      @window.resize(width, height)
+      frame
+      buttons = @window.touch_overlay.layout.buttons
+      extras = buttons.select { |b| %w[keys reset menu].include?(b.name) }
+      assert_equal 3, extras.size
+      extras.each do |b|
+        assert_operator b.x, :>=, 0, "#{b.name} in #{width}x#{height}"
+        assert_operator b.x + b.size, :<=, width, "#{b.name} in #{width}x#{height}"
+        (buttons - [b]).each do |o|
+          overlap = b.x < o.x + o.size && o.x < b.x + b.size && b.y < o.y + o.size && o.y < b.y + b.size
+          refute overlap, "#{b.name} overlaps #{o.name} in #{width}x#{height}"
+        end
+      end
+      assert_operator buttons.find { |b| b.name == 'keys' }.x, :<, width / 2
+      assert_operator buttons.find { |b| b.name == 'reset' }.x, :>, width / 2
+    end
+  end
+
+  def test_a_removed_game_button_disappears
+    Overlay.add_button('reset', PNG)
+    frame
+    assert(@window.touch_overlay.layout.buttons.any? { |b| b.name == 'reset' })
+    Overlay.remove_button('reset')
+    frame
+    refute(@window.touch_overlay.layout.buttons.any? { |b| b.name == 'reset' })
+  end
+
+  def test_a_game_button_cannot_replace_a_gamepad_one
+    assert_raises(ArgumentError) { Overlay.add_button('a', PNG) }
+    assert_raises(ArgumentError) { Overlay.add_button('reset', PNG, anchor: :bottom) }
+  end
+
+  def test_a_larger_scale_makes_larger_buttons
+    size = @window.touch_overlay.layout.buttons.first.size
+    Overlay.scale = 1.5
+    frame
+    assert_operator @window.touch_overlay.layout.buttons.first.size, :>, size
+    # The viewports follow
+    live = @window.viewports.reject(&:disposed?)
+    assert_equal @window.touch_overlay.layout.buttons.size, live.size
+  end
+
+  def test_the_xbox_layout_swaps_a_and_b_but_not_their_keys
+    a = center('a')
+    b = center('b')
+    Overlay.action_layout = :xbox
+    frame
+    assert_equal a, center('b')
+    assert_equal b, center('a')
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |args| args[1] }
+    assert_raises(KeyError) { Overlay.action_layout = :sega }
+  end
+
+  def test_the_gamepad_images_are_available_to_the_game
+    assert Overlay.image('a').start_with?("\x89PNG".b)
+    assert_nil Overlay.image('reset')
+  end
+
+  # Regression: PSDK's soft reset disposes every viewport, sprite and bitmap;
+  # the overlay drew nothing after it, then disabled itself on its next press
+  def test_the_overlay_rebuilds_itself_after_a_soft_reset
+    loads = 0
+    Overlay.add_button('reset', -> { loads += 1; LiteRGSS::Bitmap.new(PNG, true) })
+    frame
+    assert_equal 1, loads
+    @window.viewports.each(&:dispose)
+    frame
+    assert_equal 2, loads
+    live = @window.viewports.reject(&:disposed?)
+    assert_equal @window.touch_overlay.layout.buttons.size, live.size
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    assert @window.touch_overlay.enabled?
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
+  end
+
+  # Regression: the box of a cross came from the scale and the zoom was rounded
+  # apart, so the buttons of a cross overlapped at some sizes and resolutions
+  def test_the_gaps_of_a_cross_follow_the_button_size
+    [[2424, 1080], [2712, 1220], [2027, 912], [1280, 720]].product([1.0, 1.5]).each do |(width, height), scale|
+      layout = Overlay::Layout.new(width, height, 16, scale: scale)
+      layout.crosses.each do |cross|
+        size = cross.buttons.first.size
+        assert_in_delta Overlay::Layout::CROSS_RATIO, cross.size.to_f / size, 0.01, "#{width}x#{height} x#{scale}"
+      end
+    end
   end
 end

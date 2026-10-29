@@ -12,11 +12,19 @@
 # - a button sends the key events a keyboard would, through the key callbacks
 #   the game registered on the window (same arguments as LiteRGSS passes).
 #
-# The key a button sends is read from the game's Input::Keys (first keyboard
-# binding of its virtual key) when the game has one, else from DEFAULT_KEYS.
-# The keyboard button shows / hides the system's virtual keyboard. The
-# keyboard also shows by itself when the player taps a text entry of the game
-# (TextEntry), and hides once there is none left.
+# Each button sends its own keyboard scancode (DEFAULT_KEYS, the ones PSDK's
+# former touch controls sent): the game key it drives is the one the game's
+# Input::Keys binds that scancode to, so a game rebinds a button by editing
+# Input::Keys. When nothing binds it, the button sends the first keyboard
+# binding of its virtual key instead. The keyboard button shows / hides the
+# system's virtual keyboard. The keyboard also shows by itself when the
+# player taps a text entry of the game (TextEntry), and hides once there is
+# none left.
+#
+# Games can tune it (see the module methods): the buttons' size (scale), A / B
+# placed as on a Nintendo or an Xbox pad (action_layout), buttons of their own
+# in the top corners (add_button, pressed?, triggered?, held_for), the button
+# pressed last (consume_pressed_button), the buttons' images (image).
 #
 # A game drawing its own touch controls (Input::InputTouch, as pokemonsdk did
 # for Android) keeps them: the overlay never shows on its windows.
@@ -84,15 +92,25 @@ module LiteRGSS
 
       attr_reader :buttons, :crosses, :zoom
 
+      # A / B / X / Y on the action cross: top, right, bottom, left
+      # Side of a cross's box, in buttons (PSDK's touch controls in a 480x270 game)
+      CROSS_RATIO = 2.5
+      ACTION_CROSSES = { nintendo: %w[y a b x], xbox: %w[y b a x] }.freeze
+
       # @param width [Integer] window width
       # @param height [Integer] window height
       # @param image_size [Integer] side of the (square) button images
-      def initialize(width, height, image_size)
+      # @param scale [Float] size of the buttons, 1.0 by default
+      # @param action_layout [Symbol] :nintendo or :xbox (see ACTION_CROSSES)
+      # @param extras [Array<Array(String, Symbol)>] the game's buttons and
+      #   their corner (:top_left, :top_right), in order from the corner
+      def initialize(width, height, image_size, scale: 1.0, action_layout: :nintendo, extras: [])
         unit = [width, height].min / DESIGN_HEIGHT
-        box = [width, height].min * 0.3
-        # Buttons were 32 pixels in a 72 pixel box; integer zoom keeps the pixel art sharp
-        @zoom = [(box * 32 / 72 / image_size).round, 1].max
+        # Integer zoom keeps the pixel art sharp; the box of a cross follows the
+        # rounded button size, so the gaps between its buttons scale with them
+        @zoom = [([width, height].min * 0.3 * scale / (CROSS_RATIO * image_size)).round, 1].max
         size = image_size * @zoom
+        box = (size * CROSS_RATIO).round
         padding = (20 * unit).round
 
         box_y = ((height - box) * 0.9).round
@@ -100,7 +118,7 @@ module LiteRGSS
         action_x = (width - box - padding).round
         row_y = box_y - size
         @crosses = [cross(dpad_x, box_y, box, size, %w[up right down left]),
-                    cross(action_x, box_y, box, size, %w[y a b x])]
+                    cross(action_x, box_y, box, size, ACTION_CROSSES.fetch(action_layout))]
         gap = (8 * unit).round
         @row = [Button.new('l', padding, row_y, size),
                 Button.new('r', width - padding - size, row_y, size),
@@ -108,6 +126,7 @@ module LiteRGSS
                 Button.new('start', width - padding - 2 * size - gap, row_y, size),
                 Button.new(KEYBOARD, padding, row_y - size - gap, size)]
         @buttons = @crosses.flat_map(&:buttons) + @row
+        extras.each { |name, anchor| add_extra(name, anchor, width, padding, gap, size) }
       end
 
       def button_at(px, py)
@@ -118,6 +137,23 @@ module LiteRGSS
       end
 
       private
+
+      # A game's button in a top corner, moved towards the middle of the top
+      # edge past the buttons it would cover (the keyboard button, when the
+      # buttons are large; the corner's previous extra buttons)
+      def add_extra(name, anchor, width, padding, gap, size)
+        step = anchor == :top_right ? -(size + gap) : size + gap
+        x = anchor == :top_right ? width - padding - size : padding
+        button = Button.new(name, x, gap, size)
+        button.x += step while @buttons.any? { |other| overlap?(button, other) } && button.x.between?(0, width - size)
+        @row << button
+        @buttons << button
+      end
+
+      def overlap?(first, second)
+        first.x < second.x + second.size && second.x < first.x + first.size &&
+          first.y < second.y + second.size && second.y < first.y + first.size
+      end
 
       # Four buttons on the edges of a square box: top, right, bottom, left
       def cross(box_x, box_y, box, size, names)
@@ -218,7 +254,10 @@ module LiteRGSS
       def initialize(window)
         @window = window
         @fingers = {}   # finger => button name, or nil when the game owns the touch
-        @pressed = {}   # button name => true
+        @pressed = {}   # button name => scancode it sent (true: no key, game button)
+        @pressed_at = {} # game button name => monotonic time it was pressed
+        @triggered = [] # game buttons pressed at the last update
+        @last_pressed = nil # gamepad button pressed last, see consume_pressed_button
         # Buttons touched since the last frame: held for one frame at least, so
         # a tap shorter than a frame (down and up in the same poll) still presses
         @touched = []
@@ -266,7 +305,11 @@ module LiteRGSS
       # Send the key events of the buttons pressed or released since the last
       # frame; called after the window polled its events.
       def update
-        relayout if @window.width != @width || @window.height != @height
+        # PSDK's soft reset disposes every viewport and bitmap, the overlay's too
+        build if @viewports&.any?(&:disposed?)
+        relayout if @window.width != @width || @window.height != @height ||
+                    @config_version != TouchOverlay.config_version
+        @triggered.clear
         held = (@fingers.values.select { |name| name } + @touched).uniq
         @touched.clear
         (@pressed.keys - held).each { |name| release(name) }
@@ -276,6 +319,28 @@ module LiteRGSS
 
       def enabled?
         @enabled
+      end
+
+      # State of a game's button (TouchOverlay.add_button)
+      def pressed?(name)
+        @pressed.key?(name)
+      end
+
+      def triggered?(name)
+        @triggered.include?(name)
+      end
+
+      # @return [Float, nil] seconds since the button was pressed, nil when it is not
+      def held_for(name)
+        start = @pressed_at[name]
+        start && Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
+      end
+
+      # Gamepad button pressed last ('a', 'up'...), forgotten once read
+      def consume_pressed_button
+        name = @last_pressed
+        @last_pressed = nil
+        name
       end
 
       # The game draws its own touch controls, or the overlay failed: stay out
@@ -312,7 +377,15 @@ module LiteRGSS
         dispose
         @width = @window.width
         @height = @window.height
-        @layout = Layout.new(@width, @height, @bitmaps.values.first.width)
+        @config_version = TouchOverlay.config_version
+        extras = TouchOverlay.extra_buttons
+        @extra_bitmaps = extras.transform_values do |button|
+          image = button[:image]
+          image.is_a?(String) ? LiteRGSS::Bitmap.new(image, true) : image.call
+        end
+        @layout = Layout.new(@width, @height, @bitmaps.values.first.width,
+                             scale: TouchOverlay.scale, action_layout: TouchOverlay.action_layout,
+                             extras: extras.map { |name, button| [name, button[:anchor]] })
         return unless @enabled
 
         @sprites = {}
@@ -320,8 +393,10 @@ module LiteRGSS
           viewport = LiteRGSS::Viewport.new(@window, button.x, button.y, button.size, button.size)
           viewport.z = Z
           sprite = LiteRGSS::Sprite.new(viewport)
-          sprite.bitmap = @bitmaps[button.name]
-          sprite.zoom = @layout.zoom
+          bitmap = @bitmaps[button.name] || @extra_bitmaps[button.name]
+          sprite.bitmap = bitmap
+          # A game's image may have another size than the gamepad's
+          sprite.zoom = @bitmaps.key?(button.name) ? @layout.zoom : button.size.to_f / bitmap.width
           lit = button.name == KEYBOARD ? @keyboard_shown : @pressed[button.name]
           sprite.opacity = lit ? PRESSED_OPACITY : OPACITY
           @sprites[button.name] = sprite
@@ -378,17 +453,28 @@ module LiteRGSS
         return toggle_keyboard if name == KEYBOARD
 
         @sprites&.[](name)&.opacity = PRESSED_OPACITY
-        scancode = TouchOverlay.scancode(BUTTON_KEYS[name])
+        return press_game_button(name) unless BUTTON_KEYS.key?(name)
+
+        @last_pressed = name
+        scancode = TouchOverlay.button_scancode(name)
+        # Released with the same scancode, whatever the game rebinds meanwhile
+        @pressed[name] = scancode if scancode
         forward(:key_pressed, UNKNOWN_KEY, scancode, false, false, false, false) if scancode
       end
 
       def release(name)
-        @pressed.delete(name)
+        scancode = @pressed.delete(name)
+        @pressed_at.delete(name)
         return if name == KEYBOARD
 
         @sprites&.[](name)&.opacity = OPACITY
-        scancode = TouchOverlay.scancode(BUTTON_KEYS[name])
-        forward(:key_released, UNKNOWN_KEY, scancode) if scancode
+        forward(:key_released, UNKNOWN_KEY, scancode) if scancode.is_a?(Integer)
+      end
+
+      # A game's button sends no key: the game reads its state
+      def press_game_button(name)
+        @pressed_at[name] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        @triggered << name
       end
     end
 
@@ -424,6 +510,7 @@ module LiteRGSS
 
       def dispose(*args)
         @__touch_overlay&.dispose
+        TouchOverlay.current = nil if TouchOverlay.current.equal?(@__touch_overlay)
         @__touch_overlay = nil
         super
       end
@@ -432,6 +519,7 @@ module LiteRGSS
       def __attach_touch_overlay
         overlay = Overlay.new(self)
         @__touch_overlay = overlay
+        TouchOverlay.current = overlay
         %i[touch_began touch_moved touch_ended].each do |event|
           dispatcher = proc do |finger, x, y|
             if overlay.enabled?
@@ -466,8 +554,82 @@ module LiteRGSS
     end
 
     @enabled = true
+    @scale = 1.0
+    @action_layout = :nintendo
+    @extra_buttons = {}
+    # Bumped by every setting change: overlays relayout when they see it change
+    @config_version = 0
 
     class << self
+      # Overlay of the window created last (a game has one window)
+      attr_accessor :current
+      attr_reader :config_version, :scale, :action_layout
+
+      # Size of the buttons: 1.0 by default, 1.5 half as large again...
+      def scale=(value)
+        @scale = Float(value)
+        @config_version += 1
+      end
+
+      # Place of A and B on the action cross: :nintendo (A right, B bottom)
+      # or :xbox (A bottom, B right). The buttons send the same keys.
+      def action_layout=(value)
+        Layout::ACTION_CROSSES.fetch(value)
+        @action_layout = value
+        @config_version += 1
+      end
+
+      # A button of the game in a top corner, drawn and hit-tested like the
+      # gamepad's but sending no key: the game reads pressed?, triggered? and
+      # held_for. Kept across window resizes and soft resets.
+      # @param name [String] its name
+      # @param image [String, #call] PNG data, or a callable returning a bitmap
+      #   (-> { RPG::Cache.interface('touch/reset') }), called again on each
+      #   rebuild: a soft reset disposes the bitmaps
+      # @param anchor [Symbol] :top_left or :top_right
+      def add_button(name, image, anchor: :top_left)
+        raise ArgumentError, "#{name} is a gamepad button" if IMAGES.key?(name)
+        raise ArgumentError, "unknown anchor #{anchor}" unless %i[top_left top_right].include?(anchor)
+
+        @extra_buttons[name] = { image: image, anchor: anchor }
+        @config_version += 1
+      end
+
+      def remove_button(name)
+        @config_version += 1 if @extra_buttons.delete(name)
+      end
+
+      # @return [Hash{String => Hash}] the game's buttons (add_button)
+      def extra_buttons
+        @extra_buttons.dup
+      end
+
+      # Is a button (the game's, or the gamepad's: 'a', 'up'...) held down?
+      def pressed?(name)
+        @current ? @current.pressed?(name) : false
+      end
+
+      # Was a game's button pressed at the last frame?
+      def triggered?(name)
+        @current ? @current.triggered?(name) : false
+      end
+
+      # @return [Float, nil] seconds a game's button has been held, nil when it is not
+      def held_for(name)
+        @current&.held_for(name)
+      end
+
+      # Gamepad button pressed last ('a', 'up'...), nil if none since the
+      # last call: lets a key binding menu take a touch button as the new key
+      def consume_pressed_button
+        @current&.consume_pressed_button
+      end
+
+      # @param name [String] a gamepad button ('a', 'up'...)
+      # @return [String, nil] its PNG image (to show it in a menu)
+      def image(name)
+        IMAGES[name]
+      end
       # Hook LiteRGSS::DisplayWindow (idempotent)
       def install
         return if LiteRGSS::DisplayWindow.ancestors.include?(WindowHooks)
@@ -497,9 +659,38 @@ module LiteRGSS
       end
 
       # The game draws its own touch controls (pokemonsdk's former
-      # "InputTouch Viewport", still in games exported before the overlay)
+      # "InputTouch Viewport", still in games exported before the overlay).
+      # Only the real ones count: a game script reopening the class (built on
+      # them before) defines an empty Input::InputTouch.
       def game_has_touch_controls?
-        defined?(::Input::InputTouch) ? true : false
+        defined?(::Input::InputTouch) && ::Input::InputTouch.respond_to?(:singleton) ? true : false
+      end
+
+      # Keyboard scancode a gamepad button sends: its own (DEFAULT_KEYS) when
+      # the game's Input::Keys binds it to a key, so that the game rebinds the
+      # button there; otherwise the first keyboard binding of its virtual key.
+      # @param name [String] 'a', 'up'...
+      # @return [Integer, nil]
+      def button_scancode(name)
+        own = own_scancode(name)
+        return nil unless own
+        return own if bound?(own)
+
+        scancode(BUTTON_KEYS[name])
+      end
+
+      # Keyboard scancode of a gamepad button itself (DEFAULT_KEYS): the one a
+      # key binding menu moves in Input::Keys to rebind the button
+      # @param name [String] 'a', 'up'...
+      # @return [Integer, nil]
+      def own_scancode(name)
+        key = BUTTON_KEYS[name]
+        key && Sf::Keyboard::Scancode.const_get(DEFAULT_KEYS[key])
+      end
+
+      # @return [Hash{String => Integer}] scancode each gamepad button sends now
+      def button_scancodes
+        BUTTON_KEYS.keys.to_h { |name| [name, button_scancode(name)] }
       end
 
       # Keyboard scancode a virtual key sends
@@ -513,6 +704,15 @@ module LiteRGSS
         end
         name = DEFAULT_KEYS[key]
         name && Sf::Keyboard::Scancode.const_get(name)
+      end
+
+      private
+
+      # Does the game's Input::Keys bind this scancode to a key?
+      def bound?(code)
+        return false unless defined?(::Input::Keys) && ::Input::Keys.respond_to?(:each_value)
+
+        ::Input::Keys.each_value.any? { |codes| Array(codes).include?(code) }
       end
     end
   end
