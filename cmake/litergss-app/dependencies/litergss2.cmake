@@ -407,66 +407,76 @@ endif()
 if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     enable_testing()
 
-    set(SMOKE_TEST_SRC "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
-    add_executable(rgss_smoke_test ${SMOKE_TEST_SRC})
+    # Native test executables linked against the output library like an app
+    function(rgss_add_native_test name src)
+        add_executable(${name} ${src})
 
-    # Same include paths as extension-init.c compilation (see embedded-ruby-vm.cmake)
-    target_include_directories(rgss_smoke_test PRIVATE
-        "${CMAKE_BINARY_DIR}/generated"
-        "${BUILD_STAGING_DIR}/usr/local/include"
-    )
-    target_compile_options(rgss_smoke_test PRIVATE -Wall -Wextra -Werror)
-
-    # Export symbols so dlsym(RTLD_DEFAULT, ...) can find them in the executable
-    if(APPLE)
-        target_link_options(rgss_smoke_test PRIVATE -Wl,-export_dynamic)
-    else()
-        target_link_options(rgss_smoke_test PRIVATE -rdynamic)
-    endif()
-
-    if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
-        # Shared wrapper: link against the CMake target directly
-        target_link_libraries(rgss_smoke_test PRIVATE rgss_runtime)
-        add_dependencies(rgss_smoke_test rgss_runtime)
-    elseif(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "static")
-        # Fat static library: link against the archive + system dependencies
-        # System deps are needed because the static archive doesn't resolve them.
-        find_package(Threads REQUIRED)
-        target_link_libraries(rgss_smoke_test PRIVATE
-            "${FAT_LIBRARY_OUTPUT}"
-            Threads::Threads
-            ${CMAKE_DL_LIBS}
-            m
+        # Same include paths as extension-init.c compilation (see embedded-ruby-vm.cmake)
+        target_include_directories(${name} PRIVATE
+            "${CMAKE_BINARY_DIR}/generated"
+            "${BUILD_STAGING_DIR}/usr/local/include"
         )
-        if(APPLE)
-            find_package(OpenGL REQUIRED)
-            target_link_libraries(rgss_smoke_test PRIVATE
-                OpenGL::GL
-                "-framework Cocoa"
-                "-framework IOKit"
-                "-framework CoreFoundation"
-                "-framework CoreVideo"
-                "-framework Carbon"
-                "-framework Security"  # Ruby 3.0: SecRandomCopyBytes
-                compression
-                iconv
-            )
-        else()
-            find_package(X11 REQUIRED)
-            find_package(OpenGL REQUIRED)
-            target_link_libraries(rgss_smoke_test PRIVATE
-                ${X11_LIBRARIES}
-                ${X11_Xrandr_LIB}
-                ${X11_Xcursor_LIB}
-                OpenGL::GL
-                udev
-            )
-        endif()
-        add_dependencies(rgss_smoke_test rgss_fat_library)
-    endif()
+        target_compile_options(${name} PRIVATE -Wall -Wextra -Werror)
 
-    add_test(NAME rgss_smoke_test COMMAND rgss_smoke_test)
+        # Export symbols so dlsym(RTLD_DEFAULT, ...) can find them in the executable
+        if(APPLE)
+            target_link_options(${name} PRIVATE -Wl,-export_dynamic)
+        else()
+            target_link_options(${name} PRIVATE -rdynamic)
+        endif()
+
+        if(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "shared")
+            # Shared wrapper: link against the CMake target directly
+            target_link_libraries(${name} PRIVATE rgss_runtime)
+            add_dependencies(${name} rgss_runtime)
+        elseif(RGSS_SMOKE_TEST_LINK_MODE STREQUAL "static")
+            # Fat static library: link against the archive + system dependencies
+            # System deps are needed because the static archive doesn't resolve them.
+            find_package(Threads REQUIRED)
+            target_link_libraries(${name} PRIVATE
+                "${FAT_LIBRARY_OUTPUT}"
+                Threads::Threads
+                ${CMAKE_DL_LIBS}
+                m
+            )
+            if(APPLE)
+                find_package(OpenGL REQUIRED)
+                target_link_libraries(${name} PRIVATE
+                    OpenGL::GL
+                    "-framework Cocoa"
+                    "-framework IOKit"
+                    "-framework CoreFoundation"
+                    "-framework CoreVideo"
+                    "-framework Carbon"
+                    "-framework Security"  # Ruby 3.0: SecRandomCopyBytes
+                    compression
+                    iconv
+                )
+            else()
+                find_package(X11 REQUIRED)
+                find_package(OpenGL REQUIRED)
+                target_link_libraries(${name} PRIVATE
+                    ${X11_LIBRARIES}
+                    ${X11_Xrandr_LIB}
+                    ${X11_Xcursor_LIB}
+                    OpenGL::GL
+                    udev
+                )
+            endif()
+            add_dependencies(${name} rgss_fat_library)
+        endif()
+        add_test(NAME ${name} COMMAND ${name})
+    endfunction()
+
+    rgss_add_native_test(rgss_smoke_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
     set_tests_properties(rgss_smoke_test PROPERTIES TIMEOUT 10)
+
+    # SFMLAudio::Music opening a second buffer (music-owns-memory.patch)
+    rgss_add_native_test(rgss_music_reopen_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/music_reopen_test.c")
+    target_compile_definitions(rgss_music_reopen_test PRIVATE
+        MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
+    )
+    set_tests_properties(rgss_music_reopen_test PROPERTIES TIMEOUT 60)
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
 else()

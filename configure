@@ -504,9 +504,12 @@ test: build
 		fi; \
 		echo ""; \
 		echo "=== Running tests for ABI: $$abi ==="; \
-		docker exec $(CONTAINER) cmake --build $$build_dir --target rgss_smoke_test 2>/dev/null && \
-			docker exec $(CONTAINER) ctest --test-dir $$build_dir --output-on-failure || \
+		if docker exec $(CONTAINER) ctest --test-dir $$build_dir -N | grep -q rgss_smoke_test; then \
+			docker exec $(CONTAINER) cmake --build $$build_dir --target rgss_smoke_test rgss_music_reopen_test; \
+			docker exec $(CONTAINER) ctest --test-dir $$build_dir --output-on-failure; \
+		else \
 			echo "  (smoke test not available for this configuration, skipping)"; \
+		fi; \
 	done
 
 # Export build outputs to a well-defined structure under TARGET_DIR:
@@ -892,9 +895,12 @@ test: build
 		fi; \
 		echo ""; \
 		echo "=== Running tests for ABI: $$abi ==="; \
-		cmake --build $$build_dir --target rgss_smoke_test 2>/dev/null && \
-			ctest --test-dir $$build_dir --output-on-failure || \
+		if ctest --test-dir $$build_dir -N | grep -q rgss_smoke_test; then \
+			cmake --build $$build_dir --target rgss_smoke_test rgss_music_reopen_test; \
+			ctest --test-dir $$build_dir --output-on-failure; \
+		else \
 			echo "  (smoke test not available for this configuration, skipping)"; \
+		fi; \
 	done
 
 # Export build outputs to a well-defined structure under TARGET_DIR:
