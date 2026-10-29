@@ -288,6 +288,14 @@ jobs:
       - name: Test
         run: make test
 
+      # Ruby client code (ruby/litergss): its logic against a fake LiteRGSS, and
+      # its embedding into the runtime (generated C built for the host Ruby)
+      - name: Ruby client test
+        run: |
+          ruby -e 'require "minitest"' 2>/dev/null || sudo gem install --no-document minitest
+          ruby ruby/test/test_touch_overlay.rb
+          cmake -DWORK_DIR="$RUNNER_TEMP/ruby-client" -P cmake/litergss-app/tests/check_ruby_client.cmake
+
       - name: Export build outputs
         run: make export
 

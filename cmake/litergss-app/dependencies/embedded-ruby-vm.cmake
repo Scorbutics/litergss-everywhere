@@ -223,6 +223,26 @@ list(APPEND _ERVM_INSTALL_CMD
         ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
 )
 
+# The Ruby client code (ruby/litergss: touch overlay...) compiled into the same
+# archive: extension-init.c loads it once LiteRGSS is initialized.
+list(APPEND _ERVM_INSTALL_CMD
+    COMMAND ${CMAKE_COMMAND}
+        -DRUBY_DIR=${CMAKE_SOURCE_DIR}/ruby
+        -DOUTPUT=${CMAKE_BINARY_DIR}/litergss_ruby_client.c
+        -P ${CMAKE_CURRENT_LIST_DIR}/../scripts/embed_ruby_client.cmake
+    COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST} ${_ERVM_APPLE_FLAGS}
+        ${_ERVM_WARNING_FLAGS}
+        -isystem ${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
+        -isystem ${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}
+        -o ${CMAKE_BINARY_DIR}/litergss_ruby_client.o
+        ${CMAKE_BINARY_DIR}/litergss_ruby_client.c
+    COMMAND ${CMAKE_AR} r
+        ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
+        ${CMAKE_BINARY_DIR}/litergss_ruby_client.o
+    COMMAND ${CMAKE_RANLIB}
+        ${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a
+)
+
 # Android only: compile litergss_surface_jni.c and inject it into the same
 # libembedded-ruby.a. This is the LiteRGSS hosted-Activity JNI bridge — pure
 # JNI glue that forwards Surface lifecycle / touch events to LiteCGSS's

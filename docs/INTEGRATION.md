@@ -279,6 +279,42 @@ companion object {
 
 ---
 
+## Ruby Client Code
+
+The runtime ships Ruby code of its own, compiled into the library (`ruby/litergss/`
+in this repository, embedded by `cmake/litergss-app/scripts/embed_ruby_client.cmake`):
+nothing to copy on the device, and it is already loaded when your scripts start.
+
+### Touch Overlay
+
+An on-screen gamepad (D-pad, A/B/X/Y, L/R, Start/Select) drawn by LiteRGSS on top
+of any game. Install it before the game creates its window:
+
+```ruby
+LiteRGSS::TouchOverlay.install
+require './Game.rb'
+```
+
+It only relies on LiteRGSS, so it works the same for every PSDK version, including
+games compiled on another platform:
+
+- every `LiteRGSS::DisplayWindow` created afterwards gets the overlay;
+- a touch on a button never reaches the game's touch callbacks (no click on the
+  game UI under it); other touches are forwarded unchanged;
+- a button sends the key events a keyboard would, through the key callbacks the
+  game set on the window: the first keyboard binding of its virtual key in the
+  game's `Input::Keys`, else `LiteRGSS::TouchOverlay::DEFAULT_KEYS`;
+- a game that defines its own touch controls (`Input::InputTouch`) keeps them: the
+  overlay disables itself.
+
+`LiteRGSS::TouchOverlay.enabled = false` keeps it off the windows created afterwards.
+
+Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS) and
+`cmake -DWORK_DIR=/tmp/ruby-client -P cmake/litergss-app/tests/check_ruby_client.cmake`
+(the embedding, built for the host Ruby).
+
+---
+
 ## Configuration
 
 ### Library Name

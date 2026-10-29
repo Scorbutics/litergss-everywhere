@@ -14,6 +14,7 @@ It builds LiteRGSS2 and all its dependencies into a single static library (`libr
 | SFML | Graphics, windowing, audio |
 | Audio codecs | Ogg, Vorbis, FLAC, OpenAL |
 | FreeType | Font rendering |
+| Ruby client code | `require 'litergss/touch_overlay'`: on-screen gamepad for touch devices ([integration](docs/INTEGRATION.md#ruby-client-code)) |
 
 ## Supported Platforms
 
