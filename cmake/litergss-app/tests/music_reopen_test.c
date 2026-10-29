@@ -5,7 +5,8 @@
  * Opening another buffer must keep the current copy until the new file is
  * open: sf::Music::openFromMemory first stops the current file, and stopping
  * seeks it back to the start, reading the current buffer (PSDK crashed when
- * a map changed its BGM).
+ * a map changed its BGM). Freeing the Music (at ruby_cleanup) stops it too,
+ * so the buffer must also outlive sf::Music's destructor.
  *
  * Built with AddressSanitizer: its memcpy interceptor reports a read of a
  * released copy, which the runtime (not instrumented) would otherwise get

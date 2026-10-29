@@ -3,20 +3,22 @@ Music owns the buffer it streams from (crash in GC, e.g. on PSDK soft reset).
 open_from_memory only kept the Ruby String in @memory while sf::Music
 streams from its buffer on its own thread. When a Music and its String
 became garbage in the same GC run, Ruby could free the String first and
-the Music then read freed memory. Copy the bytes into the native object
-and stop the stream before the copy is released. Opening another buffer
-keeps the current one until the new file is open: Music::openFromMemory
-stops the current file first, which seeks it in the current buffer (crash
-when a map changes its BGM).
+the Music then read freed memory. Copy the bytes into the native object.
+
+Stopping a Music seeks its file, reading the buffer, and both
+Music::openFromMemory and ~Music() stop first:
+- opening another buffer keeps the current one until the new file is open
+  (crash when a map changes its BGM);
+- the buffer is a base declared before sf::Music, so it is destroyed after.
 
 Applied on top of the pinned NuriYuri/sfmlaudio revision; drop it once
 upstream carries an equivalent fix.
 
 diff --git a/ext/SFMLAudio/sf_Music.cpp b/ext/SFMLAudio/sf_Music.cpp
-index fdb1ac0..4e3808a 100644
+index fdb1ac0..d612c1d 100644
 --- a/ext/SFMLAudio/sf_Music.cpp
 +++ b/ext/SFMLAudio/sf_Music.cpp
-@@ -1,17 +1,31 @@
+@@ -1,8 +1,27 @@
  #include "rb_common.h"
 +#include <vector>
  
@@ -27,43 +29,45 @@ index fdb1ac0..4e3808a 100644
 +// own thread. Keeping only the Ruby String alive (@memory) is not enough:
 +// when a Music and its String become garbage in the same GC run, Ruby may
 +// free the String first, and the Music (still streaming, or closing its
-+// decoder) then reads freed memory. Own a copy instead, and stop the stream
-+// before that copy is released (members are destroyed after this body, the
-+// sf::Music base after that).
-+class RbMusic : public sf::Music {
-+public:
++// decoder) then reads freed memory. Own a copy instead.
++// ~Music() stops the stream, and stopping seeks the file, reading the
++// buffer: the buffer is a base declared before sf::Music, destroyed after it.
++struct RbMusicMemory {
 +  std::vector<char> memory;
-+  ~RbMusic() override { stop(); }
 +};
 +
++class RbMusic : private RbMusicMemory, public sf::Music {
++public:
++  using RbMusicMemory::memory;
++};
++
++// The Ruby object wraps the sf::Music (not the RbMusic, whose sf::Music is
++// not at its start): every SoundStream / SoundSource method reads it so.
  void rb_Music_Free(void* data)
  {
--  sf::Music* pdata = reinterpret_cast<sf::Music*>(data);
-+  RbMusic* pdata = reinterpret_cast<RbMusic*>(data);
-   if(pdata != nullptr) { delete pdata; }
- }
+   sf::Music* pdata = reinterpret_cast<sf::Music*>(data);
+@@ -11,7 +30,7 @@ void rb_Music_Free(void* data)
  
  VALUE rb_Music_Alloc(VALUE klass)
  {
 -  sf::Music* data = new sf::Music();
-+  RbMusic* data = new RbMusic();
++  sf::Music* data = new RbMusic();
    return Data_Wrap_Struct(klass, NULL, rb_Music_Free, data);
  }
  
-@@ -23,9 +37,14 @@ VALUE rb_MopenFromFile(VALUE self, VALUE filename) {
- 
+@@ -24,8 +43,14 @@ VALUE rb_MopenFromFile(VALUE self, VALUE filename) {
  VALUE rb_MopenFromMemory(VALUE self, VALUE string) {
    Check_Type(string, T_STRING);
--  RB_GET_DATA(sf::Music, Qfalse);
-+  RB_GET_DATA(RbMusic, Qfalse);
+   RB_GET_DATA(sf::Music, Qfalse);
++  RbMusic* music = static_cast<RbMusic*>(data);
    rb_iv_set(self, "@memory", string);
 -  return data->openFromMemory(StringValuePtr(string), RSTRING_LEN(string)) ? Qtrue : Qfalse;
 +  // openFromMemory first stops the current file, and stopping seeks it back
 +  // to the start: it still reads the current buffer. Keep that buffer until
 +  // the new file is open (moving a vector keeps its buffer in place).
-+  std::vector<char> previous(std::move(data->memory));
-+  data->memory.assign(RSTRING_PTR(string), RSTRING_PTR(string) + RSTRING_LEN(string));
-+  return data->openFromMemory(data->memory.data(), data->memory.size()) ? Qtrue : Qfalse;
++  std::vector<char> previous(std::move(music->memory));
++  music->memory.assign(RSTRING_PTR(string), RSTRING_PTR(string) + RSTRING_LEN(string));
++  return music->openFromMemory(music->memory.data(), music->memory.size()) ? Qtrue : Qfalse;
  }
  
  VALUE rb_MgetDuration(VALUE self) {
