@@ -4,18 +4,21 @@ open_from_memory only kept the Ruby String in @memory while sf::Music
 streams from its buffer on its own thread. When a Music and its String
 became garbage in the same GC run, Ruby could free the String first and
 the Music then read freed memory. Copy the bytes into the native object
-and stop the stream before the copy is released.
+and stop the stream before the copy is released. Opening another buffer
+keeps the current one until the new file is open: Music::openFromMemory
+stops the current file first, which seeks it in the current buffer (crash
+when a map changes its BGM).
 
 Applied on top of the pinned NuriYuri/sfmlaudio revision; drop it once
 upstream carries an equivalent fix.
 
 diff --git a/ext/SFMLAudio/sf_Music.cpp b/ext/SFMLAudio/sf_Music.cpp
-index fdb1ac0..0e90a0c 100644
+index fdb1ac0..4e3808a 100644
 --- a/ext/SFMLAudio/sf_Music.cpp
 +++ b/ext/SFMLAudio/sf_Music.cpp
 @@ -1,17 +1,31 @@
  #include "rb_common.h"
-+#include <string>
++#include <vector>
  
  
  VALUE rb_cMusic = Qnil;
@@ -29,7 +32,7 @@ index fdb1ac0..0e90a0c 100644
 +// sf::Music base after that).
 +class RbMusic : public sf::Music {
 +public:
-+  std::string memory;
++  std::vector<char> memory;
 +  ~RbMusic() override { stop(); }
 +};
 +
@@ -47,7 +50,7 @@ index fdb1ac0..0e90a0c 100644
    return Data_Wrap_Struct(klass, NULL, rb_Music_Free, data);
  }
  
-@@ -23,9 +37,12 @@ VALUE rb_MopenFromFile(VALUE self, VALUE filename) {
+@@ -23,9 +37,14 @@ VALUE rb_MopenFromFile(VALUE self, VALUE filename) {
  
  VALUE rb_MopenFromMemory(VALUE self, VALUE string) {
    Check_Type(string, T_STRING);
@@ -55,9 +58,11 @@ index fdb1ac0..0e90a0c 100644
 +  RB_GET_DATA(RbMusic, Qfalse);
    rb_iv_set(self, "@memory", string);
 -  return data->openFromMemory(StringValuePtr(string), RSTRING_LEN(string)) ? Qtrue : Qfalse;
-+  // The streaming thread may still be reading the current buffer.
-+  data->stop();
-+  data->memory.assign(RSTRING_PTR(string), RSTRING_LEN(string));
++  // openFromMemory first stops the current file, and stopping seeks it back
++  // to the start: it still reads the current buffer. Keep that buffer until
++  // the new file is open (moving a vector keeps its buffer in place).
++  std::vector<char> previous(std::move(data->memory));
++  data->memory.assign(RSTRING_PTR(string), RSTRING_PTR(string) + RSTRING_LEN(string));
 +  return data->openFromMemory(data->memory.data(), data->memory.size()) ? Qtrue : Qfalse;
  }
  
