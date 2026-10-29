@@ -355,8 +355,10 @@ static void virtual_keyboard_thunk(int show)
     }
 }
 
-/* Set when the host registered a VirtualKeyboardListener (its IME bridge) */
-static volatile int g_virtualKeyboardArmed = 0;
+/* SFML (HostedAndroidWindow.hpp): sf::Keyboard::setVirtualKeyboardVisible
+ * calls this handler, while set, instead of the InputMethodManager on the
+ * window (which shows a keyboard bound to no text field, unable to type). */
+void sf_android_set_hosted_virtual_keyboard_handler(void (*handler)(int visible));
 
 JNIEXPORT void JNICALL
 Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIEnv* env, jclass clazz,
@@ -364,22 +366,10 @@ Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIE
 {
     (void) env;
     (void) clazz;
-    g_virtualKeyboardArmed = armed == JNI_TRUE;
     cgss_android_set_virtual_keyboard_callback(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
-}
-
-/*
- * Show / hide the virtual keyboard through the host's IME bridge, when it
- * registered one. Used by Sf::Keyboard.virtual_keyboard= (extension-init.c):
- * SFML's own implementation calls the InputMethodManager on the window with
- * no text field focused, so the keyboard shows but cannot type. Returns 0 when
- * no host bridge is registered (the caller then falls back to SFML).
- */
-int litergss_android_request_virtual_keyboard(int show)
-{
-    if (!g_virtualKeyboardArmed) return 0;
-    cgss_android_request_virtual_keyboard(show);
-    return 1;
+    /* Sf::Keyboard.virtual_keyboard= (any game, any engine) reaches the
+     * host's IME bridge, which focuses its text field */
+    sf_android_set_hosted_virtual_keyboard_handler(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
 }
 
 /* ------------------------------------------------------------------
