@@ -281,16 +281,17 @@ companion object {
 
 ## Ruby Client Code
 
-The runtime ships Ruby code of its own, compiled into the library (`ruby/litergss/`
-in this repository, embedded by `cmake/litergss-app/scripts/embed_ruby_client.cmake`):
-nothing to copy on the device, and it is already loaded when your scripts start.
+The runtime ships Ruby code of its own (`ruby/litergss/` in this repository): it is
+zipped into the library (`cmake/litergss-app/ruby-client.cmake`) and extracted with
+the Ruby standard library, on the load path. Nothing to copy on the device:
 
 ### Touch Overlay
 
-An on-screen gamepad (D-pad, A/B/X/Y, L/R, Start/Select) drawn by LiteRGSS on top
-of any game. Install it before the game creates its window:
+An on-screen gamepad (D-pad, A/B/X/Y, L/R, Start/Select, virtual keyboard) drawn by
+LiteRGSS on top of any game. Install it before the game creates its window:
 
 ```ruby
+require 'litergss/touch_overlay'
 LiteRGSS::TouchOverlay.install
 require './Game.rb'
 ```
@@ -309,9 +310,11 @@ games compiled on another platform:
 
 `LiteRGSS::TouchOverlay.enabled = false` keeps it off the windows created afterwards.
 
-Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS) and
-`cmake -DWORK_DIR=/tmp/ruby-client -P cmake/litergss-app/tests/check_ruby_client.cmake`
-(the embedding, built for the host Ruby).
+Tapping a text entry of the game (PSDK's `UI::UserInput` fields, the
+`GamePlay::NameInput` scene) shows the virtual keyboard, hidden again once no text
+entry is left.
+
+Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS).
 
 ---
 

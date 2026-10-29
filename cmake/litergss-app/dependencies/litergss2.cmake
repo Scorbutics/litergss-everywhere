@@ -83,6 +83,9 @@ elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL CMAKE_SYSTEM_NAME
     set(_RGSS_CAN_RUN_TESTS TRUE)
 endif()
 
+# Ruby client code (ruby/litergss): liblitergss_ruby_client.a, linked below
+include(${CMAKE_CURRENT_LIST_DIR}/../ruby-client.cmake)
+
 if(BUILD_SHARED_WRAPPER)
     # ------------------------------------------------------------------------
     # SHARED WRAPPER MODE (rgss_runtime.so)
@@ -128,6 +131,7 @@ if(BUILD_SHARED_WRAPPER)
         "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisfile.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libFLAC.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/lib/libopenal.${DEP_EXT}"
+        "${LITERGSS_RUBY_CLIENT_LIB}"
     )
     
     # embedded-ruby-vm libraries
@@ -154,6 +158,7 @@ if(BUILD_SHARED_WRAPPER)
 
     # Add dependencies ensuring they are built before linking
     add_dependencies(rgss_runtime
+        litergss_ruby_client
         litergss2
         sfml litecgss openal-soft flac libogg libvorbis freetype
     )
@@ -274,6 +279,7 @@ else()
             "${BUILD_STAGING_DIR}/usr/local/lib/libminizip.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libassets.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libembedded-ruby.a"
+            "${LITERGSS_RUBY_CLIENT_LIB}"
         )
 
         set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/lib${FAT_LIBRARY_NAME}.a")
@@ -293,7 +299,7 @@ else()
                 -DCOMBINE_OBJCOPY=${CMAKE_OBJCOPY}
                 "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external ruby-sfml-audio_external
+            DEPENDS litergss2_external ruby-sfml-audio_external litergss_ruby_client
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
             VERBATIM
         )

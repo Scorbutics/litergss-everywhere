@@ -24,8 +24,8 @@
 # Layout and images come from PSDK's former "InputTouch Viewport" (pokemonsdk),
 # in window pixels instead of game pixels.
 #
-# On device the images are compiled into the runtime (IMAGES is set before this
-# file is evaluated); elsewhere they are read next to this file.
+# The runtime ships this directory with the Ruby standard library
+# (cmake/litergss-app/ruby-client.cmake): the images are read next to this file.
 module LiteRGSS
   module TouchOverlay
     # Virtual key => keyboard scancode name (Sf::Keyboard::Scancode constant),
@@ -46,11 +46,9 @@ module LiteRGSS
     # Button showing / hiding the virtual keyboard (not a key)
     KEYBOARD = 'keyboard'
 
-    unless const_defined?(:IMAGES, false)
-      IMAGES = (BUTTON_KEYS.keys + [KEYBOARD]).to_h do |name|
-        [name, File.binread(File.join(__dir__, 'touch_overlay', "#{name}.png")).freeze]
-      end.freeze
-    end
+    IMAGES = (BUTTON_KEYS.keys + [KEYBOARD]).to_h do |name|
+      [name, File.binread(File.join(__dir__, 'touch_overlay', "#{name}.png")).freeze]
+    end.freeze
 
     Z = 999_999
     # Key code sent with the scancode: sf::Keyboard::Unknown (LiteRGSS has no
