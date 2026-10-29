@@ -285,11 +285,11 @@ else()
         set(FAT_LIBRARY_OUTPUT "${BUILD_STAGING_DIR}/usr/local/lib/lib${FAT_LIBRARY_NAME}.a")
         set(FAT_LIBRARY_WORKDIR "${CMAKE_BINARY_DIR}/fat_library_workdir")
 
-        # Create custom command that calls the combine function
-        # Note: Library existence is checked at build time (not configure time),
-        # since on a clean build libraries don't exist yet during configuration.
-        add_custom_command(
-            OUTPUT ${FAT_LIBRARY_OUTPUT}
+        # Runs on every build; the script skips the merge when the fat library
+        # is newer than all of its inputs. A custom command OUTPUT depending on
+        # the dependency targets alone never re-ran once the library existed,
+        # so a rebuilt dependency (new SFML pin...) didn't reach it.
+        add_custom_target(rgss_fat_library ALL
             COMMAND ${CMAKE_COMMAND}
                 -DCOMBINE_OUTPUT=${FAT_LIBRARY_OUTPUT}
                 -DCOMBINE_WORKDIR=${FAT_LIBRARY_WORKDIR}
@@ -299,14 +299,11 @@ else()
                 -DCOMBINE_OBJCOPY=${CMAKE_OBJCOPY}
                 "-DCOMBINE_LIBS=${STATIC_LIBS_TO_COMBINE}"
                 -P ${CMAKE_SOURCE_DIR}/cmake/core/CombineFatLibraryScript.cmake
-            DEPENDS litergss2_external ruby-sfml-audio_external litergss_ruby_client
-            COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a"
+            BYPRODUCTS ${FAT_LIBRARY_OUTPUT}
+            COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a (if its inputs changed)"
             VERBATIM
         )
-
-        add_custom_target(rgss_fat_library ALL
-            DEPENDS ${FAT_LIBRARY_OUTPUT}
-        )
+        add_dependencies(rgss_fat_library litergss2_external ruby-sfml-audio_external litergss_ruby_client)
 
         # Verify symbols are present in the fat static library.
         # For native builds the smoke test provides a stronger check
