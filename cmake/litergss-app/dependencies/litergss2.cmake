@@ -460,6 +460,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
                     "-framework AudioToolbox"
                     compression
                     iconv
+                    bz2  # FreeType's bzip2 support
                 )
             else()
                 find_package(X11 REQUIRED)

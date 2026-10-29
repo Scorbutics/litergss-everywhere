@@ -13,7 +13,8 @@
  * Only Ruby and the SFMLAudio extension are started: no standard library is
  * needed. MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH are OGG files of
  * different sizes (fixtures/tone.ogg, fixtures/tone-long.ogg): a copy of the
- * same size could reuse the current buffer in place, releasing nothing.
+ * same size could reuse the current buffer in place, releasing nothing. The
+ * first one is 2 s long.
  */
 
 #include <stdio.h>
@@ -42,6 +43,9 @@ extern void Init_SFMLAudio(void);
 static const char* CHECK_SCRIPT =
     "music = SFMLAudio::Music.new\n"
     "raise 'first open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_FIXTURE_PATH "'))\n"
+    /* Away from the start, as a playing BGM: stopping then seeks back by
+     * reading the buffer */
+    "music.set_playing_offset(1.0)\n"
     "raise 'second open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_LONGER_FIXTURE_PATH "'))\n"
     "raise 'no duration after reopening' unless music.get_duration > 0\n";
 

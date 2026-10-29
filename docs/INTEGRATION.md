@@ -218,7 +218,7 @@ Platform-specific linker flags:
 | Platform | Flag | Extra link libraries |
 |----------|------|---------------------|
 | Linux | `-Wl,--whole-archive ... -Wl,--no-whole-archive` | `stdc++ pthread dl m rt` + X11 libs (`libX11 libXrandr libXcursor`) + `libudev` |
-| macOS | `-Wl,-force_load,...` | `c++ pthread dl m` + Cocoa, IOKit, CoreFoundation, CoreAudio, AudioToolbox frameworks |
+| macOS | `-Wl,-force_load,...` | `c++ pthread dl m` + Cocoa, IOKit, CoreFoundation, CoreAudio, AudioToolbox frameworks + `bz2` |
 | Android | `-Wl,--whole-archive ... -Wl,--no-whole-archive` | `android log EGL GLESv2 OpenSLES` |
 
 ### Initialize and Run
