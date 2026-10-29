@@ -25,6 +25,11 @@ message(STATUS "Root build system is in ${CMAKE_SOURCE_DIR}/cmake/core")
 
 include(Main)
 
+# Native tests are declared by the dependencies (litergss2.cmake), inside
+# declare_application: enable_testing() has no effect there, it must be
+# called at the top level for ctest to see them.
+enable_testing()
+
 # ============================================================================
 # APPLICATION DECLARATION - LiteRGSS-specific configuration
 # ============================================================================

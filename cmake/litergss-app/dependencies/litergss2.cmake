@@ -405,8 +405,7 @@ endif()
 # When we can run the built binary, compile and run a smoke test against the
 # output library to verify the build artifact is functional, not just symbol-complete.
 if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
-    enable_testing()
-
+    # enable_testing() is called by the top-level CMakeLists.txt
     # Native test executables linked against the output library like an app
     function(rgss_add_native_test name src)
         add_executable(${name} ${src})
