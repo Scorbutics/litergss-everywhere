@@ -478,6 +478,8 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     target_compile_definitions(rgss_music_reopen_test PRIVATE
         MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
     )
+    # SFMLAudio and SFML are C++: link with the C++ runtime
+    set_target_properties(rgss_music_reopen_test PROPERTIES LINKER_LANGUAGE CXX)
     set_tests_properties(rgss_music_reopen_test PROPERTIES TIMEOUT 60)
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
