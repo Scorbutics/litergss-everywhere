@@ -448,6 +448,8 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
                     "-framework CoreVideo"
                     "-framework Carbon"
                     "-framework Security"  # Ruby 3.0: SecRandomCopyBytes
+                    "-framework CoreAudio"     # OpenAL Soft's CoreAudio backend
+                    "-framework AudioToolbox"
                     compression
                     iconv
                 )
