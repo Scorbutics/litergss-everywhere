@@ -489,7 +489,15 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
         MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
         MUSIC_LONGER_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone-long.ogg"
     )
-    set_tests_properties(rgss_music_reopen_test PROPERTIES TIMEOUT 60)
+    # AddressSanitizer reports the read of a released buffer, also from the
+    # runtime's code (not instrumented: its memcpy interceptor checks it)
+    target_compile_options(rgss_music_reopen_test PRIVATE -fsanitize=address)
+    target_link_options(rgss_music_reopen_test PRIVATE -fsanitize=address)
+    # Leaks of a VM never torn down are not what this test is about
+    set_tests_properties(rgss_music_reopen_test PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
+    )
 
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
 else()

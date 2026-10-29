@@ -7,8 +7,9 @@
  * seeks it back to the start, reading the current buffer (PSDK crashed when
  * a map changed its BGM).
  *
- * With glibc, M_MMAP_THRESHOLD makes every buffer copy a mapping of its own,
- * so a read of a released copy faults instead of reading stale heap memory.
+ * Built with AddressSanitizer: its memcpy interceptor reports a read of a
+ * released copy, which the runtime (not instrumented) would otherwise get
+ * away with, the memory still being mapped.
  *
  * Only Ruby and the SFMLAudio extension are started: no standard library is
  * needed. MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH are OGG files of
@@ -21,10 +22,6 @@
 #include <stdlib.h>
 
 #include "ruby.h"
-
-#ifdef __GLIBC__
-#include <malloc.h>
-#endif
 
 #if !defined(MUSIC_FIXTURE_PATH) || !defined(MUSIC_LONGER_FIXTURE_PATH)
 #error "MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH must be defined"
@@ -43,8 +40,7 @@ extern void Init_SFMLAudio(void);
 static const char* CHECK_SCRIPT =
     "music = SFMLAudio::Music.new\n"
     "raise 'first open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_FIXTURE_PATH "'))\n"
-    /* Away from the start, as a playing BGM: stopping then seeks back by
-     * reading the buffer */
+    /* Away from the start, as a playing BGM */
     "music.set_playing_offset(1.0)\n"
     "raise 'second open_from_memory failed' unless music.open_from_memory(File.binread('" MUSIC_LONGER_FIXTURE_PATH "'))\n"
     "raise 'no duration after reopening' unless music.get_duration > 0\n";
@@ -57,10 +53,6 @@ static VALUE init_audio(VALUE unused) {
 
 int main(int argc, char** argv) {
     int state = 0;
-
-#ifdef __GLIBC__
-    mallopt(M_MMAP_THRESHOLD, 4096);
-#endif
 
     ruby_sysinit(&argc, &argv);
     {
