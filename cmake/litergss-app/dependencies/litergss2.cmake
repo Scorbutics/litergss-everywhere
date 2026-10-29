@@ -473,6 +473,8 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
 
     # SFMLAudio::Music opening a second buffer (music-owns-memory.patch)
     rgss_add_native_test(rgss_music_reopen_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/music_reopen_test.c")
+    # Ruby headers are third-party: SYSTEM keeps their warnings out of -Werror
+    target_include_directories(rgss_music_reopen_test SYSTEM PRIVATE ${RUBY_FOR_ANDROID_INCLUDE_DIRS})
     target_compile_definitions(rgss_music_reopen_test PRIVATE
         MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
     )

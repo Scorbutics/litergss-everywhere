@@ -17,11 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Ruby headers do not build warning-free with -Wextra */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "ruby.h"
-#pragma GCC diagnostic pop
 
 #ifdef __GLIBC__
 #include <malloc.h>
