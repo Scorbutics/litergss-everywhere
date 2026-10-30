@@ -289,6 +289,40 @@ module LiteRGSS
       end
     end
 
+    # The virtual keyboard's Shift reaches the game as a real LShift / RShift
+    # key, which a game may bind to an action (PSDK: B and Y): typing a capital
+    # letter in the name input cancelled it. While a text entry is on screen,
+    # Shift presses don't reach the game's key callback; the typed text still
+    # comes through on_text_entered. Releases always do, not to leave a key held.
+    module TypingKeys
+      SHIFT_KEYS = %i[LShift RShift].freeze
+
+      module_function
+
+      # @param overlay [Overlay]
+      # @param game_proc [Proc, nil] the game's on_key_pressed callback
+      # @return [Proc, nil] the callback the window calls
+      def filter(overlay, game_proc)
+        return game_proc unless game_proc
+
+        shift = SHIFT_KEYS.filter_map do |name|
+          Sf::Keyboard::Scancode.const_get(name) if Sf::Keyboard::Scancode.const_defined?(name)
+        end
+        proc do |*args|
+          next if shift.include?(args[1]) && typing?(overlay)
+
+          game_proc.call(*args)
+        end
+      end
+
+      # A text entry is on screen (an error there must never cost the game a key)
+      def typing?(overlay)
+        overlay.enabled? && TextEntry.any?
+      rescue StandardError
+        false
+      end
+    end
+
     # The overlay of one window: its sprites, the fingers on its buttons and
     # the keys they hold down.
     class Overlay
@@ -531,11 +565,14 @@ module LiteRGSS
     # Prepended to LiteRGSS::DisplayWindow: keeps the game's event callbacks and
     # puts the overlay in front of the touch ones.
     module WindowHooks
-      %i[key_pressed key_released].each do |event|
-        define_method(:"on_#{event}=") do |proc|
-          @__touch_overlay&.store_game_proc(event, proc)
-          super(proc)
-        end
+      def on_key_pressed=(proc)
+        @__touch_overlay&.store_game_proc(:key_pressed, proc)
+        super(@__touch_overlay ? TypingKeys.filter(@__touch_overlay, proc) : proc)
+      end
+
+      def on_key_released=(proc)
+        @__touch_overlay&.store_game_proc(:key_released, proc)
+        super(proc)
       end
 
       %i[touch_began touch_moved touch_ended].each do |event|

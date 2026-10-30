@@ -96,7 +96,7 @@ module Sf
 
     module Scancode
       B = 1; F = 5; G = 6; Enter = 58; Escape = 59; Insert = 77; Pause = 78
-      Right = 82; Left = 83; Down = 84; Up = 85; Menu = 124
+      Right = 82; Left = 83; Down = 84; Up = 85; Menu = 124; LShift = 129; RShift = 133
     end
   end
 end
@@ -266,6 +266,34 @@ class TestTouchOverlay < Minitest::Test
     @window.queue(:touch_began, 1, 1200, 600)
     frame
     assert_equal [true, true], Sf::Keyboard.virtual_keyboard_calls
+  end
+
+  SHIFT = Sf::Keyboard::Scancode::LShift
+
+  def test_shift_presses_do_not_reach_the_game_during_name_input
+    $scene = GamePlay::NameInput.new
+    frame
+    @window.queue(:key_pressed, -1, SHIFT, false, false, false, false)
+    @window.queue(:key_pressed, -1, Sf::Keyboard::Scancode::RShift, false, false, false, false)
+    @window.queue(:key_pressed, -1, Sf::Keyboard::Scancode::B, false, false, false, false)
+    @window.queue(:key_released, -1, SHIFT)
+    frame
+    assert_equal [Sf::Keyboard::Scancode::B], @game[:key_pressed].map { |a| a[1] }
+    assert_equal [SHIFT], @game[:key_released].map { |a| a[1] }, 'a release always reaches the game'
+  end
+
+  def test_shift_presses_do_not_reach_the_game_on_a_text_field
+    frame
+    UI::UserInput.new(game_viewport, 100, 20, 120, 16)
+    @window.queue(:key_pressed, -1, SHIFT, false, false, false, false)
+    frame
+    assert_empty @game[:key_pressed]
+  end
+
+  def test_shift_reaches_the_game_without_text_entry
+    @window.queue(:key_pressed, -1, SHIFT, false, false, false, false)
+    frame
+    assert_equal [SHIFT], @game[:key_pressed].map { |a| a[1] }
   end
 
   def test_a_keyboard_shown_with_the_button_stays_without_text_entry

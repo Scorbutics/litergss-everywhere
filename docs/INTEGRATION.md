@@ -314,6 +314,9 @@ Tapping a text entry of the game (PSDK's `UI::UserInput` fields, the
 `GamePlay::NameInput` scene) shows the virtual keyboard, hidden again once no text
 entry is left. The name input scene also shows it when it starts, whatever the PSDK
 version (older ones never open it themselves).
+While a text entry is on screen, Shift presses (the virtual keyboard's Shift arrives
+as LShift / RShift, which PSDK binds to B / Y) don't reach the game's key callback:
+typing a capital letter no longer cancels the name input.
 
 In the game's messages, PSDK's `\k[A]` (`PFM::Text.get_key_name`) names the gamepad
 button sending the key (`A`, `START`...) instead of its first keyboard binding; the D-pad
