@@ -312,7 +312,8 @@ games compiled on another platform:
 
 Tapping a text entry of the game (PSDK's `UI::UserInput` fields, the
 `GamePlay::NameInput` scene) shows the virtual keyboard, hidden again once no text
-entry is left.
+entry is left. The name input scene also shows it when it starts, whatever the PSDK
+version (older ones never open it themselves).
 
 In the game's messages, PSDK's `\k[A]` (`PFM::Text.get_key_name`) names the gamepad
 button sending the key (`A`, `START`...) instead of its first keyboard binding; the D-pad

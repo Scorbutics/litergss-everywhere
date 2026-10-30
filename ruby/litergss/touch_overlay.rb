@@ -464,15 +464,20 @@ module LiteRGSS
         @sprites&.[](KEYBOARD)&.opacity = shown ? PRESSED_OPACITY : OPACITY
       end
 
-      # Show the keyboard for a tap on a text entry, hide it with the entry.
-      # A tap shows it even when it is thought shown: the system may have
-      # hidden it (back gesture, the keyboard's own close key), which the
-      # overlay is not told; showing a shown keyboard does nothing.
+      # Show the keyboard for a tap on a text entry, or when the name input
+      # scene starts (PSDK versions before its Android support never open it),
+      # hide it with the entry. A tap shows it even when it is thought shown:
+      # the system may have hidden it (back gesture, the keyboard's own close
+      # key), which the overlay is not told; showing a shown keyboard does
+      # nothing.
       def update_text_entry
         TextEntry.hook
         tap = @game_tap
         @game_tap = nil
-        if tap && TextEntry.at?(*tap)
+        name_input = TextEntry.scene?
+        name_input_started = name_input && !@name_input
+        @name_input = name_input
+        if (tap && TextEntry.at?(*tap)) || name_input_started
           show_keyboard(true, automatic: !@keyboard_shown || @keyboard_automatic)
         elsif @keyboard_automatic && !TextEntry.any?
           show_keyboard(false)

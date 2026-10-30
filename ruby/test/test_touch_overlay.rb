@@ -234,6 +234,28 @@ class TestTouchOverlay < Minitest::Test
     assert_equal [true, false], Sf::Keyboard.virtual_keyboard_calls
   end
 
+  def test_the_name_input_scene_shows_the_keyboard_until_it_ends
+    frame
+    $scene = GamePlay::NameInput.new
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
+    frame
+    $scene = Object.new
+    frame
+    assert_equal [true, false], Sf::Keyboard.virtual_keyboard_calls
+  end
+
+  # Hidden with the button during the scene: it is not shown again by itself
+  def test_the_name_input_scene_shows_the_keyboard_once
+    $scene = GamePlay::NameInput.new
+    frame
+    @window.queue(:touch_began, 0, *center('keyboard'))
+    @window.queue(:touch_ended, 0, *center('keyboard'))
+    frame
+    frame
+    assert_equal [true, false], Sf::Keyboard.virtual_keyboard_calls
+  end
+
   # Regression: once the system hid the keyboard (its close key), the
   # overlay still thought it shown and a tap on the text entry did nothing
   def test_a_tap_on_a_text_entry_shows_the_keyboard_again_after_the_system_hid_it
