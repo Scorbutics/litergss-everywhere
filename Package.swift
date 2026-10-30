@@ -12,8 +12,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "RubyVM",
-            url: "https://github.com/Scorbutics/litergss-everywhere/releases/download/v1.2.10-ruby3.0/RubyVM-xcframework-1.2.10-ruby3.0.zip",
-            checksum: "443872202bec5f48e7690ce37edbd8dbce618269719fa65ef593a23c71ec8813"
+            url: "https://github.com/Scorbutics/litergss-everywhere/releases/download/v1.2.11-ruby3.0/RubyVM-xcframework-1.2.11-ruby3.0.zip",
+            checksum: "99753c7d8b73ed7c396c78b82157710715c692ed3a64066344ab58c12cc246be"
         )
     ]
 )
