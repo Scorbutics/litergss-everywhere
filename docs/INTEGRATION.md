@@ -314,6 +314,11 @@ Tapping a text entry of the game (PSDK's `UI::UserInput` fields, the
 `GamePlay::NameInput` scene) shows the virtual keyboard, hidden again once no text
 entry is left.
 
+In the game's messages, PSDK's `\k[A]` (`PFM::Text.get_key_name`) names the gamepad
+button sending the key (`A`, `START`...) instead of its first keyboard binding; the D-pad
+and the keys no button sends keep the game's name.
+`LiteRGSS::TouchOverlay.key_labels = false` keeps the game's names everywhere.
+
 Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS).
 
 ---

@@ -134,6 +134,33 @@ module GamePlay
   class NameInput; end
 end
 
+# PSDK's message helpers: get_key_name names a game key ("\\k[A]") after its
+# first keyboard binding, as a module_function
+module PFM
+  module Text
+    GameKeys = { 0 => 'KeyError', 'a' => :A, 'b' => :B, 'up' => :UP, 'home' => :HOME }
+
+    module_function
+
+    def parse_string_for_messages(text)
+      text.gsub(/\\k\[([^\]]+)\]/i) { get_key_name($1) }
+    end
+
+    def get_key_name(name)
+      "keyboard-#{name}"
+    end
+  end
+end
+
+# A PSDK class including PFM::Text (its battle transitions do)
+class TextIncluder
+  include PFM::Text
+
+  def name_of(key)
+    get_key_name(key)
+  end
+end
+
 require_relative '../litergss/touch_overlay'
 LiteRGSS::TouchOverlay.install
 
@@ -158,6 +185,7 @@ class TestTouchOverlay < Minitest::Test
     Overlay.scale = 1.0
     Overlay.action_layout = :nintendo
     Overlay.extra_buttons.each_key { |name| Overlay.remove_button(name) }
+    Overlay.key_labels = true
   end
 
   # pokemonsdk's former InputTouch: a class with its singleton viewport
@@ -451,6 +479,33 @@ class TestTouchOverlay < Minitest::Test
     assert_equal 40, Overlay.button_scancode('a')
     assert_equal Sf::Keyboard::Scancode::Enter, Overlay.own_scancode('a')
     assert_nil Overlay.own_scancode('keyboard')
+  end
+
+  def bind_message_keys
+    Object.const_set(:Input, Module.new)
+    Input.const_set(:Keys, { A: [2, Sf::Keyboard::Scancode::Enter], B: [Sf::Keyboard::Scancode::Escape],
+                             UP: [Sf::Keyboard::Scancode::Up], HOME: [40] })
+    frame # the overlay hooks PFM::Text once the game defined it
+  end
+
+  def test_messages_name_the_touch_button_of_a_key
+    bind_message_keys
+    assert_equal 'A, B', PFM::Text.parse_string_for_messages('\\k[A], \\k[b]')
+    assert_equal 'A', TextIncluder.new.name_of('A')
+    # The D-pad has no label, no button sends HOME: the game names them
+    assert_equal 'keyboard-UP keyboard-HOME', PFM::Text.parse_string_for_messages('\\k[UP] \\k[HOME]')
+  end
+
+  def test_messages_keep_the_game_key_names_when_asked
+    bind_message_keys
+    Overlay.key_labels = false
+    assert_equal 'keyboard-A', PFM::Text.parse_string_for_messages('\\k[A]')
+  end
+
+  def test_messages_keep_the_game_key_names_without_the_overlay
+    bind_message_keys
+    @window.touch_overlay.disable
+    assert_equal 'keyboard-A', TextIncluder.new.name_of('A')
   end
 
   def test_a_button_is_released_with_the_scancode_it_pressed

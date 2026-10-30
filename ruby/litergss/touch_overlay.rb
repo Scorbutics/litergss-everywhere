@@ -245,6 +245,50 @@ module LiteRGSS
       end
     end
 
+    # Key names in the game's messages: PSDK's "\k[A]" (PFM::Text.get_key_name)
+    # names the first keyboard key bound to the game key ("C"), meaningless on
+    # a touch screen. While the overlay is on, it names the gamepad button
+    # sending that key instead ("A"); the D-pad and the keys no button sends
+    # keep the game's name.
+    module KeyNames
+      # Buttons named in messages
+      LABELED = (BUTTON_KEYS.keys - %w[up down left right]).freeze
+      @hooked = false
+
+      # get_key_name is a module_function: PFM::Text calls its own copy
+      # (parse_string_for_messages), the classes including it (PSDK's battle
+      # transitions) theirs
+      module Label
+        def get_key_name(name)
+          KeyNames.label(name) || super
+        end
+      end
+
+      module_function
+
+      # PFM::Text is defined by the game's scripts, after the overlay is
+      # installed: hook it once it exists
+      def hook
+        return if @hooked || !defined?(::PFM::Text) || !::PFM::Text.respond_to?(:get_key_name)
+
+        ::PFM::Text.prepend(Label)
+        ::PFM::Text.singleton_class.prepend(Label)
+        @hooked = true
+      end
+
+      # @param name [String] the game key in the message ('A', 'start'...)
+      # @return [String, nil] label of the gamepad button sending it, nil to
+      #   keep the game's name
+      def label(name)
+        return nil unless TouchOverlay.key_labels? && TouchOverlay.current&.enabled?
+        return nil unless defined?(::PFM::Text::GameKeys) && defined?(::Input::Keys)
+
+        key = ::PFM::Text::GameKeys[name.to_s.downcase]
+        codes = key.is_a?(Symbol) ? Array(::Input::Keys[key]) : []
+        LABELED.find { |button| codes.include?(TouchOverlay.button_scancode(button)) }&.upcase
+      end
+    end
+
     # The overlay of one window: its sprites, the fingers on its buttons and
     # the keys they hold down.
     class Overlay
@@ -315,6 +359,7 @@ module LiteRGSS
         (@pressed.keys - held).each { |name| release(name) }
         (held - @pressed.keys).each { |name| press(name) }
         update_text_entry
+        KeyNames.hook
       end
 
       def enabled?
@@ -554,6 +599,7 @@ module LiteRGSS
     end
 
     @enabled = true
+    @key_labels = true
     @scale = 1.0
     @action_layout = :nintendo
     @extra_buttons = {}
@@ -644,6 +690,13 @@ module LiteRGSS
 
       # Disable the overlay for the windows created from now on
       attr_writer :enabled
+
+      # false keeps the game's key names in its messages (KeyNames)
+      attr_writer :key_labels
+
+      def key_labels?
+        @key_labels
+      end
 
       # Run overlay code; an error disables the overlay instead of reaching the
       # game (an on-screen gamepad must never crash a game)
