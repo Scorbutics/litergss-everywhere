@@ -205,6 +205,7 @@ class TestTouchOverlay < Minitest::Test
     Overlay.key_labels = true
     Overlay.clear_layout
     Overlay.on_layout_saved = nil
+    Overlay.on_settings = nil
   end
 
   # pokemonsdk's former InputTouch: a class with its singleton viewport
@@ -994,6 +995,78 @@ class TestTouchOverlay < Minitest::Test
     assert_equal [a, b], [center('b'), center('a')]
   end
 
+  def test_the_file_scale_sizes_the_whole_gamepad_on_top_of_the_games
+    Overlay.scale = 1.5
+    frame
+    scaled = button('a').size
+    load_file('scale' => 2.0, 'groups' => { 'dpad' => { 'size' => 0.5 } })
+    frame
+    assert_operator button('a').size, :>, scaled
+    assert_operator button('up').size, :<, button('a').size
+  end
+
+  def test_the_largest_scale_keeps_the_tools_button_and_the_crosses_in_the_window
+    Overlay.scale = 1.5
+    load_file('scale' => 2.0)
+    [[2424, 1080], [1920, 1080], [1080, 2424], [1280, 720], [320, 240], [240, 320]].each do |width, height|
+      @window.resize(width, height)
+      frame
+      layout = @window.touch_overlay.layout
+      tools = button(Overlay::TOOLS)
+      assert_operator tools.y, :>=, 0, "#{width}x#{height}"
+      dpad, action = layout.crosses
+      assert_operator dpad.x + dpad.size, :<=, action.x, "#{width}x#{height}"
+      assert_operator action.x + action.size, :<=, width, "#{width}x#{height}"
+    end
+  end
+
+  def test_the_keyboard_toggle_puts_the_tools_button_back_at_the_files_opacity
+    load_file('opacity' => 0.2)
+    frame
+    tap_menu(Overlay::KEYBOARD)
+    frame
+    assert_equal Overlay::PRESSED_OPACITY, sprite(Overlay::TOOLS).opacity
+    tap_menu(Overlay::KEYBOARD)
+    frame
+    assert_equal 51, sprite(Overlay::TOOLS).opacity
+  end
+
+  def test_the_players_scale_and_opacity_go_over_the_games
+    load_file('scale' => 2.0, 'opacity' => 0.2)
+    Overlay.load_layout(JSON.generate('version' => 1, 'opacity' => 0.8), read_image: ->(_) { PNG }, player: true)
+    file = Overlay.layout_file
+    assert_equal [2.0, 0.8], [file.scale, file.opacity]
+  end
+
+  def sprite(name)
+    @window.touch_overlay.instance_variable_get(:@sprites)[name]
+  end
+
+  def test_the_file_opacity_is_the_gamepads_not_the_menus
+    load_file('opacity' => 0.8)
+    frame
+    assert_equal 204, sprite('a').opacity
+    @window.queue(:touch_began, 0, *center('a'))
+    frame
+    assert_equal 255, sprite('a').opacity
+    @window.queue(:touch_ended, 0, *center('a'))
+    frame
+    load_file('opacity' => 0.2)
+    frame
+    assert_equal 51, sprite('a').opacity
+    tap_at(center(Overlay::TOOLS))
+    frame
+    assert_equal Overlay::PRESSED_OPACITY, sprite(Overlay::TOOLS).opacity
+    assert_equal Overlay::OPACITY, sprite(Overlay::EDIT).opacity
+  end
+
+  def test_a_scale_or_opacity_out_of_range_refuses_the_file
+    [{ 'scale' => 0.4 }, { 'scale' => 2.5 }, { 'scale' => 'big' }, { 'opacity' => 0.0 }, { 'opacity' => 0.9 }].each do |data|
+      _, err = capture_io { refute load_file(data) }
+      assert_match(/layout: (scale|opacity) in/, err)
+    end
+  end
+
   def test_clearing_the_layout_file_restores_the_default
     default = positions
     load_file('buttons' => { 'start' => { 'visible' => false } })
@@ -1093,6 +1166,62 @@ class TestTouchOverlay < Minitest::Test
     assert_equal @window.touch_overlay.layout.buttons.size + 2, live.size
   end
 
+  def test_the_menu_has_settings_once_the_host_has_some
+    opened = 0
+    Overlay.on_settings = -> { opened += 1 }
+    tap_menu(Overlay::SETTINGS)
+    frame
+    assert_equal [Overlay::KEYBOARD, Overlay::EDIT, Overlay::SETTINGS], menu_names
+    assert_equal 1, opened
+    assert_empty @game[:touch_began]
+    refute @window.touch_overlay.instance_variable_get(:@menu_open)
+  end
+
+  def test_the_menu_of_a_large_tools_button_stays_in_the_window
+    Overlay.on_settings = -> {}
+    shrunk = false
+    # A column up, a column down, then entries made smaller: no row nor
+    # column of full ones fits
+    [[1080, 2424, 0.05, 0.5, 2], [1080, 2424, 0.05, 0.05, 2], [1280, 720, 0.12, 0.07, 4], [1280, 720, 0.12, 0.21, 4]].each do |width, height, x, y, size|
+      @window.resize(width, height)
+      load_file('buttons' => { Overlay::TOOLS => { 'anchor' => 'top_left', 'x' => x, 'y' => y, 'size' => size } })
+      frame
+      tap_at(center(Overlay::TOOLS))
+      frame
+      tools = button(Overlay::TOOLS)
+      entries = @window.touch_overlay.send(:menu_buttons)
+      assert_equal 3, entries.size
+      shrunk = true if entries.first.size < tools.size
+      entries.each do |entry|
+        assert(entry.x >= 0 && entry.y >= 0 && entry.x + entry.size <= width && entry.y + entry.size <= height, "#{width}x#{height} #{entry}")
+      end
+      ([tools] + entries).combination(2).each do |a, b|
+        refute(a.x < b.x + b.size && b.x < a.x + a.size && a.y < b.y + b.size && b.y < a.y + a.size, "#{a.name} on #{b.name}")
+      end
+      tap_at([1, 1]) # closes the menu
+      frame
+    end
+    assert shrunk
+  end
+
+  def test_the_menu_keeps_its_row_beside_a_default_tools_button
+    tap_at(center(Overlay::TOOLS))
+    frame
+    tools = button(Overlay::TOOLS)
+    step = tools.size + tools.size / 8
+    assert_equal [[tools.x + step, tools.y], [tools.x + 2 * step, tools.y]], @window.touch_overlay.send(:menu_buttons).map { |b| [b.x, b.y] }
+  end
+
+  def test_failing_settings_keep_the_gamepad
+    Overlay.on_settings = -> { raise IOError, 'no activity' }
+    _, err = capture_io do
+      tap_menu(Overlay::SETTINGS)
+      frame
+    end
+    assert_match(/no settings: IOError/, err)
+    assert @window.touch_overlay.enabled?
+  end
+
   def test_a_touch_outside_the_menu_closes_it_without_reaching_the_game
     tap_at(center(Overlay::TOOLS))
     frame
@@ -1187,6 +1316,17 @@ class TestTouchOverlay < Minitest::Test
     moved_run = run.merge('x' => (900 - 64) / 2424.0, 'y' => (300 - 64) / 1080.0)
     assert_equal({ 'version' => 1, 'buttons' => { 'run' => moved_run.transform_values { |v| v.is_a?(Float) ? v.round(4) : v },
                                                   'select' => { 'visible' => false } } }, file)
+  end
+
+  def test_reset_leaves_no_empty_section_and_keeps_the_settings
+    Overlay.load_layout(JSON.generate('version' => 1, 'scale' => 1.2, 'action_layout' => 'xbox'),
+                        read_image: ->(_) { PNG }, player: true)
+    frame
+    open_editor
+    drag(center('start'), [600, 300])
+    tap_at(toolbar_center(Overlay::RESET))
+    frame
+    assert_equal({ 'version' => 1, 'scale' => 1.2, 'action_layout' => 'xbox' }, saved)
   end
 
   def test_the_players_layout_goes_over_the_games

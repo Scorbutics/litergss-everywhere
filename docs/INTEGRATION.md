@@ -323,10 +323,14 @@ button sending the key (`A`, `START`...) instead of its first keyboard binding; 
 and the keys no button sends keep the game's name.
 `LiteRGSS::TouchOverlay.key_labels = false` keeps the game's names everywhere.
 
-The tools button opens a menu: show / hide the virtual keyboard, and edit the
-layout. In the editor the player drags a cross or a button to move it, its corner
-handle to resize it, a cross's second handle to spread its buttons; Reset puts every
-place back, Done saves. While it is open the game gets no touch and no key.
+The tools button opens a menu: show / hide the virtual keyboard, edit the layout, and
+the host's controls settings once it sets `LiteRGSS::TouchOverlay.on_settings` (called
+on the game's thread, so it returns quickly; the host then loads the player's file it
+changed again). In the
+editor the player drags a cross or a button to move it, its corner handle to resize it,
+a cross's second handle to spread its buttons; Reset puts every place back (the file's
+`scale`, `opacity` and `action_layout` stay), Done saves. While it is open the game gets
+no touch and no key.
 
 #### Layout files
 
@@ -336,6 +340,8 @@ a key (the format is documented on `LiteRGSS::TouchOverlay::LayoutFile`):
 ```json
 {
   "version": 1,
+  "scale": 1.2,
+  "opacity": 0.7,
   "groups":  { "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 } },
   "buttons": {
     "select": { "visible": false },
@@ -344,7 +350,9 @@ a key (the format is documented on `LiteRGSS::TouchOverlay::LayoutFile`):
 }
 ```
 
-What a file doesn't name keeps its default place. Two of them apply, the player's on
+`scale` (0.5 to 2) sizes the whole gamepad on top of each `size`, in the same integer
+zoom steps and, with `TouchOverlay.scale`, never past what fits the window; `opacity` (0.1 to 0.8) is the buttons'
+at rest, 0.5 by default. What a file doesn't name keeps its default place. Two of them apply, the player's on
 top of the game's, field by field:
 
 ```ruby
