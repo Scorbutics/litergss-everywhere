@@ -287,7 +287,7 @@ the Ruby standard library, on the load path. Nothing to copy on the device:
 
 ### Touch Overlay
 
-An on-screen gamepad (D-pad, A/B/X/Y, L/R, Start/Select, virtual keyboard) drawn by
+An on-screen gamepad (D-pad, A/B/X/Y, L/R, Start/Select, a tools button) drawn by
 LiteRGSS on top of any game. Install it before the game creates its window:
 
 ```ruby
@@ -322,6 +322,43 @@ In the game's messages, PSDK's `\k[A]` (`PFM::Text.get_key_name`) names the game
 button sending the key (`A`, `START`...) instead of its first keyboard binding; the D-pad
 and the keys no button sends keep the game's name.
 `LiteRGSS::TouchOverlay.key_labels = false` keeps the game's names everywhere.
+
+The tools button opens a menu: show / hide the virtual keyboard, and edit the
+layout. In the editor the player drags a cross or a button to move it, its corner
+handle to resize it, a cross's second handle to spread its buttons; Reset puts every
+place back, Done saves. While it is open the game gets no touch and no key.
+
+#### Layout files
+
+A layout file moves, resizes and hides the gamepad's buttons, and adds buttons sending
+a key (the format is documented on `LiteRGSS::TouchOverlay::LayoutFile`):
+
+```json
+{
+  "version": 1,
+  "groups":  { "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 } },
+  "buttons": {
+    "select": { "visible": false },
+    "run":    { "anchor": "top_right", "x": 0.02, "y": 0.03, "key": "LShift", "image": "touch/run.png" }
+  }
+}
+```
+
+What a file doesn't name keeps its default place. Two of them apply, the player's on
+top of the game's, field by field:
+
+```ruby
+overlay = LiteRGSS::TouchOverlay
+overlay.load_layout(File.read('Data/touch_layout.json'),
+                    read_image: ->(path) { File.binread(File.join('Data', path)) })
+overlay.load_layout(File.read(player_file), read_image: ..., player: true) if File.exist?(player_file)
+# The editor's Done: store the player's file for the next start
+overlay.on_layout_saved = ->(json) { File.write(player_file, json) }
+```
+
+An invalid file is reported (`warn`) and changes nothing; an image that fails to load
+only drops its button. A file hiding the tools button (`overlay_tools`) also removes the
+keyboard toggle and the editor.
 
 Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS).
 
