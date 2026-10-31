@@ -18,7 +18,8 @@
 # Input::Keys. When nothing binds it, the button sends the first keyboard
 # binding of its virtual key instead. The tools button opens a menu: show /
 # hide the system's virtual keyboard, edit the layout (Editor, saved as the
-# player's layout file, see on_layout_saved). The keyboard also shows by
+# player's layout file, see on_layout_saved), and the host's controls
+# settings when it has some (on_settings). The keyboard also shows by
 # itself when the player taps a text entry of the game (TextEntry), and hides
 # once there is none left.
 #
@@ -60,10 +61,12 @@ module LiteRGSS
     # the gamepad's (and keyboard) start with overlay_: a game's buttons may
     # be named anything else.
     TOOLS = 'overlay_tools'
-    # The tools menu: show / hide the virtual keyboard, edit the layout (Editor)
+    # The tools menu: show / hide the virtual keyboard, edit the layout
+    # (Editor), the host's settings (on_settings, only when it has some)
     KEYBOARD = 'keyboard'
     EDIT = 'overlay_edit'
-    TOOLS_MENU = [KEYBOARD, EDIT].freeze
+    SETTINGS = 'overlay_settings'
+    TOOLS_MENU = [KEYBOARD, EDIT, SETTINGS].freeze
     # The editor's: save, back to the game's layout, resize / spread handle
     DONE = 'overlay_done'
     RESET = 'overlay_reset'
@@ -80,6 +83,8 @@ module LiteRGSS
     # Opacity of a button at rest / while pressed
     OPACITY = 127
     PRESSED_OPACITY = 220
+    # Smallest the tools menu's entries get to fit beside a large tools button
+    MENU_MIN_SIZE = 8
     # The layout is designed for a 240 pixel high screen (PSDK's), scaled to the window.
     DESIGN_HEIGHT = 240.0
 
@@ -90,6 +95,8 @@ module LiteRGSS
     #   {
     #     "version": 1,
     #     "action_layout": "nintendo",
+    #     "scale": 1.2,
+    #     "opacity": 0.7,
     #     "groups": {
     #       "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 }
     #     },
@@ -114,7 +121,10 @@ module LiteRGSS
     #   images keep an integer zoom: their size snaps to it
     # - visible: false hides a group or button (hiding overlay_tools also
     #   removes the keyboard toggle and the editor)
-    # - action_layout: wins over TouchOverlay.action_layout
+    # - action_layout: wins over TouchOverlay.action_layout; scale (0.5 to 2):
+    #   of the whole gamepad, on top of TouchOverlay.scale and of each size,
+    #   snapped like them and capped to keep the gamepad in the window;
+    #   opacity (0.1 to 0.8): of the buttons at rest, 0.5 by default
     class LayoutFile
       VERSION = 1
       ANCHORS = %w[top_left top_right bottom_left bottom_right].freeze
@@ -122,6 +132,9 @@ module LiteRGSS
       PLACEABLE = %w[l r select start].push(TOOLS).freeze
       SIZES = (0.25..4.0).freeze
       GAPS = (0.5..3.0).freeze
+      SCALES = (0.5..2.0).freeze
+      # Lower than lit_opacity reaches, so a pressed button still looks brighter
+      OPACITIES = (0.1..0.8).freeze
       PNG_SIGNATURE = "\x89PNG".b.freeze
 
       Placement = Struct.new(:anchor, :x, :y, :size, :gap, :visible)
@@ -129,6 +142,8 @@ module LiteRGSS
 
       # @return [Symbol, nil] :nintendo / :xbox
       attr_reader :action_layout
+      # @return [Float, nil]
+      attr_reader :scale, :opacity
       # @return [Hash{String => Placement}]
       attr_reader :groups, :buttons
       # @return [Hash{String => Custom}] the buttons the file adds
@@ -150,6 +165,8 @@ module LiteRGSS
         raise ArgumentError, "version #{data['version'].inspect}, #{VERSION} expected" unless data['version'] == VERSION
 
         @action_layout = parse_action_layout(data['action_layout'])
+        @scale = number('layout', data, 'scale', SCALES) if data.key?('scale')
+        @opacity = number('layout', data, 'opacity', OPACITIES) if data.key?('opacity')
         @groups = entries(data, 'groups').to_h do |name, entry|
           raise ArgumentError, "unknown group #{name}" unless GROUPS.include?(name)
 
@@ -188,6 +205,8 @@ module LiteRGSS
       # file adds, only visible: false hides it.
       def absorb!(over)
         @action_layout = over.action_layout || @action_layout
+        @scale = over.scale || @scale
+        @opacity = over.opacity || @opacity
         @groups = @groups.merge(merged_placements('groups', over))
         @buttons = @buttons.merge(merged_placements('buttons', over))
         @customs = @customs.dup
@@ -314,14 +333,20 @@ module LiteRGSS
         @height = height
         @image_size = image_size
         @customs = customs
+        scale *= file.scale if file&.scale
         unit = [width, height].min / DESIGN_HEIGHT
+        padding = (20 * unit).round
+        gap = (8 * unit).round
         # Integer zoom keeps the pixel art sharp; the box of a cross follows the
-        # rounded button size, so the gaps between its buttons scale with them
-        zoom = [([width, height].min * 0.3 * scale / (CROSS_RATIO * image_size)).round, 1].max
+        # rounded button size, so the gaps between its buttons scale with them.
+        # A large scale stops where the crosses still fit side by side and the
+        # tools button, above the L / R row, in the window: the way back to
+        # the settings and the editor.
+        fit = [(height * 0.9 - gap - 2) / (0.9 * CROSS_RATIO + 2), (width - 2 * padding) / (2 * CROSS_RATIO)].min
+        zoom = ([width, height].min * 0.3 * scale / (CROSS_RATIO * image_size)).round.clamp(1, [(fit / image_size).floor, 1].max)
         size = image_size * zoom
         @unit = size
         box = (size * CROSS_RATIO).round
-        padding = (20 * unit).round
 
         box_y = ((height - box) * 0.9).round
         dpad_x = padding
@@ -329,7 +354,6 @@ module LiteRGSS
         row_y = box_y - size
         @crosses = [cross(dpad_x, box_y, box, size, %w[up right down left], 'dpad'),
                     cross(action_x, box_y, box, size, ACTION_CROSSES.fetch(file&.action_layout || action_layout), 'action')]
-        gap = (8 * unit).round
         @row = [Button.new('l', padding, row_y, size),
                 Button.new('r', width - padding - size, row_y, size),
                 Button.new('select', padding + size + gap, row_y, size),
@@ -611,6 +635,7 @@ module LiteRGSS
           entries = @data[section] or next
           entries.each_value { |entry| PLACE_KEYS.each { |key| entry.delete(key) } unless entry.key?('key') }
           entries.reject! { |_, entry| entry.empty? }
+          @data.delete(section) if entries.empty?
         end
         @selected = nil
         @stale = true
@@ -954,14 +979,16 @@ module LiteRGSS
       def lay_out
         @dirty = false
         dispose
+        file = layout_file
         @layout = Layout.new(@width, @height, @bitmaps.values.first.width,
                              scale: TouchOverlay.scale, action_layout: TouchOverlay.action_layout,
-                             extras: @extras, file: layout_file, customs: @customs)
+                             extras: @extras, file: file, customs: @customs)
+        @opacity = file&.opacity ? (file.opacity * 255).round : OPACITY
         return unless @enabled
 
         @sprites = {}
         @viewports = []
-        @layout.buttons.each { |button| draw(button, lit?(button.name)) }
+        @layout.buttons.each { |button| draw(button, lit?(button.name), @opacity) }
         menu_buttons.each { |button| draw(button, button.name == KEYBOARD && @keyboard_shown) } if @menu_open
         if @editor
           @editor.toolbar(@layout).each { |button| draw(button, false) }
@@ -970,7 +997,9 @@ module LiteRGSS
         @window.sort_z
       end
 
-      def draw(button, lit)
+      # @param opacity [Integer] at rest: the gamepad's (layout file), or the
+      #   menu's and the editor's own, kept visible
+      def draw(button, lit, opacity = OPACITY)
         viewport = LiteRGSS::Viewport.new(@window, button.x, button.y, button.size, button.size)
         viewport.z = Z
         sprite = LiteRGSS::Sprite.new(viewport)
@@ -978,9 +1007,14 @@ module LiteRGSS
         sprite.bitmap = bitmap
         # A game's image may have another size than the gamepad's
         sprite.zoom = button.size.to_f / bitmap.width
-        sprite.opacity = lit ? PRESSED_OPACITY : OPACITY
+        sprite.opacity = lit ? lit_opacity(opacity) : opacity
         @sprites[button.name] = sprite
         @viewports << viewport
+      end
+
+      # A pressed or selected button, brighter than at rest
+      def lit_opacity(rest)
+        [PRESSED_OPACITY, rest + PRESSED_OPACITY - OPACITY].max.clamp(0, 255)
       end
 
       def lit?(name)
@@ -995,13 +1029,48 @@ module LiteRGSS
         @editor ? @editor.file : TouchOverlay.layout_file
       end
 
-      # The tools menu, beside the tools button towards the window's middle
+      # The tools menu beside the tools button: a row towards the window's
+      # middle, else the first row or column of them that fits, smaller when
+      # none does (a large tools button)
       def menu_buttons
         tools = @layout.element(TOOLS)
         return [] unless tools
 
-        step = (tools.x + tools.size / 2 < @width / 2 ? 1 : -1) * (tools.size + tools.size / 8)
-        TOOLS_MENU.each_with_index.map { |name, i| Layout::Button.new(name, tools.x + step * (i + 1), tools.y, tools.size) }
+        entries = TouchOverlay.on_settings ? TOOLS_MENU : TOOLS_MENU - [SETTINGS]
+        x_side = tools.x + tools.size / 2 < @width / 2 ? 1 : -1
+        y_side = tools.y + tools.size / 2 < @height / 2 ? 1 : -1
+        directions = [[x_side, 0], [-x_side, 0], [0, y_side], [0, -y_side]]
+        size = tools.size
+        while size >= MENU_MIN_SIZE
+          directions.each do |dx, dy|
+            buttons = menu_line(entries, tools, size, dx, dy)
+            return buttons if buttons.all? { |button| inside?(button) }
+          end
+          size = size * 3 / 4
+        end
+        menu_line(entries, tools, MENU_MIN_SIZE, x_side, 0)
+      end
+
+      def inside?(button)
+        button.x >= 0 && button.y >= 0 && button.x + button.size <= @width && button.y + button.size <= @height
+      end
+
+      # The entries in a line leaving the tools button along dx or dy (-1, 0, 1)
+      def menu_line(entries, tools, size, dx, dy)
+        entries.each_with_index.map do |name, i|
+          Layout::Button.new(name, menu_offset(tools.x, tools.size, size, dx, i), menu_offset(tools.y, tools.size, size, dy, i), size)
+        end
+      end
+
+      # Along one axis, the index-th entry: after the tools button (1), before
+      # it (-1), level with it (0); entries size / 8 apart
+      def menu_offset(tools_start, tools_size, size, direction, index)
+        step = size + size / 8
+        case direction
+        when 1 then tools_start + tools_size + size / 8 + step * index
+        when -1 then tools_start - step * (index + 1)
+        else tools_start
+        end
       end
 
       # A touch while the menu is open: on an entry it does it, anywhere it
@@ -1014,6 +1083,7 @@ module LiteRGSS
         case entry&.name
         when KEYBOARD then toggle_keyboard
         when EDIT then open_editor
+        when SETTINGS then TouchOverlay.open_settings
         end
       end
 
@@ -1091,7 +1161,7 @@ module LiteRGSS
         @keyboard_shown = shown
         @keyboard_automatic = shown && automatic
         Sf::Keyboard.virtual_keyboard = shown if Sf::Keyboard.respond_to?(:virtual_keyboard=)
-        @sprites&.[](TOOLS)&.opacity = lit?(TOOLS) ? PRESSED_OPACITY : OPACITY
+        @sprites&.[](TOOLS)&.opacity = lit?(TOOLS) ? lit_opacity(@opacity) : @opacity
         @sprites&.[](KEYBOARD)&.opacity = shown ? PRESSED_OPACITY : OPACITY
       end
 
@@ -1133,7 +1203,7 @@ module LiteRGSS
         @pressed[name] = true
         return toggle_menu if name == TOOLS
 
-        @sprites&.[](name)&.opacity = PRESSED_OPACITY
+        @sprites&.[](name)&.opacity = lit_opacity(@opacity)
         if BUTTON_KEYS.key?(name)
           @last_pressed = name
           scancode = TouchOverlay.button_scancode(name)
@@ -1151,7 +1221,7 @@ module LiteRGSS
         @pressed_at.delete(name)
         return if name == TOOLS
 
-        @sprites&.[](name)&.opacity = OPACITY
+        @sprites&.[](name)&.opacity = @opacity
         forward(:key_released, UNKNOWN_KEY, scancode) if scancode.is_a?(Integer)
       end
 
@@ -1263,6 +1333,11 @@ module LiteRGSS
       # the host stores it, to load it again (load_layout player: true) at the
       # next start
       attr_accessor :on_layout_saved
+      # Called when the player taps Settings in the tools menu, which only
+      # shows it once this is set: the host opens its controls settings, then
+      # loads the player's layout file it changed again (load_layout). Called
+      # on the game's thread, before the menu closes on screen: return quickly
+      attr_accessor :on_settings
 
       # Size of the buttons: 1.0 by default, 1.5 half as large again...
       def scale=(value)
@@ -1352,6 +1427,13 @@ module LiteRGSS
           warn "[TouchOverlay] layout not handed to the host: #{e.class}: #{e.message}"
         end
         true
+      end
+
+      # The tools menu's Settings: the host's failure stays out of the game
+      def open_settings
+        @on_settings&.call
+      rescue StandardError => e
+        warn "[TouchOverlay] no settings: #{e.class}: #{e.message}"
       end
 
       # @return [Hash{String => Hash}] the game's buttons (add_button)
