@@ -115,6 +115,45 @@ All artifacts use group ID `com.scorbutics.rubyvm`:
 | `rgss-runtime-iosarm64` | iOS device (klib) |
 | `rgss-runtime-iossimulatorarm64` | iOS simulator (klib) |
 
+Next to them, with the same version, `com.scorbutics.litergss:litergss-host`: the
+Android host classes and the touch overlay's layout model (see below), one
+artifact for every Ruby variant.
+
+### Hosting the Game (litergss-host)
+
+LiteRGSS draws into a view of the host app. `litergss-host` holds that side:
+
+- `LiteRgssSurfaceView`: the game's `SurfaceView`. It hands its surface to the
+  native side (`NativeSurface.attach` / `resized` / `detach`) and forwards touches;
+  `onSurfaceReady` tells the host when to start the interpreter running the game.
+  The game's script draws from its own thread (the interpreter's), never the UI
+  thread: the view only lends it a surface.
+- `GameInputForwarder`: hardware keys, gamepad buttons and sticks, gamepad hotplug.
+- `ImeBridge`: the soft keyboard, for a game's text entry.
+- `HostMessageSender`: messages to the scripts (`VMHost`), in order, off the
+  caller's thread.
+- `overlay.PlayerLayout`: the player's touch layout file (see
+  [Layout files](#layout-files)), for a host's controls settings.
+
+#### In the background
+
+When the app goes to the background, Android takes the surface back
+(`surfaceDestroyed` → `NativeSurface.detach`). The engine then pauses the game on
+its own, whatever its scripts do:
+
+- **Drawing**: the game's next frame waits until a surface is attached again,
+  without using the CPU (LiteCGSS). Back in the foreground, the new surface is
+  set up before the first frame is drawn on it.
+- **Sound**: the audio device is paused (SFML), music streams included, and
+  resumes on attach.
+- **Closing**: `NativeSurface.requestClose()` (the activity finishing, the app
+  swiped away) wakes a paused game, which then gets its `Closed` event and ends.
+
+The scripts need nothing for it: no focus handling, no muting. Only the drawing
+thread waits: the game's other Ruby threads keep running in the background, so a
+script's own periodic work (a timer thread, a network retry loop) should not run on
+a phone at all, or pause itself.
+
 ---
 
 ## iOS / KMP
