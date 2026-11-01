@@ -309,7 +309,7 @@ jobs:
   build-ios:
     needs: prepare
     if: needs.prepare.outputs.has_ios == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       matrix:
         target: ${{ fromJson(needs.prepare.outputs.ios_targets_json) }}
@@ -385,7 +385,7 @@ jobs:
   build-macos:
     needs: prepare
     if: needs.prepare.outputs.has_macos == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     name: Build macOS arm64
     steps:
       - name: Checkout with submodules
@@ -585,7 +585,7 @@ jobs:
   install-ios:
     needs: [prepare, build-ios]
     if: needs.prepare.outputs.has_ios == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     name: Install iOS
     steps:
       - name: Checkout with submodules
@@ -648,7 +648,7 @@ jobs:
   install-macos:
     needs: [prepare, build-macos]
     if: needs.prepare.outputs.has_macos == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     name: Install macOS arm64
     steps:
       - name: Checkout with submodules
