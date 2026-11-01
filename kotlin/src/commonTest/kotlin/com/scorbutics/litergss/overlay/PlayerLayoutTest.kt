@@ -18,6 +18,7 @@ class PlayerLayoutTest {
         assertEquals(1.0, layout.scale)
         assertEquals(PlayerLayout.DEFAULT_OPACITY, layout.opacity)
         assertEquals(ActionLayout.NINTENDO, layout.actionLayout)
+        assertEquals(ActionLayout.XBOX, layout.xyLayout)
         assertEquals(emptyList(), layout.buttons)
         assertEquals("""{"version":1}""", Json.encodeToString(JsonObject.serializer(), json(layout)))
     }
@@ -27,21 +28,28 @@ class PlayerLayoutTest {
         val file = """{"version": 1, "groups": {"dpad": {"anchor": "bottom_left", "x": 0.2, "y": 0.1, "size": 1.5}},
             "buttons": {"select": {"visible": false}}}"""
         val changed = PlayerLayout.parse(file).withScale(1.5).withActionLayout(ActionLayout.XBOX)
+            .withXyLayout(ActionLayout.NINTENDO)
         val root = json(changed)
         assertEquals(Json.parseToJsonElement(file).jsonObject["groups"], root["groups"])
         assertEquals(Json.parseToJsonElement(file).jsonObject["buttons"], root["buttons"])
         assertEquals("1.5", root["scale"].toString())
         assertEquals("\"xbox\"", root["action_layout"].toString())
+        assertEquals("\"nintendo\"", root["xy_layout"].toString())
+        assertEquals(ActionLayout.NINTENDO, PlayerLayout.parse(changed.toJson()).xyLayout)
     }
 
     @Test
-    fun settingsSnapIntoTheRuntimesRangesAndDefaultsLeaveTheFile() {
+    fun settingsSnapIntoTheRuntimesRangesAndADefaultPickedStaysInTheFile() {
         val layout = PlayerLayout.EMPTY.withScale(1.3).withOpacity(0.93)
         assertEquals(1.25, layout.scale)
         assertEquals(0.8, layout.opacity)
         assertEquals(0.5, PlayerLayout.EMPTY.withScale(0.1).scale)
+        // Over a game's layout file setting others
         val back = layout.withScale(1.0).withOpacity(0.5).withActionLayout(ActionLayout.NINTENDO)
-        assertEquals(setOf("version"), json(back).keys)
+            .withXyLayout(ActionLayout.XBOX)
+        val root = json(back)
+        assertEquals(listOf("1.0", "0.5", "\"nintendo\"", "\"xbox\""),
+            listOf("scale", "opacity", "action_layout", "xy_layout").map { root[it].toString() })
     }
 
     @Test

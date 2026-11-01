@@ -201,6 +201,7 @@ class TestTouchOverlay < Minitest::Test
     Sf::Keyboard.virtual_keyboard_calls&.clear
     Overlay.scale = 1.0
     Overlay.action_layout = :nintendo
+    Overlay.xy_layout = :xbox
     Overlay.extra_buttons.each_key { |name| Overlay.remove_button(name) }
     Overlay.key_labels = true
     Overlay.clear_layout
@@ -693,6 +694,19 @@ class TestTouchOverlay < Minitest::Test
     assert_raises(KeyError) { Overlay.action_layout = :sega }
   end
 
+  def test_the_nintendo_xy_layout_swaps_x_and_y_but_not_their_keys
+    x = center('x')
+    y = center('y')
+    a = center('a')
+    Overlay.xy_layout = :nintendo
+    frame
+    assert_equal [x, y, a], [center('y'), center('x'), center('a')]
+    @window.queue(:touch_began, 0, *center('x'))
+    frame
+    assert_equal [Sf::Keyboard::Scancode::Menu], @game[:key_pressed].map { |args| args[1] }
+    assert_raises(KeyError) { Overlay.xy_layout = :sega }
+  end
+
   def test_the_gamepad_images_are_available_to_the_game
     assert Overlay.image('a').start_with?("\x89PNG".b)
     assert_nil Overlay.image('reset')
@@ -994,6 +1008,17 @@ class TestTouchOverlay < Minitest::Test
     assert_equal [a, b], [center('b'), center('a')]
   end
 
+  def test_the_file_xy_layout_wins_and_the_players_over_the_games
+    x = center('x')
+    y = center('y')
+    load_file('xy_layout' => 'nintendo')
+    frame
+    assert_equal [x, y], [center('y'), center('x')]
+    Overlay.load_layout(JSON.generate('version' => 1, 'xy_layout' => 'xbox'), player: true)
+    frame
+    assert_equal [x, y], [center('x'), center('y')]
+  end
+
   def test_the_file_scale_sizes_the_whole_gamepad_on_top_of_the_games
     Overlay.scale = 1.5
     frame
@@ -1100,6 +1125,7 @@ class TestTouchOverlay < Minitest::Test
       JSON.generate('version' => 1, 'buttons' => { 'start' => { 'key' => 'LShift', 'image' => 'r.png' } }),
       JSON.generate('version' => 1, 'buttons' => { 'run' => { 'anchor' => 'top_left', 'x' => 0, 'y' => 0, 'key' => 'lshift', 'image' => 'r.png' } }),
       JSON.generate('version' => 1, 'action_layout' => 5),
+      JSON.generate('version' => 1, 'xy_layout' => 'sega'),
       '{"version": 1, "groups": {"dpad": {"size": NaN}}}',
       JSON.generate('version' => 1, 'buttons' => { 'start' => { 'visible' => 'no' } }),
       JSON.generate('version' => 1, 'buttons' => { 'dpad' => { 'visible' => false } }),

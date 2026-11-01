@@ -10,7 +10,11 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlin.math.roundToInt
 
-/** Where A and B sit on the action cross (the buttons send the same keys). */
+/**
+ * A pad whose arrangement the action cross takes: for A and B
+ * ([PlayerLayout.actionLayout]) or X and Y ([PlayerLayout.xyLayout]). The
+ * buttons send the same keys.
+ */
 enum class ActionLayout(val value: String) { NINTENDO("nintendo"), XBOX("xbox") }
 
 /**
@@ -23,17 +27,20 @@ data class PlayerButton(val name: String, val label: String, val key: String)
  * The player's layout file, `touch_layout.json` in the game's folder: the
  * runtime's LiteRGSS::TouchOverlay::LayoutFile, version 1, loaded over the
  * game's own (runtime 1.6.0 and later: buttons without a place, gamepad
- * keys). A host's settings screen changes the gamepad's size, opacity, A / B
- * order and the keys its buttons send, and the player's buttons; the rest of the
- * file (the places the in-game editor wrote) is kept as is. Immutable: each
- * change is a new one.
+ * keys; xy_layout: runtime 1.10.0). A host's settings screen changes the
+ * gamepad's size, opacity, A / B and X / Y order and the keys its buttons
+ * send, and the player's buttons; the rest of the file (the places the
+ * in-game editor wrote) is kept as is. Immutable: each change is a new one.
  */
 class PlayerLayout private constructor(private val root: Map<String, JsonElement>) {
 
     val scale: Double get() = number(SCALE) ?: 1.0
     val opacity: Double get() = number(OPACITY) ?: DEFAULT_OPACITY
-    val actionLayout: ActionLayout
-        get() = ActionLayout.entries.find { it.value == string(root[ACTION_LAYOUT]) } ?: ActionLayout.NINTENDO
+    /** A right and B bottom (Nintendo), or B right and A bottom (Xbox) */
+    val actionLayout: ActionLayout get() = padLayout(ACTION_LAYOUT) ?: ActionLayout.NINTENDO
+
+    /** X left and Y top (Xbox), or Y left and X top (Nintendo) */
+    val xyLayout: ActionLayout get() = padLayout(XY_LAYOUT) ?: ActionLayout.XBOX
 
     /** The player's buttons: the ones a settings screen added, in the file's order. */
     val buttons: List<PlayerButton>
@@ -44,14 +51,18 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
             else PlayerButton(name, string(fields[LABEL]) ?: "", key)
         }
 
-    /** Snapped to [SCALE_STEP] within [SCALES]; the default leaves the file. */
-    fun withScale(value: Double) = with(SCALE, snapped(value, SCALES, SCALE_STEP, 1.0))
+    // A setting the player picks is written even when it is the runtime's
+    // default: the game's own layout file may set another, which it overrides
 
-    /** Snapped to [OPACITY_STEP] within [OPACITIES]; the default leaves the file. */
-    fun withOpacity(value: Double) = with(OPACITY, snapped(value, OPACITIES, OPACITY_STEP, DEFAULT_OPACITY))
+    /** Snapped to [SCALE_STEP] within [SCALES] */
+    fun withScale(value: Double) = with(SCALE, snapped(value, SCALES, SCALE_STEP))
 
-    fun withActionLayout(value: ActionLayout) =
-        with(ACTION_LAYOUT, if (value == ActionLayout.NINTENDO) null else JsonPrimitive(value.value))
+    /** Snapped to [OPACITY_STEP] within [OPACITIES] */
+    fun withOpacity(value: Double) = with(OPACITY, snapped(value, OPACITIES, OPACITY_STEP))
+
+    fun withActionLayout(value: ActionLayout) = with(ACTION_LAYOUT, JsonPrimitive(value.value))
+
+    fun withXyLayout(value: ActionLayout) = with(XY_LAYOUT, JsonPrimitive(value.value))
 
     /**
      * Add [button], or change its label and key: a button already in the file
@@ -106,6 +117,8 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
 
     private fun number(key: String) = (root[key] as? JsonPrimitive)?.doubleOrNull
 
+    private fun padLayout(key: String) = ActionLayout.entries.find { it.value == string(root[key]) }
+
     private fun string(element: JsonElement?) = (element as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 
     companion object {
@@ -133,6 +146,7 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
         private const val SCALE = "scale"
         private const val OPACITY = "opacity"
         private const val ACTION_LAYOUT = "action_layout"
+        private const val XY_LAYOUT = "xy_layout"
         private const val BUTTONS = "buttons"
         private const val KEY = "key"
         private const val IMAGE = "image"
@@ -162,10 +176,9 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
             return PlayerLayout(root)
         }
 
-        private fun snapped(value: Double, range: ClosedRange<Double>, step: Double, default: Double): JsonPrimitive? {
+        private fun snapped(value: Double, range: ClosedRange<Double>, step: Double): JsonPrimitive {
             val steps = ((value.coerceIn(range) - range.start) / step).roundToInt()
-            val snapped = ((range.start + steps * step) * 100).roundToInt() / 100.0
-            return if (snapped == default) null else JsonPrimitive(snapped)
+            return JsonPrimitive(((range.start + steps * step) * 100).roundToInt() / 100.0)
         }
     }
 }

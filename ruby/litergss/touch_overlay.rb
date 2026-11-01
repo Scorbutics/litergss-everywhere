@@ -24,11 +24,11 @@
 # once there is none left.
 #
 # Games can tune it (see the module methods): the buttons' size (scale), A / B
-# placed as on a Nintendo or an Xbox pad (action_layout), buttons of their own
-# in the top corners (add_button, pressed?, triggered?, held_for), the button
-# pressed last (consume_pressed_button), the buttons' images (image). A layout
-# file (load_layout, see LayoutFile) moves, resizes and hides buttons, and adds
-# buttons sending a key of its choice.
+# and X / Y placed as on a Nintendo or an Xbox pad (action_layout, xy_layout),
+# buttons of their own in the top corners (add_button, pressed?, triggered?,
+# held_for), the button pressed last (consume_pressed_button), the buttons'
+# images (image). A layout file (load_layout, see LayoutFile) moves, resizes
+# and hides buttons, and adds buttons sending a key of its choice.
 #
 # A game drawing its own touch controls (Input::InputTouch, as pokemonsdk did
 # for Android) keeps them: the overlay never shows on its windows.
@@ -95,6 +95,7 @@ module LiteRGSS
     #   {
     #     "version": 1,
     #     "action_layout": "nintendo",
+    #     "xy_layout": "nintendo",
     #     "scale": 1.2,
     #     "opacity": 0.7,
     #     "groups": {
@@ -125,7 +126,7 @@ module LiteRGSS
     #   images keep an integer zoom: their size snaps to it
     # - visible: false hides a group or button (hiding overlay_tools also
     #   removes the keyboard toggle and the editor)
-    # - action_layout: wins over TouchOverlay.action_layout; scale (0.5 to 2):
+    # - action_layout, xy_layout: win over TouchOverlay's; scale (0.5 to 2):
     #   of the whole gamepad, on top of TouchOverlay.scale and of each size,
     #   snapped like them and capped to keep the gamepad in the window;
     #   opacity (0.1 to 0.8): of the buttons at rest, 0.5 by default
@@ -145,7 +146,7 @@ module LiteRGSS
       Custom = Struct.new(:scancode, :image)
 
       # @return [Symbol, nil] :nintendo / :xbox
-      attr_reader :action_layout
+      attr_reader :action_layout, :xy_layout
       # @return [Float, nil]
       attr_reader :scale, :opacity
       # @return [Hash{String => Placement}]
@@ -171,7 +172,8 @@ module LiteRGSS
         raise ArgumentError, 'not a JSON object' unless data.is_a?(Hash)
         raise ArgumentError, "version #{data['version'].inspect}, #{VERSION} expected" unless data['version'] == VERSION
 
-        @action_layout = parse_action_layout(data['action_layout'])
+        @action_layout = parse_pad_layout(data, 'action_layout', Layout::ACTION_LAYOUTS)
+        @xy_layout = parse_pad_layout(data, 'xy_layout', Layout::XY_LAYOUTS)
         @scale = number('layout', data, 'scale', SCALES) if data.key?('scale')
         @opacity = number('layout', data, 'opacity', OPACITIES) if data.key?('opacity')
         @groups = entries(data, 'groups').to_h do |name, entry|
@@ -210,6 +212,7 @@ module LiteRGSS
       # file adds, only visible: false hides it.
       def absorb!(over)
         @action_layout = over.action_layout || @action_layout
+        @xy_layout = over.xy_layout || @xy_layout
         @scale = over.scale || @scale
         @opacity = over.opacity || @opacity
         @groups = @groups.merge(merged_placements('groups', over))
@@ -232,9 +235,10 @@ module LiteRGSS
         entries(over.data, section).to_h { |name, entry| [name, placement(name, own.fetch(name, {}).merge(entry))] }
       end
 
-      def parse_action_layout(value)
+      def parse_pad_layout(data, key, layouts)
+        value = data[key]
         return nil if value.nil?
-        raise ArgumentError, "action_layout #{value.inspect}" unless value.is_a?(String) && Layout::ACTION_CROSSES.key?(value.to_sym)
+        raise ArgumentError, "#{key} #{value.inspect}" unless value.is_a?(String) && layouts.key?(value.to_sym)
 
         value.to_sym
       end
@@ -334,22 +338,25 @@ module LiteRGSS
       # @return [Integer] side of a button by default (scale included)
       attr_reader :unit
 
-      # A / B / X / Y on the action cross: top, right, bottom, left
       # Side of a cross's box, in buttons (PSDK's touch controls in a 480x270 game)
       CROSS_RATIO = 2.5
-      ACTION_CROSSES = { nintendo: %w[y a b x], xbox: %w[y b a x] }.freeze
+      # Where A / B sit on the action cross (right, bottom) and X / Y (left, top)
+      ACTION_LAYOUTS = { nintendo: %w[a b], xbox: %w[b a] }.freeze
+      XY_LAYOUTS = { nintendo: %w[y x], xbox: %w[x y] }.freeze
 
       # @param width [Integer] window width
       # @param height [Integer] window height
       # @param image_size [Integer] side of the (square) button images
       # @param scale [Float] size of the buttons, 1.0 by default
-      # @param action_layout [Symbol] :nintendo or :xbox (see ACTION_CROSSES)
+      # @param action_layout [Symbol] :nintendo or :xbox (see ACTION_LAYOUTS)
+      # @param xy_layout [Symbol] :nintendo or :xbox (see XY_LAYOUTS)
       # @param extras [Array<Array(String, Symbol)>] the game's buttons and
       #   their corner (:top_left, :top_right), in order from the corner
       # @param file [LayoutFile, nil] moves, resizes, hides what it names
       # @param customs [Hash{String => Integer}] the buttons of the file to add
       #   and the scancode they send
-      def initialize(width, height, image_size, scale: 1.0, action_layout: :nintendo, extras: [], file: nil, customs: {})
+      def initialize(width, height, image_size, scale: 1.0, action_layout: :nintendo, xy_layout: :xbox,
+                     extras: [], file: nil, customs: {})
         @width = width
         @height = height
         @image_size = image_size
@@ -373,8 +380,10 @@ module LiteRGSS
         dpad_x = padding
         action_x = (width - box - padding).round
         row_y = box_y - size
+        right, bottom = ACTION_LAYOUTS.fetch(file&.action_layout || action_layout)
+        left, top = XY_LAYOUTS.fetch(file&.xy_layout || xy_layout)
         @crosses = [cross(dpad_x, box_y, box, size, %w[up right down left], 'dpad'),
-                    cross(action_x, box_y, box, size, ACTION_CROSSES.fetch(file&.action_layout || action_layout), 'action')]
+                    cross(action_x, box_y, box, size, [top, right, bottom, left], 'action')]
         @row = [Button.new('l', padding, row_y, size),
                 Button.new('r', width - padding - size, row_y, size),
                 Button.new('select', padding + size + gap, row_y, size),
@@ -1113,6 +1122,7 @@ module LiteRGSS
         file = layout_file
         @layout = Layout.new(@width, @height, @bitmaps.values.first.width,
                              scale: TouchOverlay.scale, action_layout: TouchOverlay.action_layout,
+                             xy_layout: TouchOverlay.xy_layout,
                              extras: @extras, file: file, customs: @customs)
         @editor&.pin(@layout)
         @opacity = file&.opacity ? (file.opacity * 255).round : OPACITY
@@ -1407,6 +1417,7 @@ module LiteRGSS
     @key_labels = true
     @scale = 1.0
     @action_layout = :nintendo
+    @xy_layout = :xbox
     @extra_buttons = {}
     @layout_files = {} # :game / :player => LayoutFile
     @layout_file = nil # the two merged
@@ -1419,7 +1430,7 @@ module LiteRGSS
     class << self
       # Overlay of the window created last (a game has one window)
       attr_accessor :current
-      attr_reader :config_version, :layout_version, :scale, :action_layout
+      attr_reader :config_version, :layout_version, :scale, :action_layout, :xy_layout
       # @return [LayoutFile, nil] the layout files, merged (see load_layout)
       attr_reader :layout_file
       # Called with the player's layout file (JSON) once the editor saved it:
@@ -1441,8 +1452,16 @@ module LiteRGSS
       # Place of A and B on the action cross: :nintendo (A right, B bottom)
       # or :xbox (A bottom, B right). The buttons send the same keys.
       def action_layout=(value)
-        Layout::ACTION_CROSSES.fetch(value)
+        Layout::ACTION_LAYOUTS.fetch(value)
         @action_layout = value
+        @config_version += 1
+      end
+
+      # Place of X and Y on the action cross: :xbox (X left, Y top) or
+      # :nintendo (X top, Y left). The buttons send the same keys.
+      def xy_layout=(value)
+        Layout::XY_LAYOUTS.fetch(value)
+        @xy_layout = value
         @config_version += 1
       end
 

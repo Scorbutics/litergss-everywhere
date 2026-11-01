@@ -329,7 +329,7 @@ on the game's thread, so it returns quickly; the host then loads the player's fi
 changed again). In the
 editor the player drags a cross or a button to move it, its corner handle to resize it,
 a cross's second handle to spread its buttons; Reset puts every place back (the file's
-`scale`, `opacity` and `action_layout` stay, its own buttons keep their key), Done saves. While it is open the game gets
+`scale`, `opacity`, `action_layout` and `xy_layout` stay, its own buttons keep their key), Done saves. While it is open the game gets
 no touch and no key.
 
 #### Layout files
@@ -343,6 +343,8 @@ and adds buttons sending a key (the format is documented on
   "version": 1,
   "scale": 1.2,
   "opacity": 0.7,
+  "action_layout": "xbox",
+  "xy_layout": "nintendo",
   "groups":  { "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 } },
   "buttons": {
     "select": { "visible": false },
@@ -355,7 +357,10 @@ and adds buttons sending a key (the format is documented on
 
 `scale` (0.5 to 2) sizes the whole gamepad on top of each `size`, in the same integer
 zoom steps and, with `TouchOverlay.scale`, never past what fits the window; `opacity` (0.1 to 0.8) is the buttons'
-at rest, 0.5 by default. What a file doesn't name keeps its default place; a button the
+at rest, 0.5 by default. `action_layout` places A / B and `xy_layout` X / Y as on a
+`"nintendo"` (A right, X top) or an `"xbox"` pad (A bottom, Y top), over
+`TouchOverlay.action_layout` (`:nintendo` by default) and `TouchOverlay.xy_layout`
+(`:xbox`); the buttons keep their keys. What a file doesn't name keeps its default place; a button the
 file adds without a place goes where nothing else is (gamepad, game buttons, the tools
 menu, the editor's toolbar). Two of them apply, the player's on
 top of the game's, field by field:
