@@ -329,13 +329,14 @@ on the game's thread, so it returns quickly; the host then loads the player's fi
 changed again). In the
 editor the player drags a cross or a button to move it, its corner handle to resize it,
 a cross's second handle to spread its buttons; Reset puts every place back (the file's
-`scale`, `opacity` and `action_layout` stay), Done saves. While it is open the game gets
+`scale`, `opacity` and `action_layout` stay, its own buttons keep their key), Done saves. While it is open the game gets
 no touch and no key.
 
 #### Layout files
 
-A layout file moves, resizes and hides the gamepad's buttons, and adds buttons sending
-a key (the format is documented on `LiteRGSS::TouchOverlay::LayoutFile`):
+A layout file moves, resizes and hides the gamepad's buttons, gives them another key,
+and adds buttons sending a key (the format is documented on
+`LiteRGSS::TouchOverlay::LayoutFile`):
 
 ```json
 {
@@ -345,14 +346,18 @@ a key (the format is documented on `LiteRGSS::TouchOverlay::LayoutFile`):
   "groups":  { "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 } },
   "buttons": {
     "select": { "visible": false },
-    "run":    { "anchor": "top_right", "x": 0.02, "y": 0.03, "key": "LShift", "image": "touch/run.png" }
+    "a":      { "key": "Space" },
+    "run":    { "anchor": "top_right", "x": 0.02, "y": 0.03, "key": "LShift", "image": "touch/run.png" },
+    "jump":   { "key": "K", "image": "touch/jump.png" }
   }
 }
 ```
 
 `scale` (0.5 to 2) sizes the whole gamepad on top of each `size`, in the same integer
 zoom steps and, with `TouchOverlay.scale`, never past what fits the window; `opacity` (0.1 to 0.8) is the buttons'
-at rest, 0.5 by default. What a file doesn't name keeps its default place. Two of them apply, the player's on
+at rest, 0.5 by default. What a file doesn't name keeps its default place; a button the
+file adds without a place goes where nothing else is (gamepad, game buttons, the tools
+menu, the editor's toolbar). Two of them apply, the player's on
 top of the game's, field by field:
 
 ```ruby

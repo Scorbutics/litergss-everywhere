@@ -112,10 +112,14 @@ module LiteRGSS
     #   buttons: "l", "r", "select", "start", "overlay_tools", the game's
     #   (add_button), and the file's own: a "key" (a Sf::Keyboard::Scancode
     #   name) and an "image" (a PNG, read by the loader's read_image)
+    # - a gamepad button ("a", "up", "start"...) may take a "key" too: it
+    #   sends that one instead of the game's binding, key binding menus
+    #   included (null: the game's binding again, over the game's file; a
+    #   cross's buttons take nothing else)
     # - anchor: the window corner x / y count from, to the same corner of the
     #   group or button; x / y: fractions of the window width / height. All
-    #   three or none: without, the group or button keeps its centre (the
-    #   file's own buttons need them)
+    #   three or none: without, the group or button keeps its centre, and the
+    #   file's own buttons go where nothing else is (Layout#free_place)
     # - size: of the buttons, 1.0 being the default one (scale included);
     #   gap: of a cross's buttons apart, 1.0 being the default. The gamepad's
     #   images keep an integer zoom: their size snaps to it
@@ -148,6 +152,9 @@ module LiteRGSS
       attr_reader :groups, :buttons
       # @return [Hash{String => Custom}] the buttons the file adds
       attr_reader :customs
+      # @return [Hash{String => Integer, nil}] gamepad button => the scancode
+      #   it sends instead, nil when the file puts back the game's binding
+      attr_reader :remaps
       # @return [Hash] the parsed file
       attr_reader :data
 
@@ -173,18 +180,16 @@ module LiteRGSS
           [name, placement(name, entry)]
         end
         @customs = {}
+        @remaps = {}
         @buttons = entries(data, 'buttons').to_h do |name, entry|
           raise ArgumentError, "#{name} is a group" if GROUPS.include?(name)
 
-          if IMAGES.key?(name)
-            raise ArgumentError, "#{name} can't be placed (a cross's moves with it)" unless PLACEABLE.include?(name)
-            raise ArgumentError, "#{name} has its own key and image" if entry.key?('key') || entry.key?('image')
-          end
+          gamepad(name, entry) if IMAGES.key?(name)
           placement = placement(name, entry)
-          # A hidden one needs no image: its entry still hides a game button
-          if entry.key?('key') && !IMAGES.key?(name) && placement.visible
-            raise ArgumentError, "#{name}: anchor, x and y are needed" unless placement.anchor
-
+          if BUTTON_KEYS.key?(name)
+            @remaps[name] = entry['key'].nil? ? nil : scancode(name, entry['key']) if entry.key?('key')
+          elsif entry.key?('key') && placement.visible
+            # A hidden one needs no image: its entry still hides a game button
             @customs[name] = custom(name, entry, read_image)
           end
           [name, placement]
@@ -210,6 +215,7 @@ module LiteRGSS
         @groups = @groups.merge(merged_placements('groups', over))
         @buttons = @buttons.merge(merged_placements('buttons', over))
         @customs = @customs.dup
+        @remaps = @remaps.merge(over.remaps)
         over.buttons.each do |name, placement|
           if over.customs.key?(name)
             @customs[name] = over.customs[name]
@@ -262,14 +268,29 @@ module LiteRGSS
         value.to_f
       end
 
+      # What an entry of a gamepad button may say: a key for the buttons
+      # sending one, a place for the row's (a cross's buttons move with it)
+      def gamepad(name, entry)
+        raise ArgumentError, "#{name} has its own image" if entry.key?('image')
+        raise ArgumentError, "#{name} sends no key" if entry.key?('key') && !BUTTON_KEYS.key?(name)
+        return if PLACEABLE.include?(name) || (entry.keys - ['key']).empty?
+
+        raise ArgumentError, "#{name} can't be placed (a cross's moves with it)"
+      end
+
       def custom(name, entry, read_image)
-        key = entry['key']
+        raise ArgumentError, "#{name}: an image is needed" unless entry['image'].is_a?(String)
+
+        Custom.new(scancode(name, entry['key']), image(name, entry['image'], read_image))
+      end
+
+      # @param key [Object] a Sf::Keyboard::Scancode name
+      def scancode(name, key)
         scancode = Sf::Keyboard::Scancode.const_get(key, false) if key.is_a?(String) && key.match?(/\A[A-Z]\w*\z/) &&
                                                                     Sf::Keyboard::Scancode.const_defined?(key, false)
         raise ArgumentError, "#{name}: unknown key #{key.inspect}" unless scancode.is_a?(Integer) && scancode >= 0
-        raise ArgumentError, "#{name}: an image is needed" unless entry['image'].is_a?(String)
 
-        Custom.new(scancode, image(name, entry['image'], read_image))
+        scancode
       end
 
       # Each image read once: buttons sharing one share its bitmap
@@ -369,6 +390,36 @@ module LiteRGSS
         @customs[name]
       end
 
+      # The tools menu, beside the tools button: a row towards the window's
+      # middle, else the first row or column of them that fits, smaller when
+      # none does (a large tools button)
+      # @param entries [Array<String>]
+      # @return [Array<Button>]
+      def menu(entries)
+        tools = element(TOOLS)
+        return [] unless tools
+
+        x_side = tools.x + tools.size / 2 < @width / 2 ? 1 : -1
+        y_side = tools.y + tools.size / 2 < @height / 2 ? 1 : -1
+        directions = [[x_side, 0], [-x_side, 0], [0, y_side], [0, -y_side]]
+        size = tools.size
+        while size >= MENU_MIN_SIZE
+          directions.each do |dx, dy|
+            buttons = menu_line(entries, tools, size, dx, dy)
+            return buttons if buttons.all? { |button| inside?(button) }
+          end
+          size = size * 3 / 4
+        end
+        menu_line(entries, tools, MENU_MIN_SIZE, x_side, 0)
+      end
+
+      # The editor's Done and Reset, at the top of the window
+      def toolbar
+        gap = @unit / 4
+        [Button.new(DONE, @width / 2 - @unit - gap / 2, gap, @unit),
+         Button.new(RESET, @width / 2 + gap / 2, gap, @unit)]
+      end
+
       # The button drawn on top at this point (the last drawn: crosses first)
       def button_at(px, py)
         element = element_at(px, py)
@@ -409,15 +460,70 @@ module LiteRGSS
         @buttons << button
       end
 
-      # The layout file on the default layout: what it doesn't name stays put
+      # The layout file on the default layout: what it doesn't name stays put,
+      # the buttons it adds without a place go where nothing else is
       def apply(file, size)
         @crosses = @crosses.filter_map { |c| placed_cross(c, file.groups[c.name]) }
         @row = @row.filter_map { |button| placed(button, file.buttons[button.name]) }
-        @customs.each_key do |name|
-          button = placed(Button.new(name, 0, 0, size), file.buttons[name])
-          @row << button if button
+        unplaced, placed = @customs.keys.partition { |name| file.buttons[name].anchor.nil? }
+        placed.each { |name| @row << placed(Button.new(name, 0, 0, size), file.buttons[name]) }
+        unplaced.each do |name|
+          side = (size * file.buttons[name].size).round
+          @row << Button.new(name, *free_place(side), side)
         end
         @buttons = @crosses.flat_map(&:buttons) + @row
+      end
+
+      # Where a square of this side covers nothing: the crosses, the buttons,
+      # the tools menu (with or without its settings entry), the editor's
+      # toolbar. Tried row after row from the top, each from the middle
+      # outwards. When the window has no such room, at least off the file's
+      # other buttons; the window's middle when not even that.
+      def free_place(side)
+        everything = @crosses + @row + menu(TOOLS_MENU) + menu(TOOLS_MENU - [SETTINGS]) + toolbar
+        customs = @row.select { |button| @customs.key?(button.name) }
+        [everything, customs].each do |taken|
+          spot = first_free(side, taken)
+          return spot if spot
+        end
+        [(@width - side) / 2, (@height - side) / 2]
+      end
+
+      def first_free(side, taken)
+        step = [side / 2, 1].max
+        offsets = (0..(@width / 2)).step(step).flat_map { |dx| [-dx, dx] }.uniq
+        (0..(@height - side)).step(step) do |y|
+          offsets.each do |dx|
+            x = (@width - side) / 2 + dx
+            next unless x.between?(0, @width - side)
+
+            spot = Button.new(nil, x, y, side)
+            return [x, y] if taken.none? { |other| overlap?(spot, other) }
+          end
+        end
+        nil
+      end
+
+      def inside?(button)
+        button.x >= 0 && button.y >= 0 && button.x + button.size <= @width && button.y + button.size <= @height
+      end
+
+      # The menu's entries in a line leaving the tools button along dx or dy (-1, 0, 1)
+      def menu_line(entries, tools, size, dx, dy)
+        entries.each_with_index.map do |name, i|
+          Button.new(name, menu_offset(tools.x, tools.size, size, dx, i), menu_offset(tools.y, tools.size, size, dy, i), size)
+        end
+      end
+
+      # Along one axis, the index-th entry: after the tools button (1), before
+      # it (-1), level with it (0); entries size / 8 apart
+      def menu_offset(tools_start, tools_size, size, direction, index)
+        step = size + size / 8
+        case direction
+        when 1 then tools_start + tools_size + size / 8 + step * index
+        when -1 then tools_start - step * (index + 1)
+        else tools_start
+        end
       end
 
       # The button as the file places it, nil when it hides it
@@ -482,8 +588,10 @@ module LiteRGSS
     # (TouchOverlay.save_player_layout), Reset puts back every place the
     # game's layout gives. It edits the player's file only, writing just what
     # the player changes (the game's file gives the rest): its other entries
-    # (the buttons it adds, hides) stay. While open it takes every touch: the
-    # game gets none, and no key is sent (see Overlay).
+    # (the buttons it adds, hides, their keys) stay. A button the files add
+    # without a place keeps the free one it has while the editor is open
+    # (pin, not saved): moving the others doesn't move it. While open it
+    # takes every touch: the game gets none, and no key is sent (see Overlay).
     class Editor
       # A handle: :size (a corner) or :gap (a cross's right edge)
       Handle = Struct.new(:name, :x, :y, :size, :kind) do
@@ -501,6 +609,8 @@ module LiteRGSS
         @game = layers[:game]
         player = layers[:player]
         @data = player ? JSON.parse(JSON.generate(player.data)) : { 'version' => LayoutFile::VERSION }
+        # The places pin gives, shown but not saved: name => anchor, x, y
+        @pins = {}
         read_image = layers[:read_image]
         # Each change parses the player's file again: its images are read once
         @read_image = ->(path) { player&.image_data(path) || read_image.call(path) }
@@ -521,12 +631,19 @@ module LiteRGSS
         @file
       end
 
-      # Done and Reset, at the top of the window
-      def toolbar(layout)
-        size = layout.unit
-        gap = size / 4
-        [Layout::Button.new(DONE, layout.width / 2 - size - gap / 2, gap, size),
-         Layout::Button.new(RESET, layout.width / 2 + gap / 2, gap, size)]
+      # The buttons the files add without a place keep the one they have in
+      # this layout (Layout#free_place) while the editor is open, for moving
+      # the others not to move them. Not saved: once the editor closes they
+      # follow the free place again, unless the player moved them. Called on
+      # each layout of the editor: after Reset too.
+      def pin(layout)
+        file.customs.each_key do |name|
+          element = !file.buttons[name].anchor && layout.element(name)
+          next unless element
+
+          @pins[name] = place_entry(layout, element.x, element.y, element.size)
+          @stale = true
+        end
       end
 
       # Inside the window, wherever the element is
@@ -554,7 +671,7 @@ module LiteRGSS
       # @return [Symbol] :done once closed, :changed when to draw again
       def touch_began(finger, x, y, layout)
         @drag = nil
-        button = toolbar(layout).find { |b| b.include?(x, y) }
+        button = layout.toolbar.find { |b| b.include?(x, y) }
         return button.name == DONE ? done : reset if button
 
         handle = handles(layout).find { |h| h.include?(x, y) }
@@ -614,29 +731,37 @@ module LiteRGSS
       # Write the element's place: anchored at the window corner nearest to
       # its centre, kept inside the window
       def place(element, layout, x, y, side, size: nil, gap: nil)
+        group = element.is_a?(Layout::Cross)
+        entry = (@data[group ? 'groups' : 'buttons'] ||= {})[element.name] ||= {}
+        entry.merge!(place_entry(layout, x, y, side))
+        entry['size'] = size.round(3) if size
+        entry['gap'] = gap.round(3) if gap
+      end
+
+      # @return [Hash] anchor, x and y of a square of this side at x, y
+      def place_entry(layout, x, y, side)
         width = layout.width
         height = layout.height
         x = x.clamp(0, [width - side, 0].max)
         y = y.clamp(0, [height - side, 0].max)
         left = x + side / 2.0 < width / 2.0
         top = y + side / 2.0 < height / 2.0
-        group = element.is_a?(Layout::Cross)
-        entry = (@data[group ? 'groups' : 'buttons'] ||= {})[element.name] ||= {}
-        entry['anchor'] = "#{top ? 'top' : 'bottom'}_#{left ? 'left' : 'right'}"
-        entry['x'] = ((left ? x : width - x - side).to_f / width).clamp(0.0, 1.0).round(4)
-        entry['y'] = ((top ? y : height - y - side).to_f / height).clamp(0.0, 1.0).round(4)
-        entry['size'] = size.round(3) if size
-        entry['gap'] = gap.round(3) if gap
+        { 'anchor' => "#{top ? 'top' : 'bottom'}_#{left ? 'left' : 'right'}",
+          'x' => ((left ? x : width - x - side).to_f / width).clamp(0.0, 1.0).round(4),
+          'y' => ((top ? y : height - y - side).to_f / height).clamp(0.0, 1.0).round(4) }
       end
 
-      # The buttons the player's file adds keep their place: they have no other
+      # Every place back to the game's; the buttons the player's file adds go
+      # where nothing else is (Layout#free_place)
       def reset
         %w[groups buttons].each do |section|
           entries = @data[section] or next
-          entries.each_value { |entry| PLACE_KEYS.each { |key| entry.delete(key) } unless entry.key?('key') }
+          entries.each_value { |entry| PLACE_KEYS.each { |key| entry.delete(key) } }
           entries.reject! { |_, entry| entry.empty? }
           @data.delete(section) if entries.empty?
         end
+        # Pinned again where the reset layout puts them
+        @pins.clear
         @selected = nil
         @stale = true
         :changed
@@ -647,8 +772,14 @@ module LiteRGSS
         :done
       end
 
+      # The edited player's file, the pins under what the player placed
       def compose
-        player = LayoutFile.new(JSON.generate(@data), @read_image)
+        data = @data
+        unless @pins.empty?
+          buttons = @data.fetch('buttons', {})
+          data = @data.merge('buttons' => buttons.merge(@pins.to_h { |name, pin| [name, pin.merge(buttons.fetch(name, {}))] }))
+        end
+        player = LayoutFile.new(JSON.generate(data), @read_image)
         @game ? @game.merge(player) : player
       end
     end
@@ -983,6 +1114,7 @@ module LiteRGSS
         @layout = Layout.new(@width, @height, @bitmaps.values.first.width,
                              scale: TouchOverlay.scale, action_layout: TouchOverlay.action_layout,
                              extras: @extras, file: file, customs: @customs)
+        @editor&.pin(@layout)
         @opacity = file&.opacity ? (file.opacity * 255).round : OPACITY
         return unless @enabled
 
@@ -991,7 +1123,7 @@ module LiteRGSS
         @layout.buttons.each { |button| draw(button, lit?(button.name), @opacity) }
         menu_buttons.each { |button| draw(button, button.name == KEYBOARD && @keyboard_shown) } if @menu_open
         if @editor
-          @editor.toolbar(@layout).each { |button| draw(button, false) }
+          @layout.toolbar.each { |button| draw(button, false) }
           @editor.handles(@layout).each { |handle| draw(handle, true) }
         end
         @window.sort_z
@@ -1029,48 +1161,9 @@ module LiteRGSS
         @editor ? @editor.file : TouchOverlay.layout_file
       end
 
-      # The tools menu beside the tools button: a row towards the window's
-      # middle, else the first row or column of them that fits, smaller when
-      # none does (a large tools button)
+      # The tools menu (Layout#menu): Settings once the host has some
       def menu_buttons
-        tools = @layout.element(TOOLS)
-        return [] unless tools
-
-        entries = TouchOverlay.on_settings ? TOOLS_MENU : TOOLS_MENU - [SETTINGS]
-        x_side = tools.x + tools.size / 2 < @width / 2 ? 1 : -1
-        y_side = tools.y + tools.size / 2 < @height / 2 ? 1 : -1
-        directions = [[x_side, 0], [-x_side, 0], [0, y_side], [0, -y_side]]
-        size = tools.size
-        while size >= MENU_MIN_SIZE
-          directions.each do |dx, dy|
-            buttons = menu_line(entries, tools, size, dx, dy)
-            return buttons if buttons.all? { |button| inside?(button) }
-          end
-          size = size * 3 / 4
-        end
-        menu_line(entries, tools, MENU_MIN_SIZE, x_side, 0)
-      end
-
-      def inside?(button)
-        button.x >= 0 && button.y >= 0 && button.x + button.size <= @width && button.y + button.size <= @height
-      end
-
-      # The entries in a line leaving the tools button along dx or dy (-1, 0, 1)
-      def menu_line(entries, tools, size, dx, dy)
-        entries.each_with_index.map do |name, i|
-          Layout::Button.new(name, menu_offset(tools.x, tools.size, size, dx, i), menu_offset(tools.y, tools.size, size, dy, i), size)
-        end
-      end
-
-      # Along one axis, the index-th entry: after the tools button (1), before
-      # it (-1), level with it (0); entries size / 8 apart
-      def menu_offset(tools_start, tools_size, size, direction, index)
-        step = size + size / 8
-        case direction
-        when 1 then tools_start + tools_size + size / 8 + step * index
-        when -1 then tools_start - step * (index + 1)
-        else tools_start
-        end
+        @layout.menu(TouchOverlay.on_settings ? TOOLS_MENU : TOOLS_MENU - [SETTINGS])
       end
 
       # A touch while the menu is open: on an entry it does it, anywhere it
@@ -1510,12 +1603,17 @@ module LiteRGSS
         defined?(::Input::InputTouch) && ::Input::InputTouch.respond_to?(:singleton) ? true : false
       end
 
-      # Keyboard scancode a gamepad button sends: its own (DEFAULT_KEYS) when
-      # the game's Input::Keys binds it to a key, so that the game rebinds the
-      # button there; otherwise the first keyboard binding of its virtual key.
+      # Keyboard scancode a gamepad button sends: the layout file's key when it
+      # gives one (LayoutFile#remaps: the game's bindings no longer matter,
+      # nor key binding menus); else its own (DEFAULT_KEYS) when the game's
+      # Input::Keys binds it to a key, so that the game rebinds the button
+      # there; otherwise the first keyboard binding of its virtual key.
       # @param name [String] 'a', 'up'...
       # @return [Integer, nil]
       def button_scancode(name)
+        remapped = @layout_file&.remaps&.[](name)
+        return remapped if remapped
+
         own = own_scancode(name)
         return nil unless own
         return own if bound?(own)

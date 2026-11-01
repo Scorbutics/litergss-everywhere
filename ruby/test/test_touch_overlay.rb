@@ -112,7 +112,7 @@ module Sf
     end
 
     module Scancode
-      B = 1; F = 5; G = 6; Enter = 58; Escape = 59; Insert = 77; Pause = 78
+      B = 1; F = 5; G = 6; K = 10; Enter = 58; Escape = 59; Space = 62; Insert = 77; Pause = 78
       Right = 82; Left = 83; Down = 84; Up = 85; Menu = 124; LShift = 129; RShift = 133
     end
   end
@@ -322,7 +322,6 @@ class TestTouchOverlay < Minitest::Test
     frame
     assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
   end
-
 
   def center(name)
     button = @window.touch_overlay.layout.buttons.find { |b| b.name == name }
@@ -1095,15 +1094,17 @@ class TestTouchOverlay < Minitest::Test
       JSON.generate('version' => 1, 'buttons' => { 'run' => { 'anchor' => 'top_left', 'x' => 0, 'y' => 0, 'key' => 'LShift' } }),
       JSON.generate('version' => 1, 'buttons' => []),
       JSON.generate('version' => 1, 'buttons' => { 'start' => 5 }),
-      JSON.generate('version' => 1, 'buttons' => { 'start' => { 'key' => 'LShift' } }),
-      JSON.generate('version' => 1, 'buttons' => { 'run' => { 'key' => 'LShift', 'image' => 'r.png' } }),
+      JSON.generate('version' => 1, 'buttons' => { 'start' => { 'key' => 'Nope' } }),
+      JSON.generate('version' => 1, 'buttons' => { 'keyboard' => { 'key' => 'LShift' } }),
+      JSON.generate('version' => 1, 'buttons' => { 'a' => { 'key' => 'LShift', 'anchor' => 'top_left', 'x' => 0, 'y' => 0 } }),
+      JSON.generate('version' => 1, 'buttons' => { 'start' => { 'key' => 'LShift', 'image' => 'r.png' } }),
       JSON.generate('version' => 1, 'buttons' => { 'run' => { 'anchor' => 'top_left', 'x' => 0, 'y' => 0, 'key' => 'lshift', 'image' => 'r.png' } }),
       JSON.generate('version' => 1, 'action_layout' => 5),
       '{"version": 1, "groups": {"dpad": {"size": NaN}}}',
       JSON.generate('version' => 1, 'buttons' => { 'start' => { 'visible' => 'no' } }),
       JSON.generate('version' => 1, 'buttons' => { 'dpad' => { 'visible' => false } }),
       JSON.generate('version' => 1, 'buttons' => { 'start' => { 'visible' => false, 'anchor' => 'bogus', 'x' => 0, 'y' => 0 } }),
-      JSON.generate('version' => 1, 'buttons' => { 'run' => { 'anchor' => nil, 'key' => 'LShift', 'image' => 'r.png' } })
+      JSON.generate('version' => 1, 'buttons' => { 'run' => { 'anchor' => 'top_left', 'key' => 'LShift', 'image' => 'r.png' } })
     ]
     invalid.each do |json|
       _, err = capture_io { refute Overlay.load_layout(json, read_image: ->(_) { PNG }), json }
@@ -1128,7 +1129,7 @@ class TestTouchOverlay < Minitest::Test
   end
 
   def toolbar_center(name)
-    button = editor.toolbar(@window.touch_overlay.layout).find { |b| b.name == name }
+    button = @window.touch_overlay.layout.toolbar.find { |b| b.name == name }
     [button.x + button.size / 2, button.y + button.size / 2]
   end
 
@@ -1298,24 +1299,122 @@ class TestTouchOverlay < Minitest::Test
     assert_in_delta 2.0, saved['groups']['action']['gap'], 0.001
   end
 
-  def test_reset_drops_the_places_but_keeps_the_players_buttons
-    run = { 'anchor' => 'top_left', 'x' => 0.5, 'y' => 0.5, 'key' => 'LShift', 'image' => 'run.png' }
+  def test_reset_drops_every_place_but_keeps_the_players_buttons
+    run = { 'key' => 'LShift', 'image' => 'run.png' }
     Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => { 'run' => run, 'select' => { 'visible' => false } }),
                         read_image: ->(_) { PNG }, player: true)
     frame
-    default_start = positions['start']
+    default = positions.values_at('start', 'run')
     open_editor
     drag(center('start'), [600, 300])
-    drag(center('run'), [900, 300])
-    refute_equal default_start, positions['start']
+    drag(center('run'), [900, 600])
+    refute_equal default, positions.values_at('start', 'run')
     tap_at(toolbar_center(Overlay::RESET))
     frame
-    assert_equal default_start, positions['start']
-    file = saved
-    # The file's own button has no default place: it keeps where it went
-    moved_run = run.merge('x' => (900 - 64) / 2424.0, 'y' => (300 - 64) / 1080.0)
-    assert_equal({ 'version' => 1, 'buttons' => { 'run' => moved_run.transform_values { |v| v.is_a?(Float) ? v.round(4) : v },
-                                                  'select' => { 'visible' => false } } }, file)
+    # The file's own button back to the free place it had
+    assert_equal default, positions.values_at('start', 'run')
+    assert_equal({ 'version' => 1, 'buttons' => { 'run' => run, 'select' => { 'visible' => false } } }, saved)
+  end
+
+  def test_done_saves_no_pinned_place
+    game_only = { 'jump' => { 'key' => 'RShift', 'image' => 'jump.png' } }
+    load_file('buttons' => game_only)
+    Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => { 'run' => { 'key' => 'LShift', 'image' => 'run.png' } }),
+                        read_image: ->(_) { PNG }, player: true)
+    frame
+    before = positions.values_at('run', 'jump')
+    open_editor
+    assert_equal before, positions.values_at('run', 'jump')
+    assert_equal({ 'version' => 1, 'buttons' => { 'run' => { 'key' => 'LShift', 'image' => 'run.png' } } }, saved)
+    assert_equal before, positions.values_at('run', 'jump')
+  end
+
+  def test_moving_a_button_in_the_editor_moves_no_unplaced_one
+    buttons = (1..2).to_h { |i| ["run#{i}", { 'key' => 'LShift', 'image' => 'run.png' }] }
+    Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => buttons), read_image: ->(_) { PNG }, player: true)
+    frame
+    before = positions['run2']
+    open_editor
+    @window.queue(:touch_began, 0, *center('run1'))
+    frame
+    @window.queue(:touch_moved, 0, 1800, 700)
+    frame
+    assert_equal before, positions['run2']
+    @window.queue(:touch_ended, 0, 1800, 700)
+    frame
+  end
+
+  def test_the_players_buttons_stay_off_a_menu_opening_upwards
+    Overlay.on_settings = -> {}
+    @window.resize(1080, 2424)
+    load_file('buttons' => { Overlay::TOOLS => { 'anchor' => 'bottom_left', 'x' => 0.05, 'y' => 0.02, 'size' => 4 },
+                             'run' => { 'key' => 'LShift', 'image' => 'run.png' } })
+    frame
+    tap_at(center(Overlay::TOOLS))
+    frame
+    menu = @window.touch_overlay.send(:menu_buttons)
+    assert(menu.each_cons(2).all? { |a, b| b.y < a.y }, 'the menu opens upwards')
+    menu.each { |entry| refute overlap?(button('run'), entry), "run on #{entry.name}" }
+  end
+
+  def test_a_null_key_puts_back_the_games_binding
+    load_file('buttons' => { 'a' => { 'key' => 'LShift' } })
+    assert_equal Sf::Keyboard::Scancode::LShift, Overlay.button_scancodes['a']
+    Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => { 'a' => { 'key' => nil } }),
+                        read_image: ->(_) { PNG }, player: true)
+    assert_equal Sf::Keyboard::Scancode::Enter, Overlay.button_scancodes['a']
+    _, err = capture_io { refute load_file('buttons' => { 'a' => { 'key' => false } }) }
+    assert_match(/unknown key false/, err)
+  end
+
+  # Squares overlapping (Layout::Square: x, y, size)
+  def overlap?(a, b)
+    a.x < b.x + b.size && b.x < a.x + a.size && a.y < b.y + b.size && b.y < a.y + a.size
+  end
+
+  def test_the_players_buttons_without_a_place_go_where_nothing_else_is
+    Overlay.on_settings = -> {}
+    Overlay.add_button('keys', PNG, anchor: :top_left)
+    Overlay.add_button('menu', PNG, anchor: :top_right)
+    buttons = (1..3).to_h { |i| ["run#{i}", { 'key' => 'LShift', 'image' => 'run.png' }] }
+    # A 640x480 window with a large gamepad has no room left: off each other only
+    [[2424, 1080, 1.0, true], [1080, 2424, 1.0, true], [1280, 720, 2.0, true], [720, 1280, 2.0, true],
+     [640, 480, 1.5, false]].each do |width, height, scale, room|
+      @window.resize(width, height)
+      load_file('scale' => scale, 'buttons' => buttons)
+      frame
+      layout = @window.touch_overlay.layout
+      runs, others = layout.buttons.partition { |b| b.name.start_with?('run') }
+      assert_equal 3, runs.size
+      tap_at(center(Overlay::TOOLS))
+      frame
+      taken = others + layout.crosses + @window.touch_overlay.send(:menu_buttons) + layout.toolbar
+      runs.each do |run|
+        assert(run.x >= 0 && run.y >= 0 && run.x + run.size <= width && run.y + run.size <= height, "#{run.name} in #{width}x#{height}")
+        taken.each { |other| refute overlap?(run, other), "#{run.name} on #{other.name} in #{width}x#{height} x#{scale}" } if room
+      end
+      runs.combination(2).each { |a, b| refute overlap?(a, b), "#{a.name} on #{b.name} in #{width}x#{height}" }
+      tap_at([1, 1])
+      frame
+    end
+  end
+
+  def test_a_gamepad_button_sends_the_key_the_file_gives_it
+    Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => { 'a' => { 'key' => 'Space' }, 'start' => { 'key' => 'K' } }),
+                        read_image: ->(_) { PNG })
+    Overlay.load_layout(JSON.generate('version' => 1, 'buttons' => { 'a' => { 'key' => 'LShift' } }),
+                        read_image: ->(_) { PNG }, player: true)
+    frame
+    %w[a start b].each do |name|
+      @window.queue(:touch_began, 0, *center(name))
+      @window.queue(:touch_ended, 0, *center(name))
+      frame
+      frame
+    end
+    assert_equal [Sf::Keyboard::Scancode::LShift, Sf::Keyboard::Scancode::K, Sf::Keyboard::Scancode::Escape],
+                 @game[:key_pressed].map { |args| args[1] }
+    assert_equal @game[:key_pressed].map { |args| args[1] }, @game[:key_released].map { |args| args[1] }
+    assert_equal 'b', Overlay.consume_pressed_button
   end
 
   def test_reset_leaves_no_empty_section_and_keeps_the_settings
