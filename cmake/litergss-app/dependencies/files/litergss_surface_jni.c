@@ -75,6 +75,12 @@ void cgss_android_set_host_jni_context(JavaVM* vm, jobject activity);
 void cgss_android_set_reuse_shared_window(int enabled);
 int cgss_android_is_reuse_shared_window_enabled(void);
 
+/* SFML (Audio/Android/HostedAudio.hpp): the game's sound stops with its
+ * surface, the app in the background is silent whatever its scripts do
+ * (LiteCGSS pauses their render loop too). A device pause, not a mute: music
+ * goes on where it was, and SFML's streaming threads wait meanwhile. */
+void sf_android_set_hosted_audio_paused(int paused);
+
 /* Single live ANativeWindow*, mirroring the singleton model on the LiteCGSS
  * side. The reference is acquired by ANativeWindow_fromSurface (which
  * increments the refcount) and released here on detach / re-attach. */
@@ -107,6 +113,7 @@ Java_com_scorbutics_litergss_NativeSurface_attach(JNIEnv* env, jclass clazz,
 
     g_window = nextWindow;
     cgss_android_attach_host_surface(g_window, (int) width, (int) height);
+    sf_android_set_hosted_audio_paused(0);
 }
 
 JNIEXPORT void JNICALL
@@ -123,6 +130,7 @@ Java_com_scorbutics_litergss_NativeSurface_detach(JNIEnv* env, jclass clazz)
 {
     (void) env;
     (void) clazz;
+    sf_android_set_hosted_audio_paused(1);
     cgss_android_detach_host_surface();
     if (g_window != NULL)
     {

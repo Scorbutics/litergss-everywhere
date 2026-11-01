@@ -3,7 +3,7 @@
 
 set(LITECGSS_VERSION "1.0.0")
 set(LITECGSS_GIT_URL "https://gitlab.com/NuriYuri/litecgss.git")
-set(LITECGSS_GIT_TAG "d820b5aa391d601266bf180c89f5be35d4597478")  # development
+set(LITECGSS_GIT_TAG "caf2ad8aad424c4457e31be86ba973826b831192")  # android-pause-in-background
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
