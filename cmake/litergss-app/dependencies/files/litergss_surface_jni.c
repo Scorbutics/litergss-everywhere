@@ -291,38 +291,18 @@ static jmethodID g_dispatchVirtualKeyboardMid = NULL;
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 {
     (void) reserved;
+    /* Only the JVM: NativeSurface (litergss-host) may not be in the app, a
+     * host running scripts without a hosted window loads this library too.
+     * The class is resolved when it arms the IME callback. */
     g_jvm = vm;
-
-    JNIEnv* env = NULL;
-    if ((*vm)->GetEnv(vm, (void**) &env, JNI_VERSION_1_6) != JNI_OK || env == NULL) {
-        /* Should never happen — caller is Android's ART. Without the JVM
-         * pointer the IME callback can't function; return JNI_ERR so
-         * System.loadLibrary fails loudly rather than silently leaving
-         * the IME bridge dead. */
-        return JNI_ERR;
-    }
-
-    /* Resolve and pin a global ref to NativeSurface so it survives across
-     * JNIEnv detaches. FindClass returns a local ref; NewGlobalRef
-     * promotes it. */
-    jclass local = (*env)->FindClass(env, "com/scorbutics/litergss/NativeSurface");
-    if (local == NULL) return JNI_ERR;
-    g_nativeSurfaceClass = (jclass) (*env)->NewGlobalRef(env, local);
-    (*env)->DeleteLocalRef(env, local);
-    if (g_nativeSurfaceClass == NULL) return JNI_ERR;
-
-    /* Resolve the static dispatch method. Method IDs are valid for the
-     * class's lifetime; the global ref above keeps the class alive. */
-    g_dispatchVirtualKeyboardMid = (*env)->GetStaticMethodID(
-        env, g_nativeSurfaceClass, "dispatchVirtualKeyboardRequest", "(Z)V");
-    if (g_dispatchVirtualKeyboardMid == NULL) return JNI_ERR;
-
     return JNI_VERSION_1_6;
 }
 
 static void virtual_keyboard_thunk(int show)
 {
-    if (g_jvm == NULL || g_nativeSurfaceClass == NULL || g_dispatchVirtualKeyboardMid == NULL) {
+    /* Acquire: pairs with the release in nativeSetVirtualKeyboardCallback */
+    jclass nativeSurface = __atomic_load_n(&g_nativeSurfaceClass, __ATOMIC_ACQUIRE);
+    if (g_jvm == NULL || nativeSurface == NULL || g_dispatchVirtualKeyboardMid == NULL) {
         return;
     }
 
@@ -338,7 +318,7 @@ static void virtual_keyboard_thunk(int show)
         return;
     }
 
-    (*env)->CallStaticVoidMethod(env, g_nativeSurfaceClass,
+    (*env)->CallStaticVoidMethod(env, nativeSurface,
                                  g_dispatchVirtualKeyboardMid,
                                  show ? JNI_TRUE : JNI_FALSE);
 
@@ -364,8 +344,15 @@ JNIEXPORT void JNICALL
 Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIEnv* env, jclass clazz,
                                                                              jboolean armed)
 {
-    (void) env;
-    (void) clazz;
+    if (armed == JNI_TRUE && g_nativeSurfaceClass == NULL) {
+        /* Pinned for the process: the thunk runs on threads with no class
+         * loader to find it. Set before the callback is armed below. */
+        g_dispatchVirtualKeyboardMid = (*env)->GetStaticMethodID(
+            env, clazz, "dispatchVirtualKeyboardRequest", "(Z)V");
+        if (g_dispatchVirtualKeyboardMid == NULL) return; /* NoSuchMethodError pending */
+        /* Release: a thunk seeing the class sees the method ID too */
+        __atomic_store_n(&g_nativeSurfaceClass, (jclass) (*env)->NewGlobalRef(env, clazz), __ATOMIC_RELEASE);
+    }
     cgss_android_set_virtual_keyboard_callback(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
     /* Sf::Keyboard.virtual_keyboard= (any game, any engine) reaches the
      * host's IME bridge, which focuses its text field */
@@ -392,8 +379,8 @@ Java_com_scorbutics_litergss_NativeSurface_nativeSetHostActivity(JNIEnv* env, jc
 }
 
 /* ------------------------------------------------------------------
- * Shared-RenderWindow opt-in. Set by the host activity (GameActivity)
- * before its PsdkInterpreter starts so cgss::DisplayWindow's ctor
+ * Shared-RenderWindow opt-in. Set by the host activity before its Ruby
+ * interpreter starts so cgss::DisplayWindow's ctor
  * picks sharedGameWindow() over the per-instance owned variant. See
  * cgss::android::setReuseSharedWindow's KDoc for the lifecycle caveats.
  * ------------------------------------------------------------------ */

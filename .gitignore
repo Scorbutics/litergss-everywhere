@@ -19,6 +19,8 @@ Makefile.bak
 *~
 .claude/
 examples/android-integration/local.properties
+kotlin/local.properties
+kotlin/.kotlin/
 
 # OS files
 .DS_Store

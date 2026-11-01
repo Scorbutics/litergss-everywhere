@@ -6,13 +6,15 @@ import android.view.Surface
 /**
  * Kotlin entry point for the LiteRGSS hosted-Activity flow on Android.
  *
- * Pair this with a [android.view.SurfaceView] (or TextureView): on
- * [android.view.SurfaceHolder.Callback.surfaceCreated] call [attach] with the
- * holder's Surface and current width/height, then forward
- * [android.view.SurfaceHolder.Callback.surfaceChanged] to [resized] and
+ * [LiteRgssSurfaceView] does all of the surface and touch wiring below;
+ * a host with its own view pairs this with a [android.view.SurfaceView]
+ * (or TextureView): on
+ * the first [android.view.SurfaceHolder.Callback.surfaceChanged] (sizes are
+ * 0 in surfaceCreated) call [attach] with the holder's Surface and its
+ * width/height, then forward the next surfaceChanged calls to [resized] and
  * [android.view.SurfaceHolder.Callback.surfaceDestroyed] to [detach]. Touch
- * events captured by the host View's [android.view.View.OnTouchListener]
- * should be split into per-pointer down/move/up calls and routed to
+ * events (the view's onTouchEvent) should be split into per-pointer
+ * down/move/up calls and routed to
  * [injectTouchDown] / [injectTouchMove] / [injectTouchUp].
  *
  * Threading: [attach], [detach] and [resized] are typically invoked from the
@@ -23,8 +25,8 @@ import android.view.Surface
  * "Ruby VM thread = draw thread".
  *
  * The library that exports these symbols is `librgss_runtime.so`, the same
- * .so produced by `litergss-everywhere/external/embedded-ruby-vm/kmp-publish/
- * wrapper/CMakeLists.txt`. Callers that already configured
+ * .so as rgss-runtime-android's (built by embedded-ruby-vm's
+ * `kmp-publish/wrapper/CMakeLists.txt`). Callers that already configured
  * `LibraryConfig.libraryName = "rgss_runtime"` and triggered any
  * Ruby-VM-related load path will have the lib loaded already; this object
  * adds a defensive [System.loadLibrary] for hosts that only do graphics.
@@ -57,6 +59,21 @@ object NativeSurface {
     /** Release the hosted surface. Call before the SurfaceView is destroyed. */
     @JvmStatic external fun detach()
 
+    /**
+     * Push a `sf::Event::Closed` into the active hosted DisplayWindow's
+     * queue. The script's render loop gets it on its next frame and fires
+     * the window's on_closed; when that returns truthy, LiteRGSS raises
+     * ClosedWindow and the script unwinds, closing the window (and with it
+     * SFML's window and EGL state).
+     *
+     * Call it from Activity.onDestroy BEFORE closing the interpreter: a
+     * render loop that never ends never lets the interpreter's worker take
+     * its stop request, and the UI thread waiting for it deadlocks.
+     *
+     * No-op if no DisplayWindow is active.
+     */
+    @JvmStatic external fun requestClose()
+
     /** Forward an Android pointer-down event into SFML's queue. */
     @JvmStatic external fun injectTouchDown(pointerId: Int, x: Float, y: Float)
 
@@ -73,8 +90,8 @@ object NativeSurface {
      * pre-translated SFML key — the native side reuses SFML's existing
      * Android-to-SFML keycode table. `metaState` is
      * [android.view.KeyEvent.metaState]. `repeatCount > 0` (OS auto-
-     * repeat) is silently dropped on the native side; consumers like PSDK
-     * run their own software repeat handler.
+     * repeat) is silently dropped on the native side: the scripts run their
+     * own repeat (PSDK's Input.repeat?, for one).
      */
     @JvmStatic external fun injectKeyDown(androidKeyCode: Int, metaState: Int, repeatCount: Int)
 
@@ -91,7 +108,11 @@ object NativeSurface {
      */
     @JvmStatic external fun injectText(unicodeCodepoint: Int)
 
-    /** Forward a `sf::Event::GainedFocus`. Required after resume — without it, PSDK's `Graphics.focus?` stays false and every `Input.*?` query returns false. */
+    /**
+     * Forward a `sf::Event::GainedFocus`. Required after every resume: the
+     * window stays unfocused until it arrives, and scripts gating their
+     * input on focus (PSDK's `Graphics.focus?`) read no input.
+     */
     @JvmStatic external fun injectFocusGained()
 
     /** Forward a `sf::Event::LostFocus`. */
@@ -196,8 +217,8 @@ object NativeSurface {
      * + EGL context across DisplayWindow lifetimes (typically the game
      * Activity that may construct several DisplayWindows over its run).
      * Default false: each DisplayWindow gets its own owned RenderWindow
-     * destroyed with it — what loader.rb needs so the splash interpreter
-     * tears down cleanly.
+     * destroyed with it, for a short-lived script (a splash) that must tear
+     * down cleanly.
      *
      * Effect is process-wide and persists until cleared.
      *
@@ -205,7 +226,7 @@ object NativeSurface {
      * whichever thread first constructed it. A subsequent
      * DisplayWindow.new from a DIFFERENT thread will hit "No looper
      * for this thread". Safe as long as the host activity uses a
-     * single PsdkInterpreter (single render thread) for its whole
+     * single Ruby interpreter (single render thread) for its whole
      * lifetime.
      */
     @JvmStatic external fun setReuseSharedWindow(enabled: Boolean)

@@ -698,15 +698,46 @@ jobs:
           retention-days: 1
 
   # ===========================================================================
+  #  KOTLIN HOST — kotlin/, the runtime's Android host (NativeSurface, the
+  #  surface view, input forwarding) and the touch overlay's layout model.
+  #  Pure Kotlin, the same for every Ruby variant: built and tested here,
+  #  published by publish-kotlin-host once the runtime's packages are out.
+  # ===========================================================================
+  kotlin-host:
+    needs: prepare
+    if: needs.prepare.outputs.has_android == 'true'
+    runs-on: ubuntu-latest
+    name: Kotlin host
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: kotlin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build and test
+        run: ./gradlew --no-daemon build
+
+  # ===========================================================================
   #  PACKAGE — assemble the release and publish the Maven packages, in two
   #  jobs so the Android / Linux ones never wait for the (scarce) macOS
   #  runners: package-linux creates the GitHub Release, package-apple adds
   #  the iOS / macOS files to it afterwards.
   # ===========================================================================
   package-linux:
-    needs: [prepare, install-android, install-linux-x86_64]
+    needs: [prepare, install-android, install-linux-x86_64, kotlin-host]
     if: >-
       always()
+      && (needs.kotlin-host.result == 'success' || needs.kotlin-host.result == 'skipped')
       && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
       && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
       && (needs.install-android.result == 'success' || needs.install-linux-x86_64.result == 'success')
@@ -978,12 +1009,50 @@ jobs:
 
           mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
+  # litergss-host X.Y.Z, once per release (the default variant's tag), only
+  # after rgss-runtime-android X.Y.Z-rubyA.B is out: a failed Android / Linux
+  # release publishes neither.
+  publish-kotlin-host:
+    needs: [prepare, package-linux]
+    if: >-
+      always()
+      && needs.package-linux.result == 'success'
+      && needs.prepare.outputs.is_release == 'true'
+      && needs.prepare.outputs.is_default_variant == 'true'
+      && needs.prepare.outputs.has_android == 'true'
+    runs-on: ubuntu-latest
+    name: Publish Kotlin host
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: kotlin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Publish to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ./gradlew --no-daemon publishAllPublicationsToGithubRepository -Pversion="${VERSION%-ruby*}"
+
   package-apple:
     # After package-linux: it creates the GitHub Release this job adds to.
     # Runs when the Android / Linux side succeeded or was not built.
-    needs: [prepare, install-android, install-linux-x86_64, install-ios, install-macos, package-linux]
+    needs: [prepare, install-android, install-linux-x86_64, install-ios, install-macos, kotlin-host, package-linux]
     if: >-
       always()
+      && (needs.kotlin-host.result == 'success' || needs.kotlin-host.result == 'skipped')
       && (needs.install-android.result == 'success' || needs.install-android.result == 'skipped')
       && (needs.install-linux-x86_64.result == 'success' || needs.install-linux-x86_64.result == 'skipped')
       && (needs.package-linux.result == 'success' || needs.package-linux.result == 'skipped')
