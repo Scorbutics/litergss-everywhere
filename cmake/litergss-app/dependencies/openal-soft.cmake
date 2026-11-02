@@ -16,6 +16,14 @@ set(OPENAL_PATCH_CMD
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 set(OPENAL_SOURCE_DIR "${CMAKE_BINARY_DIR}/openal-soft/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/openal-soft-${OPENAL_VERSION}")
 
+# OpenAL Soft silently drops a backend whose headers are missing, and Linux has
+# no sound without one (OSS only: "Failed to open the audio device"). The system
+# libraries stay optional at runtime: the backends dlopen them.
+set(_OPENAL_BACKEND_ARGS "")
+if(PLATFORM_LOWER STREQUAL "linux")
+    set(_OPENAL_BACKEND_ARGS -DALSOFT_REQUIRE_ALSA=ON -DALSOFT_REQUIRE_PULSEAUDIO=ON)
+endif()
+
 # OpenAL uses CMake
 get_sub_cmake_cross_args(_OPENAL_CMAKE_ARGS)
 set(OPENAL_CONFIGURE_CMD
@@ -29,6 +37,7 @@ set(OPENAL_CONFIGURE_CMD
     -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
     -DLIBTYPE=$<IF:$<BOOL:${BUILD_SHARED_LIBS}>,SHARED,STATIC>
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    ${_OPENAL_BACKEND_ARGS}
     .
 )
 

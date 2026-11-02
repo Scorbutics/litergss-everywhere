@@ -496,6 +496,15 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
         ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0"
     )
 
+    # Linux standalone entry point (litergss-main.c)
+    if(PLATFORM_LOWER STREQUAL "linux")
+        rgss_add_native_test(rgss_ruby_cli_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/ruby_cli_test.c")
+        set_tests_properties(rgss_ruby_cli_test PROPERTIES
+            TIMEOUT 60
+            ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/ruby-cli-test-cache"
+        )
+    endif()
+
     message(STATUS "Smoke test enabled (native build, link mode: ${RGSS_SMOKE_TEST_LINK_MODE})")
 else()
     if(NOT _RGSS_CAN_RUN_TESTS)

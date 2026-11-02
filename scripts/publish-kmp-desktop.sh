@@ -10,7 +10,8 @@
 #
 # Arguments come in --abi/--fat-lib pairs (one per ABI to stage).
 # The script builds a .so wrapper for each, stages them into kmp-publish,
-# then runs a single Gradle publish.
+# then runs a single Gradle publish. On Linux it also stages the standalone
+# runtime (`ruby` + the .so) into <target-dir>/runtime/<abi>/.
 
 set -e
 
@@ -86,6 +87,20 @@ for i in "${!ABIS[@]}"; do
 	cp "$WRAPPER_BUILD_DIR/librgss_runtime.${LIB_EXT}" \
 		"$KMP_PUBLISH_DIR/src/main/desktopLibs/natives/$NATIVES_DIR/"
 	ls -lh "$KMP_PUBLISH_DIR/src/main/desktopLibs/natives/$NATIVES_DIR/"
+
+	# Linux: the standalone runtime, the library and the empty shell starting it
+	case "$NATIVES_DIR" in
+		linux-*)
+			RUNTIME_DIR="$TARGET_DIR/runtime/$abi"
+			echo "--- Staging the standalone runtime into $RUNTIME_DIR ---"
+			mkdir -p "$RUNTIME_DIR"
+			cp "$WRAPPER_BUILD_DIR/librgss_runtime.so.1" "$RUNTIME_DIR/"
+			cc -O2 "$ROOT_DIR/cmake/litergss-app/dependencies/files/litergss-shell.c" \
+				-o "$RUNTIME_DIR/ruby" \
+				-L"$WRAPPER_BUILD_DIR" -lrgss_runtime -Wl,-rpath,'$ORIGIN'
+			ls -lh "$RUNTIME_DIR"
+			;;
+	esac
 done
 
 # Phase 2: Single Gradle publish with all ABIs

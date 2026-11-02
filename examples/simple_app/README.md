@@ -10,10 +10,10 @@ For general native integration details (linker flags, platform differences), see
 
 ```bash
 # Debian/Ubuntu
-sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libudev-dev
+sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libudev-dev libasound2-dev libpulse-dev
 
 # Fedora/RHEL
-sudo dnf install libX11-devel libXrandr-devel libXcursor-devel systemd-devel
+sudo dnf install libX11-devel libXrandr-devel libXcursor-devel systemd-devel alsa-lib-devel pulseaudio-libs-devel
 ```
 
 ### Build the Static Library

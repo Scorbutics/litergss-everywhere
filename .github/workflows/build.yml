@@ -229,10 +229,13 @@ jobs:
           retention-days: 1
 
   # --- Linux x86_64 (local) ---
+  # A binary only runs on the glibc it was linked against or a newer one, and
+  # ubuntu-latest keeps moving. Not older: the prebuilt embedded-ruby-vm and
+  # ruby-for-android objects need glibc 2.38 (__isoc23_* symbols).
   build-linux-x86_64:
     needs: prepare
     if: needs.prepare.outputs.has_linux_x86_64 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Build Linux x86_64
     steps:
       - name: Checkout with submodules
@@ -270,7 +273,7 @@ jobs:
             libtool autoconf automake libncurses-dev \
             zip unzip wget gettext patch \
             libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
-            libgl1-mesa-dev libudev-dev pkg-config
+            libgl1-mesa-dev libudev-dev libasound2-dev libpulse-dev pkg-config
 
       - name: Configure
         run: |
@@ -528,7 +531,7 @@ jobs:
   install-linux-x86_64:
     needs: [prepare, build-linux-x86_64]
     if: needs.prepare.outputs.has_linux_x86_64 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Install Linux x86_64
     steps:
       - name: Checkout with submodules
@@ -572,6 +575,11 @@ jobs:
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
           KMP_VERSION: ${{ needs.prepare.outputs.version }}
         run: make publish-kmp
+
+      - name: Check the standalone runtime
+        run: |
+          runtime=target-linux-x86_64/runtime/x86_64-linux
+          "$runtime/ruby" -e 'require "LiteRGSS"; puts RUBY_DESCRIPTION'
 
       - name: Upload target artifacts
         uses: actions/upload-artifact@v4
@@ -811,7 +819,10 @@ jobs:
           fi
 
           if [ -d staging/linux-x86_64 ]; then
-            tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64 .
+            tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" --exclude=./runtime -C staging/linux-x86_64 .
+            # Artifacts lose the executable bit on the way here
+            chmod +x staging/linux-x86_64/runtime/x86_64-linux/ruby
+            tar -czf "release-assets/litergss-runtime-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64/runtime/x86_64-linux .
           fi
 
           echo "=== Release assets ==="

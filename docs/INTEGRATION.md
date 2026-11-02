@@ -5,6 +5,7 @@ This guide covers how to use LiteRGSS in your application. Pick the section that
 - [Kotlin / Android](#kotlin--android) — Gradle dependency, no native code needed
 - [iOS / KMP](#ios--kmp) — Kotlin Multiplatform framework for iOS
 - [C / C++ Native](#c--c-native) — Link the static library directly
+- [Standalone Runtime (Linux)](#standalone-runtime-linux) — A `ruby` command, nothing to build
 
 For the full Ruby VM API (RubyInterpreter, batch execution, logging, threading), see the [embedded-ruby-vm documentation](../external/embedded-ruby-vm/README.md).
 
@@ -315,6 +316,47 @@ companion object {
     }
 }
 ```
+
+---
+
+## Standalone Runtime (Linux)
+
+The `litergss-runtime-linux-x86_64-<version>.tar.gz` release asset is a complete Ruby and
+LiteRGSS environment made of two files:
+
+| File | Role |
+|------|------|
+| `librgss_runtime.so.1` | Everything: Ruby, its standard library, the extensions, the CA bundle |
+| `ruby` | An empty shell forwarding `main()` to the library, found next to it |
+
+```bash
+cd my-game
+/path/to/runtime/ruby Game.rb
+```
+
+It behaves as the regular `ruby` command (`-e`, `-r`, script arguments...), except that the
+extensions are available to the script, not to `-r` libraries. It needs Linux
+x86_64 with glibc 2.39+ (Ubuntu 24.04, Debian 13), `libstdc++`, `libudev`, the X11 libraries
+(`libX11`, `libXrandr`, `libXcursor`) and an OpenGL driver. It runs Pokemon SDK unmodified.
+For sound, install ALSA or PulseAudio (PipeWire through its PulseAudio server): they are
+loaded at runtime and the game runs silently without them.
+
+Each asset embeds one Ruby minor version, and a compiled game (`Game.yarb`) only loads on the
+variant that compiled it. On 3.0 and 3.2 the platform must match too: use the 3.3 variant for a
+game compiled elsewhere, by Pokemon Studio for instance.
+
+The first start extracts the embedded files to `$XDG_CACHE_HOME/embedded-ruby-vm-<ruby>`
+(`~/.cache/...` by default), and again when the embedded files change. The runtime sets these
+environment variables:
+
+| Variable | Value | If already set |
+|----------|-------|----------------|
+| `RUBYLIB`, `GEM_HOME`, `GEM_PATH` | The extracted standard library | Replaced |
+| `SSL_CERT_FILE` | The embedded CA bundle | Kept |
+| `GAMEDEPS` | The extraction directory, where Pokemon SDK finds `ruby-dist/lib`, removed once it has | Kept |
+
+To embed it in your own executable, link the fat library and call
+`int litergss_main(int argc, char** argv)` from `main()`.
 
 ---
 

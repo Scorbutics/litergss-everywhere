@@ -26,6 +26,8 @@ RUN apt-get update && \
     libxi-dev \
     libgl1-mesa-dev \
     libudev-dev \
+    libasound2-dev \
+    libpulse-dev \
     pkg-config \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*

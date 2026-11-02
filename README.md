@@ -35,6 +35,7 @@ See the **[Integration Guide](docs/INTEGRATION.md)** for:
 - [Kotlin / Android](docs/INTEGRATION.md#kotlin--android) via Gradle dependency
 - [iOS / KMP](docs/INTEGRATION.md#ios--kmp) via framework
 - [C / C++ native](docs/INTEGRATION.md#c--c-native) via static library linking
+- [Standalone runtime (Linux)](docs/INTEGRATION.md#standalone-runtime-linux): a `ruby` command that runs Pokemon SDK as is
 
 ### Build from Source
 
