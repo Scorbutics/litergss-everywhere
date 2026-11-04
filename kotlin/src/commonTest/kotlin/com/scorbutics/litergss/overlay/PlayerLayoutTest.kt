@@ -53,6 +53,19 @@ class PlayerLayoutTest {
     }
 
     @Test
+    fun theSpacingIsTheFilesGapAndLeavesTheEditorsOwn() {
+        assertEquals(1.0, PlayerLayout.EMPTY.gap)
+        assertEquals(1.5, PlayerLayout.EMPTY.withGap(1.6).gap)
+        assertEquals(0.5, PlayerLayout.EMPTY.withGap(0.1).gap)
+        assertEquals(3.0, PlayerLayout.EMPTY.withGap(9.0).gap)
+        val file = """{"version": 1, "groups": {"dpad": {"anchor": "bottom_left", "x": 0.2, "y": 0.1, "gap": 2.0}}}"""
+        val spread = PlayerLayout.parse(file).withGap(1.25)
+        assertEquals(1.25, spread.gap)
+        assertEquals("1.25", json(spread)["gap"].toString())
+        assertEquals(Json.parseToJsonElement(file).jsonObject["groups"], json(spread)["groups"])
+    }
+
+    @Test
     fun aNewButtonHasNoPlaceAndKeepsTheOneTheEditorGaveIt() {
         val added = PlayerLayout.EMPTY.withButton(PlayerButton("player_1", "RUN", "LShift"))
         val entry = json(added)["buttons"]!!.jsonObject["player_1"]!!.jsonObject

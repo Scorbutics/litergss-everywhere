@@ -1639,6 +1639,142 @@ class TestTouchOverlay < Minitest::Test
     assert_operator dpad.y + dpad.size, :<=, 1080
   end
 
+  # A settings screen's spacing (the file's gap): both crosses spread. The L
+  # / R row and the tools button stay clear of them, everything in the window
+  def test_spread_crosses_keep_the_row_clear
+    [[2424, 1080], [1280, 720], [2027, 912], [1080, 2424]].product([0.5, 1.0, 1.5, 2.0], [0.5, 1.5, 3.0]).each do |(width, height), scale, gap|
+      file = Overlay::LayoutFile.new(JSON.generate('version' => 1, 'scale' => scale, 'gap' => gap), ->(_) { PNG })
+      layout = Overlay::Layout.new(width, height, 16, file: file)
+      label = "#{width}x#{height} x#{scale} gap #{gap}"
+      size = layout.crosses.first.buttons.first.size
+      layout.crosses.each do |cross|
+        assert_equal (size + (Overlay::Layout::CROSS_RATIO - 1) * size * gap).round, cross.size, label
+      end
+      # A cross's own buttons touch at their corners (round images)
+      group = ->(button) { layout.crosses.index { |cross| cross.buttons.include?(button) } || button.name }
+      layout.buttons.combination(2).reject { |first, second| group[first] == group[second] }.each do |first, second|
+        refute layout.send(:overlap?, first, second), "#{label}: #{first.name} over #{second.name}"
+      end
+      layout.buttons.each do |button|
+        assert layout.send(:inside?, button), "#{label}: #{button.name} out of the window"
+      end
+    end
+  end
+
+  # A group's gap: that cross alone, the rest of the layout the default one
+  def test_a_groups_gap_leaves_the_default_layout
+    default = positions.reject { |name, _| %w[a b x y].include?(name) }
+    load_file('groups' => { 'action' => { 'anchor' => 'top_left', 'x' => 0.5, 'y' => 0.1, 'gap' => 2 } })
+    frame
+    assert_equal default, positions.reject { |name, _| %w[a b x y].include?(name) }
+  end
+
+  # The file's gap times a group's, kept in the runtime's range
+  def test_the_files_gap_spreads_a_groups_on_top
+    load_file('gap' => 2, 'groups' => { 'action' => { 'anchor' => 'top_left', 'x' => 0.5, 'y' => 0.1, 'gap' => 1.25 } })
+    frame
+    dpad, action = @window.touch_overlay.layout.crosses
+    size = button('a').size
+    assert_equal (size + (Overlay::Layout::CROSS_RATIO - 1) * size * 2).round, dpad.size
+    assert_equal (size + (Overlay::Layout::CROSS_RATIO - 1) * size * 2.5).round, action.size
+    load_file('gap' => 2, 'groups' => { 'action' => { 'anchor' => 'top_left', 'x' => 0.5, 'y' => 0.1, 'gap' => 3 } })
+    frame
+    assert_equal (size + (Overlay::Layout::CROSS_RATIO - 1) * size * 3).round, @window.touch_overlay.layout.crosses.last.size
+  end
+
+  # A hidden cross takes no room: the file's gap does not shrink the gamepad for it
+  def test_a_hidden_cross_takes_no_room
+    load_file('groups' => { 'dpad' => { 'visible' => false } })
+    frame
+    hidden = button('a').size
+    load_file('gap' => 1.5, 'groups' => { 'dpad' => { 'visible' => false } })
+    frame
+    assert_equal hidden, button('a').size
+    load_file('scale' => 2, 'groups' => { 'dpad' => { 'visible' => false } })
+    frame
+    big = button('a').size
+    load_file('scale' => 2, 'gap' => 3, 'groups' => { 'dpad' => { 'visible' => false } })
+    frame
+    assert_operator button('a').size, :<=, big
+  end
+
+  # Regression (review): moving a spread cross in the editor resized the whole
+  # gamepad and dropped the L / R row on it. The file's gap stays the same
+  # once the cross has a place: nothing else moves, the editor keeps it.
+  def test_moving_a_spread_cross_moves_it_alone
+    Overlay.load_layout(JSON.generate('version' => 1, 'scale' => 2, 'gap' => 2), read_image: ->(_) { PNG }, player: true)
+    frame
+    before = positions
+    dpad = @window.touch_overlay.layout.crosses.first
+    open_editor
+    drag([dpad.x + 10, dpad.y + 10], [dpad.x + 12, dpad.y + 8])
+    moved = %w[up down left right]
+    refute_equal before['up'], positions['up']
+    assert_equal before.reject { |name, _| moved.include?(name) }, positions.reject { |name, _| moved.include?(name) }
+    assert_equal dpad.size, @window.touch_overlay.layout.crosses.first.size
+    file = saved
+    assert_equal 2, file['gap']
+    refute file['groups']['dpad'].key?('gap')
+  end
+
+  # Regression (review): crosses the editor placed, then spread by the
+  # settings' gap, covered the L / R row: the default crosses grew upwards
+  # less than placed ones
+  def test_placed_crosses_spread_by_the_settings_keep_the_row_clear
+    open_editor
+    @window.touch_overlay.layout.crosses.each { |c| drag([c.x + 10, c.y + 10], [c.x + 11, c.y + 10]) }
+    placed = saved
+    [1.25, 1.5, 2, 2.5, 3].each do |gap|
+      capture_io { Overlay.load_layout(JSON.generate(placed.merge('gap' => gap)), read_image: ->(_) { PNG }, player: true) }
+      frame
+      layout = @window.touch_overlay.layout
+      row = layout.buttons - layout.crosses.flat_map(&:buttons)
+      layout.crosses.flat_map(&:buttons).product(row).each do |first, second|
+        refute layout.send(:overlap?, first, second), "gap #{gap}: #{first.name} over #{second.name}"
+      end
+    end
+  end
+
+  # Regression (review): at some zooms the smallest snapped size was under
+  # the file's smallest (0.25): Done saved a file the overlay refused
+  def test_the_smallest_resize_saves_a_valid_file
+    # A zoom of 5: the smallest start button (16 pixels) is 0.2 of it
+    LiteRGSS::DisplayWindow.desktop_width = 1200
+    LiteRGSS::DisplayWindow.desktop_height = 660
+    @window.resize(1200, 660)
+    frame
+    open_editor
+    start = button('start')
+    tap_at(center('start'))
+    frame
+    handle = editor.handles(@window.touch_overlay.layout).first
+    _, err = capture_io { drag([handle.x + handle.size / 2, handle.y + handle.size / 2], [start.x + 1, start.y + 1]) }
+    assert_empty err
+    file = saved
+    assert_operator file['buttons']['start']['size'], :>=, Overlay::LayoutFile::SIZES.min
+    assert Overlay.load_layout(JSON.generate(file), read_image: ->(_) { PNG }, player: true)
+  end
+
+  # The gap handle writes the group's gap relative to the file's; Reset
+  # drops the places, not the file's gap (a setting)
+  def test_the_gap_handle_and_reset_keep_the_files_gap
+    Overlay.load_layout(JSON.generate('version' => 1, 'gap' => 2), read_image: ->(_) { PNG }, player: true)
+    frame
+    open_editor
+    action = @window.touch_overlay.layout.crosses.last
+    tap_at([action.x + action.size / 2, action.y + action.size / 2])
+    frame
+    handle = editor.handles(@window.touch_overlay.layout).last
+    button = action.buttons.first.size
+    # Spread 2.5 on screen: 1.25 times the file's 2
+    wide = (button + (Overlay::Layout::CROSS_RATIO - 1) * button * 2.5).round
+    drag([handle.x + handle.size / 2, handle.y + handle.size / 2], [action.x + wide, handle.y])
+    assert_equal wide, @window.touch_overlay.layout.crosses.last.size
+    tap_at(toolbar_center(Overlay::RESET))
+    frame
+    assert_equal({ 'version' => 1, 'gap' => 2 }, saved)
+  end
+
   def test_a_game_button_cannot_take_a_group_name
     assert_raises(ArgumentError) { Overlay.add_button('dpad', PNG) }
   end

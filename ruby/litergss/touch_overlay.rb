@@ -98,6 +98,7 @@ module LiteRGSS
     #     "xy_layout": "nintendo",
     #     "scale": 1.2,
     #     "opacity": 0.7,
+    #     "gap": 1.5,
     #     "groups": {
     #       "dpad": { "anchor": "bottom_left", "x": 0.04, "y": 0.1, "size": 1.2, "gap": 0.8 }
     #     },
@@ -122,14 +123,18 @@ module LiteRGSS
     #   three or none: without, the group or button keeps its centre, and the
     #   file's own buttons go where nothing else is (Layout#free_place)
     # - size: of the buttons, 1.0 being the default one (scale included);
-    #   gap: of a cross's buttons apart, 1.0 being the default. The gamepad's
-    #   images keep an integer zoom: their size snaps to it
+    #   gap: of a cross's buttons apart, 1.0 being the default (times the
+    #   file's gap). The gamepad's images keep an integer zoom: their size
+    #   snaps to it
     # - visible: false hides a group or button (hiding overlay_tools also
     #   removes the keyboard toggle and the editor)
     # - action_layout, xy_layout: win over TouchOverlay's; scale (0.5 to 2):
     #   of the whole gamepad, on top of TouchOverlay.scale and of each size,
     #   snapped like them and capped to keep the gamepad in the window;
-    #   opacity (0.1 to 0.8): of the buttons at rest, 0.5 by default
+    #   opacity (0.1 to 0.8): of the buttons at rest, 0.5 by default; gap
+    #   (0.5 to 3): of both crosses' buttons apart, on top of each group's
+    #   (the product kept in that range), the L / R row staying above them
+    #   and the buttons shrinking if the window needs it
     class LayoutFile
       VERSION = 1
       ANCHORS = %w[top_left top_right bottom_left bottom_right].freeze
@@ -148,7 +153,7 @@ module LiteRGSS
       # @return [Symbol, nil] :nintendo / :xbox
       attr_reader :action_layout, :xy_layout
       # @return [Float, nil]
-      attr_reader :scale, :opacity
+      attr_reader :scale, :opacity, :gap
       # @return [Hash{String => Placement}]
       attr_reader :groups, :buttons
       # @return [Hash{String => Custom}] the buttons the file adds
@@ -176,6 +181,7 @@ module LiteRGSS
         @xy_layout = parse_pad_layout(data, 'xy_layout', Layout::XY_LAYOUTS)
         @scale = number('layout', data, 'scale', SCALES) if data.key?('scale')
         @opacity = number('layout', data, 'opacity', OPACITIES) if data.key?('opacity')
+        @gap = number('layout', data, 'gap', GAPS) if data.key?('gap')
         @groups = entries(data, 'groups').to_h do |name, entry|
           raise ArgumentError, "unknown group #{name}" unless GROUPS.include?(name)
 
@@ -215,6 +221,7 @@ module LiteRGSS
         @xy_layout = over.xy_layout || @xy_layout
         @scale = over.scale || @scale
         @opacity = over.opacity || @opacity
+        @gap = over.gap || @gap
         @groups = @groups.merge(merged_placements('groups', over))
         @buttons = @buttons.merge(merged_placements('buttons', over))
         @customs = @customs.dup
@@ -337,6 +344,8 @@ module LiteRGSS
       attr_reader :buttons, :crosses, :width, :height
       # @return [Integer] side of a button by default (scale included)
       attr_reader :unit
+      # @return [Float] the file's gap, of both crosses
+      attr_reader :gap
 
       # Side of a cross's box, in buttons (PSDK's touch controls in a 480x270 game)
       CROSS_RATIO = 2.5
@@ -365,25 +374,40 @@ module LiteRGSS
         unit = [width, height].min / DESIGN_HEIGHT
         padding = (20 * unit).round
         gap = (8 * unit).round
+        # The file's gap (a settings screen's spacing) spreads both crosses:
+        # the L / R row stays above them. A hidden cross is not spread (its
+        # room at gap 1 is kept).
+        @gap = file&.gap || 1.0
+        dpad_gap, action_gap = LayoutFile::GROUPS.map { |name| file&.groups&.[](name)&.visible == false ? 1.0 : @gap }
+        # A tight cross leaves the buttons their size: the row needs its width
+        dpad_ratio = 1 + (CROSS_RATIO - 1) * [dpad_gap, 1].max
+        action_ratio = 1 + (CROSS_RATIO - 1) * [action_gap, 1].max
         # Integer zoom keeps the pixel art sharp; the box of a cross follows the
         # rounded button size, so the gaps between its buttons scale with them.
         # A large scale stops where the crosses still fit side by side and the
         # tools button, above the L / R row, in the window: the way back to
-        # the settings and the editor.
-        fit = [(height * 0.9 - gap - 2) / (0.9 * CROSS_RATIO + 2), (width - 2 * padding) / (2 * CROSS_RATIO)].min
+        # the settings and the editor. A spread cross grows upwards from the
+        # bottom it has at gap 1 (as one the editor placed at the bottom does).
+        fit = [(height * 0.9 - gap - 2) / ([dpad_ratio, action_ratio].max + 2 - 0.1 * CROSS_RATIO),
+               (width - 2 * padding) / (dpad_ratio + action_ratio)].min
         zoom = ([width, height].min * 0.3 * scale / (CROSS_RATIO * image_size)).round.clamp(1, [(fit / image_size).floor, 1].max)
         size = image_size * zoom
         @unit = size
-        box = (size * CROSS_RATIO).round
+        # As placed_cross spreads a cross: the box of gap 1 is size * CROSS_RATIO
+        dpad_box = (size + (CROSS_RATIO - 1) * size * dpad_gap).round
+        action_box = (size + (CROSS_RATIO - 1) * size * action_gap).round
 
-        box_y = ((height - box) * 0.9).round
+        box = (size * CROSS_RATIO).round
+        crosses_bottom = ((height - box) * 0.9).round + box
+        dpad_y = crosses_bottom - dpad_box
+        action_y = crosses_bottom - action_box
         dpad_x = padding
-        action_x = (width - box - padding).round
-        row_y = box_y - size
+        action_x = (width - action_box - padding).round
+        row_y = [dpad_y, action_y].min - size
         right, bottom = ACTION_LAYOUTS.fetch(file&.action_layout || action_layout)
         left, top = XY_LAYOUTS.fetch(file&.xy_layout || xy_layout)
-        @crosses = [cross(dpad_x, box_y, box, size, %w[up right down left], 'dpad'),
-                    cross(action_x, box_y, box, size, [top, right, bottom, left], 'action')]
+        @crosses = [cross(dpad_x, dpad_y, dpad_box, size, %w[up right down left], 'dpad'),
+                    cross(action_x, action_y, action_box, size, [top, right, bottom, left], 'action')]
         @row = [Button.new('l', padding, row_y, size),
                 Button.new('r', width - padding - size, row_y, size),
                 Button.new('select', padding + size + gap, row_y, size),
@@ -453,6 +477,11 @@ module LiteRGSS
         return side.round unless IMAGES.key?(name)
 
         [(side / @image_size).round, 1].max * @image_size
+      end
+
+      # A group's gap times the file's, as the crosses are spread
+      def spread_gap(group_gap)
+        (group_gap * @gap).clamp(LayoutFile::GAPS.min, LayoutFile::GAPS.max)
       end
 
       private
@@ -551,7 +580,7 @@ module LiteRGSS
         return nil unless placement.visible
 
         size = snap(cross.buttons.first.name, cross.buttons.first.size * placement.size)
-        box = (size + (CROSS_RATIO - 1) * size * placement.gap).round
+        box = (size + (CROSS_RATIO - 1) * size * spread_gap(placement.gap)).round
         cross(*position(placement, cross, box), box, size, cross.buttons.map(&:name), cross.name)
       end
 
@@ -686,7 +715,7 @@ module LiteRGSS
         handle = handles(layout).find { |h| h.include?(x, y) }
         element = handle ? layout.element(@selected) : layout.element_at(x, y)
         @selected = element&.name
-        @drag = Drag.new(finger, handle ? handle.kind : :move, x, y, element.dup, gap(element)) if element
+        @drag = Drag.new(finger, handle ? handle.kind : :move, x, y, element.dup, gap(element, layout)) if element
         :changed
       end
 
@@ -720,21 +749,29 @@ module LiteRGSS
         size = ((cross ? side / spread : side).to_f / layout.unit).clamp(LayoutFile::SIZES.min, LayoutFile::SIZES.max)
         button = layout.snap(cross ? element.buttons.first.name : element.name, layout.unit * size)
         side = cross ? (button * spread).round : button
-        place(element, layout, element.x, element.y, side, size: button.to_f / layout.unit)
+        # The snapped side may be under the smallest size a file takes: written
+        # as is, the file would be refused and the editing lost
+        place(element, layout, element.x, element.y, side,
+              size: (button.to_f / layout.unit).clamp(LayoutFile::SIZES.min, LayoutFile::SIZES.max))
       end
 
-      # The gap handle at this distance from the cross's left edge
+      # The gap handle at this distance from the cross's left edge; the
+      # group's gap written is relative to the file's (Layout#spread_gap),
+      # both in LayoutFile::GAPS: with a file's gap at an end of it, the
+      # handle stops short of the other
       def spread(element, layout, box)
         button = element.buttons.first.size
-        gap = ((box - button).to_f / ((Layout::CROSS_RATIO - 1) * button)).clamp(LayoutFile::GAPS.min, LayoutFile::GAPS.max)
-        place(element, layout, element.x, element.y, (button + (Layout::CROSS_RATIO - 1) * button * gap).round, gap: gap)
+        spread = ((box - button).to_f / ((Layout::CROSS_RATIO - 1) * button)).clamp(LayoutFile::GAPS.min, LayoutFile::GAPS.max)
+        gap = (spread / layout.gap).clamp(LayoutFile::GAPS.min, LayoutFile::GAPS.max)
+        side = (button + (Layout::CROSS_RATIO - 1) * button * layout.spread_gap(gap)).round
+        place(element, layout, element.x, element.y, side, gap: gap)
       end
 
-      # The gap of a cross as the edited layout has it
-      def gap(element)
+      # The gap a cross is spread with in the edited layout
+      def gap(element, layout)
         return 1.0 unless element.is_a?(Layout::Cross)
 
-        file&.groups&.[](element.name)&.gap || 1.0
+        layout.spread_gap(file&.groups&.[](element.name)&.gap || 1.0)
       end
 
       # Write the element's place: anchored at the window corner nearest to

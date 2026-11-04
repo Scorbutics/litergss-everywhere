@@ -28,9 +28,9 @@ data class PlayerButton(val name: String, val label: String, val key: String)
  * runtime's LiteRGSS::TouchOverlay::LayoutFile, version 1, loaded over the
  * game's own (runtime 1.6.0 and later: buttons without a place, gamepad
  * keys; xy_layout: runtime 1.10.0). A host's settings screen changes the
- * gamepad's size, opacity, A / B and X / Y order and the keys its buttons
- * send, and the player's buttons; the rest of the file (the places the
- * in-game editor wrote) is kept as is. Immutable: each change is a new one.
+ * gamepad's size, opacity, crosses' spacing, A / B and X / Y order and the
+ * keys its buttons send, and the player's buttons; the rest of the file (the
+ * places the in-game editor wrote) is kept as is. Immutable: each change is a new one.
  */
 class PlayerLayout private constructor(private val root: Map<String, JsonElement>) {
 
@@ -41,6 +41,12 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
 
     /** X left and Y top (Xbox), or Y left and X top (Nintendo) */
     val xyLayout: ActionLayout get() = padLayout(XY_LAYOUT) ?: ActionLayout.XBOX
+
+    /**
+     * How far apart the crosses' buttons are, 1.0 the default: of both, on top
+     * of the gap the in-game editor gives a cross (runtime 1.12.0 and later).
+     */
+    val gap: Double get() = number(GAP) ?: 1.0
 
     /** The player's buttons: the ones a settings screen added, in the file's order. */
     val buttons: List<PlayerButton>
@@ -63,6 +69,9 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
     fun withActionLayout(value: ActionLayout) = with(ACTION_LAYOUT, JsonPrimitive(value.value))
 
     fun withXyLayout(value: ActionLayout) = with(XY_LAYOUT, JsonPrimitive(value.value))
+
+    /** Snapped to [GAP_STEP] within [GAPS] */
+    fun withGap(value: Double) = with(GAP, snapped(value, GAPS, GAP_STEP))
 
     /**
      * Add [button], or change its label and key: a button already in the file
@@ -131,6 +140,8 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
         const val DEFAULT_OPACITY = 0.5
         const val SCALE_STEP = 0.25
         const val OPACITY_STEP = 0.1
+        val GAPS = 0.5..3.0
+        const val GAP_STEP = 0.25
 
         /** The gamepad's own buttons a key can be given to, and how the screen names them. */
         val GAMEPAD = listOf(
@@ -148,6 +159,7 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
         private const val ACTION_LAYOUT = "action_layout"
         private const val XY_LAYOUT = "xy_layout"
         private const val BUTTONS = "buttons"
+        private const val GAP = "gap"
         private const val KEY = "key"
         private const val IMAGE = "image"
         // Not the runtime's: the screen keeps the text the image was drawn from
