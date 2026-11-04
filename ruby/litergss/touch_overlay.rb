@@ -1026,10 +1026,16 @@ module LiteRGSS
       # frame; called after the window polled its events.
       def update
         close_stale_editor
-        # PSDK's soft reset disposes every viewport and bitmap, the overlay's too
-        build if @bitmaps.each_value.first.disposed? || @viewports&.any?(&:disposed?)
-        relayout if @window.width != @width || @window.height != @height ||
-                    @config_version != TouchOverlay.config_version
+        # PSDK's soft reset disposes its ::Viewport and ::Texture (subclasses of
+        # LiteRGSS's): a game button's image, not the overlay's own objects. A
+        # relayout asks the game for its images again.
+        if @bitmaps.each_value.first.disposed?
+          build
+        elsif @viewports&.any?(&:disposed?) || @extra_bitmaps.each_value.any?(&:disposed?) ||
+              @window.width != @width || @window.height != @height ||
+              @config_version != TouchOverlay.config_version
+          relayout
+        end
         @triggered.clear
         held = (@fingers.values.grep(String) + @touched).uniq
         @touched.clear

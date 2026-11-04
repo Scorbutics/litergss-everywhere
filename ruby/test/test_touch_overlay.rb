@@ -95,9 +95,14 @@ module LiteRGSS
     end
 
     def width
+      raise Error, 'Disposed Object' if @disposed
+
       16
     end
   end
+
+  # Raised by the real LiteRGSS on a disposed object
+  class Error < StandardError; end
 end
 
 # Like LiteRGSS: scancode constants, no Sf::Keyboard::Unknown
@@ -712,22 +717,43 @@ class TestTouchOverlay < Minitest::Test
     assert_nil Overlay.image('reset')
   end
 
-  # Regression: PSDK's soft reset disposes every viewport, sprite and bitmap;
-  # the overlay drew nothing after it, then disabled itself on its next press
+  # Regression: PSDK's soft reset disposes the ::Viewport and ::Texture
+  # (subclasses of LiteRGSS's), so a game button's image (RPG::Cache) but not
+  # the overlay's own objects. The overlay kept the disposed image and its next
+  # drawing (opening the tools menu) raised Disposed Object: the guard disabled
+  # the whole gamepad.
   def test_the_overlay_rebuilds_itself_after_a_soft_reset
     loads = 0
-    Overlay.add_button('reset', -> { loads += 1; LiteRGSS::Bitmap.new(PNG, true) })
+    cached = nil
+    Overlay.add_button('reset', lambda {
+      loads += 1
+      cached = LiteRGSS::Bitmap.new(PNG, true) if cached.nil? || cached.disposed?
+      cached
+    })
     frame
     assert_equal 1, loads
-    @window.viewports.each(&:dispose)
-    frame
+    cached.dispose
+    _, err = capture_io { tap_at(center(Overlay::TOOLS)) }
+    assert_empty err
+    assert @window.touch_overlay.enabled?
     assert_equal 2, loads
-    live = @window.viewports.reject(&:disposed?)
-    assert_equal @window.touch_overlay.layout.buttons.size, live.size
+    assert @window.touch_overlay.instance_variable_get(:@menu_open)
+    refute sprite('reset').bitmap.disposed?
+    tap_at(center('a')) # closes the menu
     @window.queue(:touch_began, 0, *center('a'))
     frame
-    assert @window.touch_overlay.enabled?
     assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
+    assert_equal 2, loads # once rebuilt, not at every frame
+  end
+
+  # The overlay's own viewports disposed by someone else: it draws them again
+  def test_the_overlay_redraws_its_disposed_viewports
+    frame
+    @window.viewports.each(&:dispose)
+    frame
+    live = @window.viewports.reject(&:disposed?)
+    assert_equal @window.touch_overlay.layout.buttons.size, live.size
+    assert @window.touch_overlay.enabled?
   end
 
   # Regression: the box of a cross came from the scale and the zoom was rounded
