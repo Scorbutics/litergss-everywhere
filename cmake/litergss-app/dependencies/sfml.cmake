@@ -3,7 +3,7 @@
 
 set(SFML_VERSION "2.6.1-es2")
 set(SFML_GIT_URL "https://github.com/Scorbutics/SFML-opengl-es2.git")
-set(SFML_GIT_TAG "27de19917dc83ede0989ccbded8b4ebb03e4af36")  # HEAD
+set(SFML_GIT_TAG "6af7247b4b46348669ef1d800519dbb80d9861b6")  # HEAD
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 set(SFML_DIR "${CMAKE_BINARY_DIR}/sfml/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/sfml-${SFML_VERSION}")
