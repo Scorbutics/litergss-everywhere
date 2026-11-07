@@ -121,17 +121,18 @@ object NativeSurface {
     /**
      * Forward a gamepad button press/release.
      *
-     * `androidKeyCode` must be one of the AKEYCODE_BUTTON_* / AKEYCODE_DPAD_*
-     * values that SFML's `androidJoystickKeyToIndex` recognises. Other
-     * keycodes are silently dropped.
+     * `androidKeyCode` is an AKEYCODE_BUTTON_* (a joystick button) or an
+     * AKEYCODE_DPAD_* (moves the PovX / PovY axes, like a D-pad reported
+     * through AXIS_HAT_X/Y). Other keycodes are silently dropped.
      */
     @JvmStatic external fun injectJoystickButton(deviceId: Int, androidKeyCode: Int, pressed: Boolean)
 
     /**
      * Forward gamepad analog-axis state.
      *
-     * Values are in Android's native [-1, 1] range; SFML scales them to
-     * [-100, 100] internally. Send all axes in one call — the SFML model
+     * Values are in Android's native [-1, 1] range, signs included: pass
+     * AXIS_HAT_Y as is (-1 is up), SFML turns it into PovY (positive up)
+     * and scales every axis to [-100, 100] internally. Send all axes in one call — the SFML model
      * tracks per-axis state and replaces it wholesale on each event.
      */
     @JvmStatic external fun injectJoystickAxis(
