@@ -1032,7 +1032,7 @@ module LiteRGSS
         return if button
 
         # Checked in update, once the game took the touch into account
-        @game_tap = position
+        @game_tap = game_position(position)
         forward(:touch_began, finger, x, y)
       end
 
@@ -1069,7 +1069,7 @@ module LiteRGSS
         if @bitmaps.each_value.first.disposed?
           build
         elsif @viewports&.any?(&:disposed?) || @extra_bitmaps.each_value.any?(&:disposed?) ||
-              @window.width != @width || @window.height != @height ||
+              screen_width != @width || screen_height != @height ||
               @config_version != TouchOverlay.config_version
           relayout
         end
@@ -1143,8 +1143,8 @@ module LiteRGSS
 
       def relayout
         dispose
-        @width = @window.width
-        @height = @window.height
+        @width = screen_width
+        @height = screen_height
         @config_version = TouchOverlay.config_version
         @layout_version = TouchOverlay.layout_version
         file = layout_file
@@ -1186,6 +1186,8 @@ module LiteRGSS
       #   menu's and the editor's own, kept visible
       def draw(button, lit, opacity = OPACITY)
         viewport = LiteRGSS::Viewport.new(@window, button.x, button.y, button.size, button.size)
+        # In window pixels, whatever the game's place on the window (game_area)
+        viewport.screen_space = true if viewport.respond_to?(:screen_space=)
         viewport.z = Z
         sprite = LiteRGSS::Sprite.new(viewport)
         bitmap = @bitmaps[button.name] || @extra_bitmaps[button.name]
@@ -1335,14 +1337,38 @@ module LiteRGSS
         @fingers.key?(finger) && !@fingers[finger].nil?
       end
 
-      # Touches come in screen pixels, the window may have another resolution
+      # Touches come in screen pixels, the window may have another resolution.
+      # With a game area (DisplayWindow#game_area=), LiteRGSS moved them to the
+      # game's place: the overlay, drawn over the whole window, moves them back.
       def to_window(x, y)
-        [x * @width / LiteRGSS::DisplayWindow.desktop_width,
-         y * @height / LiteRGSS::DisplayWindow.desktop_height]
+        origin = game_origin
+        [x * @width / LiteRGSS::DisplayWindow.desktop_width + origin[0],
+         y * @height / LiteRGSS::DisplayWindow.desktop_height + origin[1]]
       end
 
       def forward(event, *args)
         @game_procs[event]&.call(*args)
+      end
+
+      # The whole window, black bars included: the overlay is drawn over it
+      def screen_width
+        @window.respond_to?(:screen_width) ? @window.screen_width : @window.width
+      end
+
+      def screen_height
+        @window.respond_to?(:screen_height) ? @window.screen_height : @window.height
+      end
+
+      # Where the game is on the window: (0, 0) without a game area
+      def game_origin
+        area = @window.respond_to?(:game_area) ? @window.game_area : nil
+        area ? area[0, 2] : [0, 0]
+      end
+
+      # A window position in the game's coordinates (its text fields' viewports)
+      def game_position(position)
+        origin = game_origin
+        [position[0] - origin[0], position[1] - origin[1]]
       end
 
       def press(name)
@@ -1431,7 +1457,10 @@ module LiteRGSS
               overlay.send(:forward, event, finger, x, y)
             end
           end
-          method(:"on_#{event}=").super_method.call(dispatcher)
+          # Under this module's setter, whatever else is prepended to the window
+          setter = method(:"on_#{event}=")
+          setter = setter.super_method until setter.owner == WindowHooks
+          setter.super_method.call(dispatcher)
         end
         overlay
       end
