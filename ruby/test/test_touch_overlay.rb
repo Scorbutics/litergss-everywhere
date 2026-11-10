@@ -14,7 +14,7 @@ module LiteRGSS
       attr_accessor :desktop_width, :desktop_height
     end
 
-    attr_reader :width, :height, :viewports, :callbacks
+    attr_reader :viewports, :callbacks, :game_area
 
     def initialize(width, height)
       @width = width
@@ -41,6 +41,29 @@ module LiteRGSS
 
     def dispose; end
 
+    # Like LiteRGSS: width / height are the game's once it has an area on the
+    # window, the touches the callbacks get are moved to it (the tests queue
+    # them moved, as LiteRGSS hands them over)
+    def game_area=(area)
+      @game_area = area
+    end
+
+    def width
+      @game_area ? @game_area[2] : @width
+    end
+
+    def height
+      @game_area ? @game_area[3] : @height
+    end
+
+    def screen_width
+      @width
+    end
+
+    def screen_height
+      @height
+    end
+
     def resize(width, height)
       @width = width
       @height = height
@@ -49,7 +72,7 @@ module LiteRGSS
 
   class Viewport
     attr_reader :rect
-    attr_accessor :z
+    attr_accessor :z, :screen_space
 
     def initialize(window, x, y, width, height)
       @rect = [x, y, width, height]
@@ -411,6 +434,53 @@ class TestTouchOverlay < Minitest::Test
     assert_equal [[0, 1220, 310]], @game[:touch_moved]
     assert_equal [[0, 1220, 310]], @game[:touch_ended]
     assert_empty @game[:key_pressed]
+  end
+
+  # A 320x180 game x4 at (572, 180) of the 2424x1080 window, placed there by
+  # LiteRGSS (game_area) instead of the game's own viewport offsets
+  AREA = [572, 180, 1280, 720].freeze
+
+  # A touch at this window position, as LiteRGSS hands it over with AREA
+  def in_area(position)
+    [position[0] - AREA[0], position[1] - AREA[1]]
+  end
+
+  def test_with_a_game_area_the_overlay_keeps_the_whole_window
+    @window.game_area = AREA
+    frame
+    layout = @window.touch_overlay.layout
+    assert_equal [2424, 1080], [layout.width, layout.height]
+    assert @window.viewports.reject(&:disposed?).all?(&:screen_space), 'the game area does not move the buttons'
+    assert_operator center('a')[0], :>, AREA[0] + AREA[2], 'the action buttons stay in the right black bar'
+  end
+
+  def test_with_a_game_area_a_tap_on_a_button_sends_its_key
+    @window.game_area = AREA
+    frame
+    @window.queue(:touch_began, 0, *in_area(center('a')))
+    @window.queue(:touch_ended, 0, *in_area(center('a')))
+    frame
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
+    assert_empty @game[:touch_began]
+  end
+
+  def test_with_a_game_area_a_touch_reaches_the_game_as_lite_rgss_gave_it
+    @window.game_area = AREA
+    frame
+    @window.queue(:touch_began, 0, *in_area([1212, 300]))
+    frame
+    assert_equal [[0, 640, 120]], @game[:touch_began]
+  end
+
+  def test_with_a_game_area_a_tap_on_a_text_field_shows_the_keyboard
+    @window.game_area = AREA
+    frame
+    # The game's viewport starts at 0: LiteRGSS puts it at (572, 180)
+    UI::UserInput.new(FakeViewport.new(FakeRect.new(0, 0, 1280, 720), 0, 0, 4, true), 100, 20, 120, 16)
+    # Field at x 972..1452, y 260..324 on the window
+    @window.queue(:touch_began, 0, *in_area([1200, 290]))
+    frame
+    assert_equal [true], Sf::Keyboard.virtual_keyboard_calls
   end
 
   def test_sliding_on_the_dpad_changes_the_direction
