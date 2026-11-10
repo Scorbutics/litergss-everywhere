@@ -464,6 +464,41 @@ keyboard toggle and the editor.
 
 Tests: `ruby ruby/test/test_touch_overlay.rb` (logic, against a fake LiteRGSS).
 
+### Window Origin
+
+A game smaller than its window (a 320x240 game on a phone in landscape) centred by
+LiteRGSS instead of by the game's scripts. Install it before the game creates its
+window, then give the window the game's place once it exists:
+
+```ruby
+require 'litergss/window_origin'
+LiteRGSS::WindowOrigin.install            # false: this LiteRGSS can't (no DisplayWindow#origin=)
+# ... once the game created its window:
+window.game_area = [107, 0, 320, 240]     # x, y, width, height in window pixels
+```
+
+LiteRGSS moves the game's viewports, and what the game draws on the window itself, by
+(x, y) (`DisplayWindow#origin=`), and keeps their rects in the game's coordinates. From
+the game's side the window is then the game:
+
+- `width` / `height` are the game's (what PSDK's `Graphics.width` reads); the whole
+  window is `screen_width` / `screen_height`;
+- the mouse and touch positions the game's callbacks get are moved so the game's
+  (0, 0) is the window's (`to_game_pixels`, still in screen pixels).
+
+A script positioning things with the window's size, snapshotting the screen into a
+viewport, or drawing a sprite on the window itself then sees one space only, whatever
+its version. The touch overlay keeps the whole window: its viewports are in screen
+space (`Viewport#screen_space=`), which the origin does not move, it lays out on
+`screen_width` / `screen_height`, and the touches it forwards to the game are moved
+like the others.
+
+The game area is the host's to give: it knows the game (PSDK-android reads it from
+PSDK's own viewport offsets, which it sets back to 0).
+
+Tests: `ruby ruby/test/test_window_origin.rb`, and with `OVERLAY_FIRST=1` (the window
+gets the overlay's hooks first).
+
 ---
 
 ## Configuration

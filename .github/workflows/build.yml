@@ -296,6 +296,8 @@ jobs:
         run: |
           ruby -e 'require "minitest"' 2>/dev/null || sudo gem install --no-document minitest
           ruby ruby/test/test_touch_overlay.rb
+          ruby ruby/test/test_window_origin.rb
+          OVERLAY_FIRST=1 ruby ruby/test/test_window_origin.rb
 
       - name: Export build outputs
         run: make export

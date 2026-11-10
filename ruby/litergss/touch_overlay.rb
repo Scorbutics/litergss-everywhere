@@ -1032,8 +1032,8 @@ module LiteRGSS
         return if button
 
         # Checked in update, once the game took the touch into account
-        @game_tap = position
-        forward(:touch_began, finger, x, y)
+        @game_tap = game_position(position)
+        forward_touch(:touch_began, finger, x, y)
       end
 
       def touch_moved(finger, x, y)
@@ -1048,7 +1048,7 @@ module LiteRGSS
           @fingers[finger] = button ? button.name : false
           @touched << button.name if button
         else
-          forward(:touch_moved, finger, x, y)
+          forward_touch(:touch_moved, finger, x, y)
         end
       end
 
@@ -1056,7 +1056,7 @@ module LiteRGSS
         @editor&.touch_ended(finger)
         owned = owned?(finger)
         @fingers.delete(finger)
-        forward(:touch_ended, finger, x, y) unless owned
+        forward_touch(:touch_ended, finger, x, y) unless owned
       end
 
       # Send the key events of the buttons pressed or released since the last
@@ -1069,7 +1069,7 @@ module LiteRGSS
         if @bitmaps.each_value.first.disposed?
           build
         elsif @viewports&.any?(&:disposed?) || @extra_bitmaps.each_value.any?(&:disposed?) ||
-              @window.width != @width || @window.height != @height ||
+              screen_width != @width || screen_height != @height ||
               @config_version != TouchOverlay.config_version
           relayout
         end
@@ -1143,8 +1143,8 @@ module LiteRGSS
 
       def relayout
         dispose
-        @width = @window.width
-        @height = @window.height
+        @width = screen_width
+        @height = screen_height
         @config_version = TouchOverlay.config_version
         @layout_version = TouchOverlay.layout_version
         file = layout_file
@@ -1186,6 +1186,8 @@ module LiteRGSS
       #   menu's and the editor's own, kept visible
       def draw(button, lit, opacity = OPACITY)
         viewport = LiteRGSS::Viewport.new(@window, button.x, button.y, button.size, button.size)
+        # In window pixels, whatever the game's place on the window (WindowOrigin)
+        viewport.screen_space = true if viewport.respond_to?(:screen_space=)
         viewport.z = Z
         sprite = LiteRGSS::Sprite.new(viewport)
         bitmap = @bitmaps[button.name] || @extra_bitmaps[button.name]
@@ -1345,6 +1347,30 @@ module LiteRGSS
         @game_procs[event]&.call(*args)
       end
 
+      # A touch the game gets: at its place on the window when the window has
+      # a game area (WindowOrigin), the overlay's own callbacks seeing the screen
+      def forward_touch(event, finger, x, y)
+        x, y = @window.to_game_pixels(x, y) if @window.respond_to?(:to_game_pixels)
+        forward(event, finger, x, y)
+      end
+
+      # The whole window, black bars included: the overlay is drawn over it
+      def screen_width
+        @window.respond_to?(:screen_width) ? @window.screen_width : @window.width
+      end
+
+      def screen_height
+        @window.respond_to?(:screen_height) ? @window.screen_height : @window.height
+      end
+
+      # A window position in the game's coordinates (its text fields' viewports)
+      def game_position(position)
+        origin = @window.respond_to?(:origin) ? @window.origin : nil
+        return position unless origin
+
+        [position[0] - origin[0], position[1] - origin[1]]
+      end
+
       def press(name)
         @pressed[name] = true
         return toggle_menu if name == TOOLS
@@ -1428,10 +1454,13 @@ module LiteRGSS
             if overlay.enabled?
               TouchOverlay.guard(overlay) { overlay.send(event, finger, x, y) }
             else
-              overlay.send(:forward, event, finger, x, y)
+              overlay.send(:forward_touch, event, finger, x, y)
             end
           end
-          method(:"on_#{event}=").super_method.call(dispatcher)
+          # Under this module's setter, whatever else is prepended to the window
+          setter = method(:"on_#{event}=")
+          setter = setter.super_method until setter.owner == WindowHooks
+          setter.super_method.call(dispatcher)
         end
         overlay
       end
