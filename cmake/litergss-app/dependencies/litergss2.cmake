@@ -3,7 +3,7 @@
 
 set(LITERGSS2_VERSION "2.0.0")
 set(LITERGSS2_GIT_URL "https://gitlab.com/pokemonsdk/litergss2.git")
-set(LITERGSS2_GIT_TAG "08fcc9d02a172236af82c12f51c01d0154ea0cb8")  # feat/window-origin
+set(LITERGSS2_GIT_TAG "03baa8212bd57b0c474ad408ac21eaa6e4226d77")  # development
 
 option(BUILD_SHARED_WRAPPER "Build single shared library wrapper (rgss_runtime) instead of archive" OFF)
 
