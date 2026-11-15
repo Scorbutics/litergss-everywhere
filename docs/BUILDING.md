@@ -158,6 +158,10 @@ Snapshots are pruned weekly (the 20 most recent and those younger than 90 days a
 
 One build embeds one Ruby minor version, selected with `./configure --with-ruby-variant=3.0|3.2|3.3` (default 3.0, `-DRUBY_VARIANT` in CMake). The ruby-for-android release of each variant is pinned in `external/embedded-ruby-vm/RUBY_LIBS_VERSIONS`, and the embedded-ruby-vm release holds every variant (`embedded-ruby-vm-<platform>-ruby<variant>.tar.gz`). Clean the build directory when switching variants.
 
+### Debug builds in CI
+
+Pushes, pull requests and tags always build the runtimes optimised (`--enable-release`). A native debug build (`--enable-debug`, `CMAKE_BUILD_TYPE=Debug`) is a manual run of the workflow with `build_type: debug`. Its packages carry `-debug` in their version (`<NEXT_VERSION>-ruby3.0-debug-SNAPSHOT`, and `-debug-tracy-SNAPSHOT`; `X.Y.Z-ruby3.0-debug` when run on a tag), so they never replace the optimised runtimes of the same version. Such a run is never a release: no GitHub Release, no `Package.swift` update, no Kotlin host publish.
+
 ### Tracy profiler
 
 `./configure --enable-tracy` (`-DLITERGSS_USE_TRACY=ON`) builds LiteCGSS with its [Tracy v0.13.1](https://github.com/wolfpld/tracy/releases/tag/v0.13.1) instrumentation and folds the Tracy client into `librgss_runtime.a`. It is off by default, and a build only ever has one setting. An enabled client listens on TCP 8086, on localhost only (`TRACY_ONLY_LOCALHOST`), and does not announce itself on the network (`TRACY_NO_BROADCAST`). On the Android emulator (x86_64) it uses `TRACY_TIMER_FALLBACK`, because the emulated CPU has no invariant TSC and Tracy would otherwise abort at startup.

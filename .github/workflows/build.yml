@@ -90,14 +90,27 @@ jobs:
           # One build embeds one Ruby variant (minor version), so every release
           # tag and Maven version carries it: vX.Y.Z-ruby3.0 / X.Y.Z-ruby3.0[-SNAPSHOT].
           # A tag builds its own variant; other triggers build the input or default one.
+          # A debug build (workflow_dispatch, build_type: debug) is never a release
+          # and carries -debug: X.Y.Z-ruby3.0-debug[-SNAPSHOT], never replacing the
+          # optimised runtime of the same version, nor making a GitHub Release.
+          BUILD_TYPE="${{ github.event.inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            DEBUG_SUFFIX="-debug"
+          else
+            DEBUG_SUFFIX=""
+          fi
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
             if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-ruby([0-9]+\.[0-9]+)$ ]]; then
               echo "::error::Release tags must be vX.Y.Z-rubyA.B (e.g. v1.2.0-ruby3.0), got $GITHUB_REF_NAME"
               exit 1
             fi
             RUBY_VARIANT="${BASH_REMATCH[1]}"
-            VERSION="${GITHUB_REF_NAME#v}"
+            VERSION="${GITHUB_REF_NAME#v}${DEBUG_SUFFIX}"
+            if [ -n "$DEBUG_SUFFIX" ]; then
+              echo "is_release=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_release=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
             RUBY_VARIANT="${{ github.event.inputs.ruby_variant || env.DEFAULT_RUBY_VARIANT }}"
@@ -105,7 +118,7 @@ jobs:
             SM_COMMIT=$(git ls-tree HEAD external/embedded-ruby-vm | awk '{print $3}')
             SM_REPO=$(git config --file .gitmodules submodule.external/embedded-ruby-vm.url | sed 's|.*github.com[:/]||;s|\.git$||')
             VERSION="$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}-SNAPSHOT"
+              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}${DEBUG_SUFFIX}-SNAPSHOT"
           fi
           echo "ruby_variant=$RUBY_VARIANT" >> "$GITHUB_OUTPUT"
           if [ "$RUBY_VARIANT" = "${{ env.DEFAULT_RUBY_VARIANT }}" ]; then
@@ -128,7 +141,6 @@ jobs:
 
           PLATFORMS="${{ github.event.inputs.platforms || env.DEFAULT_PLATFORMS }}"
           ANDROID_ABIS="${{ github.event.inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
-          BUILD_TYPE="${{ github.event.inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             echo "build_type_flag=--enable-debug" >> "$GITHUB_OUTPUT"
