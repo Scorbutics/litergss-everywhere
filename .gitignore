@@ -1,6 +1,7 @@
 # Build directories
 build/
 target/
+target-android-tracy/
 build-kmp-*/
 
 # Symlinks

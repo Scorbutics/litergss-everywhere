@@ -158,6 +158,29 @@ Snapshots are pruned weekly (the 20 most recent and those younger than 90 days a
 
 One build embeds one Ruby minor version, selected with `./configure --with-ruby-variant=3.0|3.2|3.3` (default 3.0, `-DRUBY_VARIANT` in CMake). The ruby-for-android release of each variant is pinned in `external/embedded-ruby-vm/RUBY_LIBS_VERSIONS`, and the embedded-ruby-vm release holds every variant (`embedded-ruby-vm-<platform>-ruby<variant>.tar.gz`). Clean the build directory when switching variants.
 
+### Tracy profiler
+
+`./configure --enable-tracy` (`-DLITERGSS_USE_TRACY=ON`) builds LiteCGSS with its [Tracy v0.13.1](https://github.com/wolfpld/tracy/releases/tag/v0.13.1) instrumentation and folds the Tracy client into `librgss_runtime.a`. It is off by default, and a build only ever has one setting: an enabled client listens on TCP 8086 and announces itself on the local network.
+
+Upstream builds the client as a shared `libTracyClient` and leaves starting it to whoever loads `LiteRGSS_tracy.so`. Here the client is static, `litecgss.cmake` patches `TRACY_STATIC`, and `extension-init.c` starts the profiler before `Init_LiteRGSS`. Ruby scripts change nothing: `require 'LiteRGSS'` (or `'LiteRGSS_tracy'`) works as before. The profiler runs on demand (`TRACY_ON_DEMAND`): it records nothing until a server connects.
+
+Export to a target directory of its own, so a Tracy runtime never replaces the release one:
+
+```bash
+./configure --enable-tracy --target-dir=target-android-tracy
+make && make export   # fat libs and archives in target-android-tracy/
+```
+
+In Docker mode the container always builds in the same tree (`/opt/current/build`, `--build-dir` only places the downloads cache). A `./configure` without `--enable-tracy` switches it back: it passes `-DLITERGSS_USE_TRACY=OFF` explicitly, and LiteCGSS and `extension-init.c` are rebuilt.
+
+`make install` also publishes the KMP module, under the same Maven coordinates as a release build (`0.0.0-SNAPSHOT` in Maven Local, unless `KMP_VERSION` is set): the Tracy runtime then replaces the release one for every app that resolves it.
+
+To profile on Android, the app needs the `android.permission.INTERNET` permission. Then forward the port and connect the Tracy v0.13.1 profiler (the server version must match) to `127.0.0.1`:
+
+```bash
+adb forward tcp:8086 tcp:8086
+```
+
 ### Releasing
 
 Anything shipped (litergss-everywhere tag, PSDK-android release) must not depend on a snapshot:

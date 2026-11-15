@@ -3,7 +3,7 @@
 
 set(LITECGSS_VERSION "1.0.0")
 set(LITECGSS_GIT_URL "https://gitlab.com/NuriYuri/litecgss.git")
-set(LITECGSS_GIT_TAG "d8e3cb1a53aab5fd5805ecfa6eabad98e2c0d5ae")  # development (window origin, before Tracy)
+set(LITECGSS_GIT_TAG "2c9e158c1556d973e31e32308d4766cd44ec451b")  # development (Tracy), pinned by LiteRGSS2
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 
@@ -25,6 +25,16 @@ foreach(HEADER_FILE \${HEADER_FILES})
 endforeach()
 ")
 
+# Tracy's x86 timer is the TSC, and its client aborts the process at startup
+# when the CPU does not report it invariant ("CPU doesn't support invariant
+# TSC"): Android x86_64 is the emulator, whose virtual CPU does not. The
+# fallback timer (clock_gettime) there. TRACY_TIMER_FALLBACK is a PUBLIC define
+# of TracyClient: LiteCGSS's inlined zone timers get the same one.
+set(_LITECGSS_TRACY_ARGS "")
+if(LITERGSS_USE_TRACY AND PLATFORM_LOWER STREQUAL "android" AND TARGET_ARCH STREQUAL "x86_64")
+    list(APPEND _LITECGSS_TRACY_ARGS -DTRACY_TIMER_FALLBACK=ON)
+endif()
+
 # LiteCGSS configure command (CMake-based)
 get_sub_cmake_cross_args(_LITECGSS_CMAKE_ARGS)
 set(LITECGSS_CONFIGURE_CMD
@@ -34,6 +44,8 @@ set(LITECGSS_CONFIGURE_CMD
     -DCMAKE_POLICY_DEFAULT_CMP0074=NEW
     -DLITECGSS_NO_TEST=TRUE
     -DLITECGSS_USE_PHYSFS=TRUE
+    -DLITECGSS_USE_TRACY=${LITERGSS_USE_TRACY}
+    ${_LITECGSS_TRACY_ARGS}
     -DSFML_DIR=${SFML_DIR}
     -DSFML_ROOT=${SFML_DIR}
     -DSFML_STATIC_LIBRARIES=$<NOT:$<BOOL:${BUILD_SHARED_LIBS}>>
@@ -60,8 +72,16 @@ add_external_dependency(
     
     CONFIGURE_COMMAND       ${LITECGSS_CONFIGURE_CMD}
     
+    # LiteCGSS builds libTracyClient shared, to share it with other
+    # instrumented Ruby extensions loaded as .so: a normal variable, a
+    # -DTRACY_STATIC=ON cannot override it (CMP0077). The runtime is one
+    # static library, so is the client: one profiler instance in there.
+    # grep fails the patch step if upstream changes that line.
     PATCH_COMMAND           sed -i.bak "s/assert(d != nullptr)//" src/src/LiteCGSS/Views/View.h
                             COMMAND ${CMAKE_COMMAND} -E rm -f src/src/LiteCGSS/Views/View.h.bak
+                            COMMAND sed -i.bak "s/set(TRACY_STATIC OFF)/set(TRACY_STATIC ON)/" CMakeLists.txt
+                            COMMAND ${CMAKE_COMMAND} -E rm -f CMakeLists.txt.bak
+                            COMMAND grep -q "set(TRACY_STATIC ON)" CMakeLists.txt
     
     BUILD_COMMAND           ${CMAKE_COMMAND} -E env ${BUILD_ENV}
                             ${CMAKE_COMMAND} --build .
@@ -70,6 +90,8 @@ add_external_dependency(
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libLiteCGSS_engine.${LITECGSS_LIB_EXT} ${BUILD_STAGING_DIR}/usr/local/lib/
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libphysfs.a ${BUILD_STAGING_DIR}/usr/local/lib/
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libskalog.${LITECGSS_LIB_EXT} ${BUILD_STAGING_DIR}/usr/local/lib/
+                            # Built with or without Tracy (a no-op then): LiteCGSS_engine links it
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${LITECGSS_SOURCE_DIR}/lib/libTracyClient.a ${BUILD_STAGING_DIR}/usr/local/lib/
                             COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/litecgss_install_headers.cmake
                             COMMAND ${CMAKE_COMMAND} -E copy_directory ${LITECGSS_SOURCE_DIR}/external/skalog/src/src/ ${BUILD_STAGING_DIR}/usr/local/include/
     
