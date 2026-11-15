@@ -73,6 +73,7 @@ jobs:
       has_macos: ${{ steps.set-params.outputs.has_macos }}
       is_release: ${{ steps.set-params.outputs.is_release }}
       version: ${{ steps.set-params.outputs.version }}
+      tracy_version: ${{ steps.set-params.outputs.tracy_version }}
       ruby_variant: ${{ steps.set-params.outputs.ruby_variant }}
       is_default_variant: ${{ steps.set-params.outputs.is_default_variant }}
       android_abis: ${{ steps.set-params.outputs.android_abis }}
@@ -115,6 +116,15 @@ jobs:
           echo "Ruby variant: $RUBY_VARIANT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
+          # The Tracy runtime (--enable-tracy), for debug builds: X.Y.Z-ruby3.0-tracy,
+          # -tracy before -SNAPSHOT so that Maven still sees a snapshot
+          if [[ "$VERSION" == *-SNAPSHOT ]]; then
+            TRACY_VERSION="${VERSION%-SNAPSHOT}-tracy-SNAPSHOT"
+          else
+            TRACY_VERSION="${VERSION}-tracy"
+          fi
+          echo "tracy_version=$TRACY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tracy version: $TRACY_VERSION"
 
           PLATFORMS="${{ github.event.inputs.platforms || env.DEFAULT_PLATFORMS }}"
           ANDROID_ABIS="${{ github.event.inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
@@ -172,7 +182,9 @@ jobs:
     strategy:
       matrix:
         abi: ${{ fromJson(needs.prepare.outputs.android_abis_json) }}
-    name: Build Android (${{ matrix.abi }})
+        # The Tracy runtime too, published as <version>-tracy (debug builds)
+        tracy: [false, true]
+    name: Build Android (${{ matrix.abi }}${{ matrix.tracy && ', Tracy' || '' }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -212,6 +224,7 @@ jobs:
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android \
+            ${{ matrix.tracy && '--enable-tracy' || '' }} \
             ${{ needs.prepare.outputs.build_type_flag }}
 
       - name: Build
@@ -223,7 +236,8 @@ jobs:
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: build-android-${{ matrix.abi }}
+          # build-tracy-android-*: not matched by the release install's build-android-*
+          name: ${{ matrix.tracy && 'build-tracy-android' || 'build-android' }}-${{ matrix.abi }}
           path: target-android/
           if-no-files-found: error
           retention-days: 1
@@ -455,7 +469,10 @@ jobs:
     needs: [prepare, build-android]
     if: needs.prepare.outputs.has_android == 'true'
     runs-on: ubuntu-latest
-    name: Install Android
+    strategy:
+      matrix:
+        tracy: [false, true]
+    name: Install Android${{ matrix.tracy && ' (Tracy)' || '' }}
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -465,7 +482,7 @@ jobs:
       - name: Download per-ABI build outputs
         uses: actions/download-artifact@v4
         with:
-          pattern: build-android-*
+          pattern: ${{ matrix.tracy && 'build-tracy-android' || 'build-android' }}-*
           path: build-artifacts
 
       - name: Set up JDK
@@ -482,12 +499,13 @@ jobs:
             ${{ needs.prepare.outputs.android_toolchain_args }} \
             --build-dir=build-android \
             --target-dir=target-android \
+            ${{ matrix.tracy && '--enable-tracy' || '' }} \
             ${{ needs.prepare.outputs.build_type_flag }}
 
       - name: Merge ABI exports
         run: |
           MERGE_SOURCES=""
-          for dir in build-artifacts/build-android-*/; do
+          for dir in build-artifacts/*/; do
             [ -d "$dir" ] || continue
             MERGE_SOURCES="$MERGE_SOURCES $dir"
           done
@@ -497,7 +515,7 @@ jobs:
         env:
           # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
-          KMP_VERSION: ${{ needs.prepare.outputs.version }}
+          KMP_VERSION: ${{ matrix.tracy && needs.prepare.outputs.tracy_version || needs.prepare.outputs.version }}
         run: make publish-kmp
 
       - name: Find AAR artifact
@@ -514,7 +532,7 @@ jobs:
       - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-android
+          name: ${{ matrix.tracy && 'intermediate-android-tracy' || 'intermediate-android' }}
           path: ${{ steps.find-aar.outputs.aar_path }}
           if-no-files-found: error
           retention-days: 1
@@ -522,7 +540,7 @@ jobs:
       - name: Upload Maven repo
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-android-maven
+          name: ${{ matrix.tracy && 'intermediate-android-tracy-maven' || 'intermediate-android-maven' }}
           path: target-android/maven/
           if-no-files-found: warn
           retention-days: 1
@@ -769,6 +787,20 @@ jobs:
           name: intermediate-android-maven
           path: staging/android-maven
 
+      - name: Download Android Tracy AAR
+        if: needs.prepare.outputs.has_android == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-android-tracy
+          path: staging/android-tracy
+
+      - name: Download Android Tracy Maven repo
+        if: needs.prepare.outputs.has_android == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: intermediate-android-tracy-maven
+          path: staging/android-tracy-maven
+
       - name: Download Linux x86_64 build
         if: needs.prepare.outputs.has_linux_x86_64 == 'true'
         uses: actions/download-artifact@v4
@@ -815,6 +847,12 @@ jobs:
             for aar in staging/android/*.aar; do
               BASENAME=$(basename "$aar" .aar)
               cp "$aar" "release-assets/${BASENAME}-${VERSION}.aar"
+            done
+          fi
+          if [ -d staging/android-tracy ]; then
+            for aar in staging/android-tracy/*.aar; do
+              BASENAME=$(basename "$aar" .aar)
+              cp "$aar" "release-assets/${BASENAME}-${{ needs.prepare.outputs.tracy_version }}.aar"
             done
           fi
 
@@ -870,9 +908,10 @@ jobs:
           # already have re-published its own.
           SCOPE: linux
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
+          # The release runtime's version and the Tracy one's (rgss-runtime-android only)
+          VERSIONS="${{ needs.prepare.outputs.version }} ${{ needs.prepare.outputs.tracy_version }}"
           OWNER="${{ github.repository_owner }}"
-          echo "Deleting existing SNAPSHOT package versions (${VERSION}, ${SCOPE} packages) before re-publishing..."
+          echo "Deleting existing SNAPSHOT package versions (${VERSIONS}, ${SCOPE} packages) before re-publishing..."
           # Published by package-linux; every other package by package-apple.
           LINUX_PACKAGES="rgss-runtime-android rgss-runtime-desktop rgss-runtime-linuxx64"
 
@@ -885,37 +924,39 @@ jobs:
             --paginate --jq '.[].name' 2>/dev/null) || \
           PACKAGES=""
 
-          for PACKAGE in $PACKAGES; do
-            case " $LINUX_PACKAGES " in
-              *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
-              *) PACKAGE_SCOPE=apple ;;
-            esac
-            [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
+          for VERSION in $VERSIONS; do
+            for PACKAGE in $PACKAGES; do
+              case " $LINUX_PACKAGES " in
+                *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
+                *) PACKAGE_SCOPE=apple ;;
+              esac
+              [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
 
-            # Find the version ID matching our SNAPSHOT version
-            VERSION_ID=$(gh api \
-              "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-            VERSION_ID=$(gh api \
-              "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-            VERSION_ID=""
+              # Find the version ID matching our SNAPSHOT version
+              VERSION_ID=$(gh api \
+                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
+                --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+              VERSION_ID=$(gh api \
+                "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
+                --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
+              VERSION_ID=""
 
-            if [ -n "$VERSION_ID" ]; then
-              echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
-              # Try deleting the version; if it's the last version, delete the whole package instead
-              if ! gh api --method DELETE \
-                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
-                ! gh api --method DELETE \
-                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
-                echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
-                gh api --method DELETE \
-                  "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+              if [ -n "$VERSION_ID" ]; then
+                echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
+                # Try deleting the version; if it's the last version, delete the whole package instead
+                if ! gh api --method DELETE \
+                  "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
+                  ! gh api --method DELETE \
+                  "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
+                  echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
                   gh api --method DELETE \
-                  "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
-                  echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+                    "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                    gh api --method DELETE \
+                    "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
+                    echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
+                fi
               fi
-            fi
+            done
           done
           echo "SNAPSHOT cleanup complete."
 
@@ -934,6 +975,39 @@ jobs:
           fi
 
           echo "Publishing AAR as com.scorbutics.rubyvm:rgss-runtime-android:${VERSION}"
+
+          DEPLOY_ARGS=(
+            -DgroupId=com.scorbutics.rubyvm
+            -DartifactId=rgss-runtime-android
+            -Dversion="$VERSION"
+            -Dpackaging=aar
+            -Dfile="$AAR_FILE"
+            -DrepositoryId=github
+            -Durl="$REPO_URL"
+          )
+          if [ -n "$POM_FILE" ]; then
+            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
+          else
+            DEPLOY_ARGS+=(-DgeneratePom=true)
+          fi
+
+          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+
+      - name: Publish Tracy AAR to GitHub Packages
+        if: needs.prepare.outputs.has_android == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.tracy_version }}"
+          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+
+          AAR_FILE=$(find staging/android-tracy-maven -name '*.aar' | head -1)
+          POM_FILE=$(find staging/android-tracy-maven -name '*.pom' | head -1)
+
+          if [ -z "$AAR_FILE" ]; then
+            echo "ERROR: No AAR file found in staging/android-tracy-maven"
+            exit 1
+          fi
+
+          echo "Publishing Tracy AAR as com.scorbutics.rubyvm:rgss-runtime-android:${VERSION}"
 
           DEPLOY_ARGS=(
             -DgroupId=com.scorbutics.rubyvm

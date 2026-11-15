@@ -31,6 +31,11 @@ endforeach()
 # fallback timer (clock_gettime) there. TRACY_TIMER_FALLBACK is a PUBLIC define
 # of TracyClient: LiteCGSS's inlined zone timers get the same one.
 set(_LITECGSS_TRACY_ARGS "")
+if(LITERGSS_USE_TRACY)
+    # Debug builds ship it: listen on localhost only (adb forward still
+    # reaches it) and do not announce the app on the local network
+    list(APPEND _LITECGSS_TRACY_ARGS -DTRACY_ONLY_LOCALHOST=ON -DTRACY_NO_BROADCAST=ON)
+endif()
 if(LITERGSS_USE_TRACY AND PLATFORM_LOWER STREQUAL "android" AND TARGET_ARCH STREQUAL "x86_64")
     list(APPEND _LITECGSS_TRACY_ARGS -DTRACY_TIMER_FALLBACK=ON)
 endif()

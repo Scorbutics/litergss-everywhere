@@ -160,7 +160,7 @@ One build embeds one Ruby minor version, selected with `./configure --with-ruby-
 
 ### Tracy profiler
 
-`./configure --enable-tracy` (`-DLITERGSS_USE_TRACY=ON`) builds LiteCGSS with its [Tracy v0.13.1](https://github.com/wolfpld/tracy/releases/tag/v0.13.1) instrumentation and folds the Tracy client into `librgss_runtime.a`. It is off by default, and a build only ever has one setting: an enabled client listens on TCP 8086 and announces itself on the local network.
+`./configure --enable-tracy` (`-DLITERGSS_USE_TRACY=ON`) builds LiteCGSS with its [Tracy v0.13.1](https://github.com/wolfpld/tracy/releases/tag/v0.13.1) instrumentation and folds the Tracy client into `librgss_runtime.a`. It is off by default, and a build only ever has one setting. An enabled client listens on TCP 8086, on localhost only (`TRACY_ONLY_LOCALHOST`), and does not announce itself on the network (`TRACY_NO_BROADCAST`). On the Android emulator (x86_64) it uses `TRACY_TIMER_FALLBACK`, because the emulated CPU has no invariant TSC and Tracy would otherwise abort at startup.
 
 Upstream builds the client as a shared `libTracyClient` and leaves starting it to whoever loads `LiteRGSS_tracy.so`. Here the client is static, `litecgss.cmake` patches `TRACY_STATIC`, and `extension-init.c` starts the profiler before `Init_LiteRGSS`. Ruby scripts change nothing: `require 'LiteRGSS'` (or `'LiteRGSS_tracy'`) works as before. The profiler runs on demand (`TRACY_ON_DEMAND`): it records nothing until a server connects.
 
@@ -175,11 +175,15 @@ In Docker mode the container always builds in the same tree (`/opt/current/build
 
 `make install` also publishes the KMP module, under the same Maven coordinates as a release build (`0.0.0-SNAPSHOT` in Maven Local, unless `KMP_VERSION` is set): the Tracy runtime then replaces the release one for every app that resolves it.
 
+CI publishes the Tracy runtime of every build next to the release one, as `rgss-runtime-android:<version>-tracy` (for example `1.14.0-ruby3.0-tracy`, or `…-ruby3.0-tracy-SNAPSHOT`). PSDK-android uses it for its debug APK.
+
 To profile on Android, the app needs the `android.permission.INTERNET` permission. Then forward the port and connect the Tracy v0.13.1 profiler (the server version must match) to `127.0.0.1`:
 
 ```bash
 adb forward tcp:8086 tcp:8086
 ```
+
+Each process that starts a Ruby VM starts its own profiler, on the first free port from 8086. In PSDK-android the launcher (`com.psdk.starter`) takes 8086 and the game (`com.psdk.starter:game`) gets 8087, so profiling the game means `adb forward tcp:8087 tcp:8087`.
 
 ### Releasing
 
