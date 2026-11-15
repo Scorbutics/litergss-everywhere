@@ -183,7 +183,7 @@ To profile on Android, the app needs the `android.permission.INTERNET` permissio
 adb forward tcp:8086 tcp:8086
 ```
 
-Each process that starts a Ruby VM starts its own profiler, on the first free port from 8086. In PSDK-android the launcher (`com.psdk.starter`) takes 8086 and the game (`com.psdk.starter:game`) gets 8087, so profiling the game means `adb forward tcp:8087 tcp:8087`. A debug build has two more listeners per process, remote debug and remote eval: all the ports of a debug APK are in [INTEGRATION.md, Debug Listeners](INTEGRATION.md#debug-listeners).
+Each process that starts a Ruby VM starts its own profiler, on the first free port from 8086, or on the one its `TRACY_PORT` environment variable names. PSDK-android pins them: the game (`com.psdk.starter:game`) on 8086, the launcher (`com.psdk.starter`) on 8096. A debug build has two more listeners per process, remote debug and remote eval: all the ports of a debug APK are in [INTEGRATION.md, Debug Listeners](INTEGRATION.md#debug-listeners).
 
 ### Releasing
 
