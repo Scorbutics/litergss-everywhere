@@ -182,9 +182,10 @@ jobs:
     strategy:
       matrix:
         abi: ${{ fromJson(needs.prepare.outputs.android_abis_json) }}
-        # The Tracy runtime too, published as <version>-tracy (debug builds)
-        tracy: [false, true]
-    name: Build Android (${{ matrix.abi }}${{ matrix.tracy && ', Tracy' || '' }})
+    # Both runtimes, one after the other in the same build tree: the release
+    # one, then the Tracy one (<version>-tracy, debug builds). --enable-tracy
+    # only rebuilds LiteCGSS, LiteRGSS2, extension-init.o and the fat library.
+    name: Build Android (${{ matrix.abi }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -224,7 +225,6 @@ jobs:
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android \
-            ${{ matrix.tracy && '--enable-tracy' || '' }} \
             ${{ needs.prepare.outputs.build_type_flag }}
 
       - name: Build
@@ -233,12 +233,53 @@ jobs:
       - name: Export build outputs
         run: make export
 
+      - name: Configure (Tracy)
+        run: |
+          ./configure \
+            --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
+            --build-dir=build-android \
+            --target-dir=target-android-tracy \
+            --enable-tracy \
+            ${{ needs.prepare.outputs.build_type_flag }}
+
+      - name: Build (Tracy)
+        run: make build
+
+      - name: Export build outputs (Tracy)
+        run: make export
+
+      # The Tracy build is incremental, over the release one: a step that
+      # did not rebuild would ship one runtime as the other
+      - name: Check the Tracy client is in the Tracy runtime only
+        run: |
+          has_tracy() {
+            nm --defined-only "$1" 2>/dev/null | grep -q ' T ___tracy_startup_profiler$'
+          }
+          RELEASE_LIB=target-android/fat-libs/${{ matrix.abi }}/librgss_runtime.a
+          TRACY_LIB=target-android-tracy/fat-libs/${{ matrix.abi }}/librgss_runtime.a
+          if has_tracy "$RELEASE_LIB"; then
+            echo "::error::$RELEASE_LIB has the Tracy client"; exit 1
+          fi
+          if ! has_tracy "$TRACY_LIB"; then
+            echo "::error::$TRACY_LIB has no Tracy client"; exit 1
+          fi
+          echo "Release runtime: no Tracy client. Tracy runtime: Tracy client."
+
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          # build-tracy-android-*: not matched by the release install's build-android-*
-          name: ${{ matrix.tracy && 'build-tracy-android' || 'build-android' }}-${{ matrix.abi }}
+          name: build-android-${{ matrix.abi }}
           path: target-android/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload build outputs (Tracy)
+        uses: actions/upload-artifact@v4
+        with:
+          # build-tracy-android-*: not matched by the release install's build-android-*
+          name: build-tracy-android-${{ matrix.abi }}
+          path: target-android-tracy/
           if-no-files-found: error
           retention-days: 1
 

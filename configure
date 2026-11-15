@@ -398,15 +398,14 @@ sync:
 # Start the development container
 docker-start:
 	@echo "Starting development container..."
-	@if docker compose up -d litergss-dev 2>&1 | grep -q "Started\|Running"; then \
+	@# Its exit status, not its output: "Started" also comes from the init
+	@# container, printed when litergss-dev (its image build) failed
+	@if out=$$(docker compose up -d litergss-dev 2>&1); then \
 		echo "Development container started"; \
 	else \
-		if docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
-			echo "Development container already running"; \
-		else \
-			echo "Error: Failed to start development container"; \
-			exit 1; \
-		fi \
+		printf '%s\n' "$$out"; \
+		echo "Error: Failed to start development container"; \
+		exit 1; \
 	fi
 	@echo "Waiting for container to be ready..."
 	@max_attempts=30; attempt=0; \
@@ -420,6 +419,8 @@ docker-start:
 	done; \
 	if [ $$attempt -eq $$max_attempts ]; then \
 		echo "Error: Container failed to become ready"; \
+		docker compose ps -a 2>&1 || true; \
+		docker compose logs --tail 50 litergss-dev 2>&1 || true; \
 		exit 1; \
 	fi
 
