@@ -120,6 +120,10 @@ Next to them, with the same version, `com.scorbutics.litergss:litergss-host`: th
 Android host classes and the touch overlay's layout model (see below), one
 artifact for every Ruby variant.
 
+`rgss-runtime-android` also comes as `<version>-tracy` (from 1.14.0, e.g.
+`1.14.0-ruby3.0-tracy`): the same runtime with the Tracy profiler built in, for
+debug builds only. It opens a port of its own, see [Debug Listeners](#debug-listeners).
+
 ### Hosting the Game (litergss-host)
 
 LiteRGSS draws into a view of the host app. `litergss-host` holds that side:
@@ -494,6 +498,40 @@ reads (the game gets them as LiteRGSS handed them over).
 
 The game area is the host's to give, because the host knows the game. PSDK-android
 reads it from PSDK's own viewport offsets, which it sets back to 0.
+
+---
+
+## Debug Listeners
+
+A debug build can open up to three TCP listeners **per process running a Ruby VM**.
+None is opened by a release build of the runtime, unless its host enables one.
+
+| Listener | Opened by | Port | Client |
+|---|---|---|---|
+| Remote debug (rdbg / DAP) | the host, `RubyInterpreter.enableRemoteDebug(host, port, token, name)` | the host's choice | `RUBY_DEBUG_COOKIE=<token> rdbg --attach 127.0.0.1 <port>`, or a DAP client (VS Code rdbg) |
+| Remote eval console | the host, `RubyInterpreter.enableRemoteEval(host, port, token, name)` | the host's choice | `rlwrap nc 127.0.0.1 <port>`, then send the token, then Ruby lines |
+| Tracy profiler | the runtime itself, at VM start, in the `-tracy` runtime only | first free one from 8086 (up to 8105) | Tracy **v0.13.1** (GUI, or `tracy-capture -a 127.0.0.1 -p <port>`) |
+
+- **Remote debug and eval** belong to embedded-ruby-vm: both must be enabled before the first script runs, and both need a non-empty shared token. See [`RubyInterpreter.kt`](../external/embedded-ruby-vm/kmp/src/commonMain/kotlin/com/scorbutics/rubyvm/RubyInterpreter.kt). Bind them to `127.0.0.1` (the default for a `null` host).
+- **Tracy** listens on localhost only and does not broadcast (`TRACY_ONLY_LOCALHOST`, `TRACY_NO_BROADCAST`). It needs no token, but it records nothing until a server connects. Its port is not chosen by the host: each process takes the first free one from 8086, so with several processes the order they start in decides. A `TRACY_PORT` environment variable, set before the VM starts, fixes it (no search then: busy means no profiler).
+- **Reaching them on Android:** all three are on the device's loopback; forward each port you want, `adb forward tcp:<port> tcp:<port>`. The app needs `android.permission.INTERNET`.
+
+### PSDK-android's debug APK
+
+PSDK-android enables the remote debug and eval listeners in its debug builds ([`RemoteListenerConfig.kt`](https://github.com/Scorbutics/PSDK-android/blob/master/app/src/main/java/com/psdk/ruby/vm/RemoteListenerConfig.kt), token `psdk-dev-cookie`), and from litergss 1.14.0 its debug APK embeds the `-tracy` runtime. Its two processes both run a VM while a game runs, so a debug APK opens six ports:
+
+| Process | Remote debug | Remote eval | Tracy |
+|---|---|---|---|
+| Game (`com.psdk.starter:game`) | 7777 | 7778 | 8087 |
+| Launcher (`com.psdk.starter`) | 7787 | 7788 | 8086 |
+
+The launcher's VM starts first and takes 8086, so the game's profiler is on 8087. When another PSDK app holds the ports, the debug and eval pair moves by +100 (7877 / 7878, ...) and Tracy to the next free port: logcat (tags `PsdkInterpreter`, `GameActivity`) has the ones in use.
+
+```bash
+adb forward tcp:7777 tcp:7777   # rdbg, game
+adb forward tcp:7778 tcp:7778   # eval, game
+adb forward tcp:8087 tcp:8087   # Tracy, game
+```
 
 ---
 
