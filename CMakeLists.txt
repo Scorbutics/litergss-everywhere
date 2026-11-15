@@ -16,6 +16,14 @@ else()
     message(STATUS "LiteRGSS: Static linking enabled (all .a libraries)")
 endif()
 
+# Tracy profiler (https://github.com/wolfpld/tracy): LiteCGSS instrumented,
+# the client folded into the runtime and started by extension-init.c.
+# Off by default: an enabled client listens on TCP 8086 (localhost only,
+# no broadcast: litecgss.cmake) and records once a server connects. For
+# debug builds and profiling sessions, not something to ship to players.
+option(LITERGSS_USE_TRACY "Build LiteCGSS with the Tracy profiler client" OFF)
+message(STATUS "LiteRGSS: Tracy profiler ${LITERGSS_USE_TRACY}")
+
 # ============================================================================
 # CORE BUILD SYSTEM - Generic cross-platform infrastructure
 # ============================================================================

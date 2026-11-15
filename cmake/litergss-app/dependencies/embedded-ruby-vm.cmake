@@ -207,9 +207,16 @@ if(APPLE)
     endif()
 endif()
 
+# extension-init.c starts the Tracy profiler (LITERGSS_USE_TRACY, CMakeLists.txt)
+set(_ERVM_EXT_INIT_DEFINES "")
+if(LITERGSS_USE_TRACY)
+    list(APPEND _ERVM_EXT_INIT_DEFINES -DLITERGSS_USE_TRACY)
+endif()
+
 list(APPEND _ERVM_INSTALL_CMD
     COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST} ${_ERVM_APPLE_FLAGS}
         ${_ERVM_WARNING_FLAGS}
+        ${_ERVM_EXT_INIT_DEFINES}
         -I${BUILD_STAGING_DIR}/usr/local/include
         -I${BUILD_STAGING_DIR}/usr/local/include/embedded-ruby-vm/static
         -isystem ${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/ruby
@@ -249,7 +256,9 @@ add_external_dependency(
     VERSION             ${EMBEDDED_RUBY_VM_VERSION}
     URL                 ${EMBEDDED_RUBY_VM_URL}
 
-    CONFIGURE_COMMAND   ${CMAKE_COMMAND} -E echo "embedded-ruby-vm: prebuilt, no configure needed"
+    # The Tracy state in the command: ExternalProject re-runs the steps when it
+    # changes, recompiling extension-init.c for a reconfigured LITERGSS_USE_TRACY
+    CONFIGURE_COMMAND   ${CMAKE_COMMAND} -E echo "embedded-ruby-vm: prebuilt, no configure needed (Tracy: ${LITERGSS_USE_TRACY})"
     BUILD_COMMAND       ${CMAKE_COMMAND} -E echo "embedded-ruby-vm: prebuilt, no build needed"
     INSTALL_COMMAND     ${_ERVM_INSTALL_CMD}
 

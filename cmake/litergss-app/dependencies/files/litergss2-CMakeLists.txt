@@ -30,5 +30,5 @@ if(BUILD_SHARED_LIBS)
     set_target_properties(LiteRGSS PROPERTIES PREFIX "")
 endif()
 
-set(TARGET_LIBS LiteCGSS_engine sfml-graphics sfml-window sfml-system ruby physfs skalog)
+set(TARGET_LIBS LiteCGSS_engine sfml-graphics sfml-window sfml-system ruby physfs skalog TracyClient)
 target_link_libraries(LiteRGSS ${TARGET_LIBS})

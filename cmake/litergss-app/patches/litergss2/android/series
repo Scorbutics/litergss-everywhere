@@ -1,5 +1,0 @@
-# Patch series for LiteRGSS2 on Android
-
-# Rename Init_LiteRGSS to Init_libLiteRGSS for Ruby dlopen compatibility.
-# Only for shared builds; static builds call Init_LiteRGSS directly via extension-init.c.
-prefix_with_lib.patch  [shared]

@@ -3,7 +3,7 @@
 
 set(LITERGSS2_VERSION "2.0.0")
 set(LITERGSS2_GIT_URL "https://gitlab.com/pokemonsdk/litergss2.git")
-set(LITERGSS2_GIT_TAG "03baa8212bd57b0c474ad408ac21eaa6e4226d77")  # development
+set(LITERGSS2_GIT_TAG "b21dda43ad5d7f787c32ade109df34775732c6e6")  # development (Tracy)
 
 option(BUILD_SHARED_WRAPPER "Build single shared library wrapper (rgss_runtime) instead of archive" OFF)
 
@@ -17,6 +17,20 @@ get_ruby_arch(RUBY_ARCH "litergss2")
 # Build directory for install command reference
 set(LITERGSS2_BUILD_DIR "${CMAKE_BINARY_DIR}/litergss2/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/litergss2-${LITERGSS2_VERSION}")
 set(LITERGSS2_EXTRA_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/LiteCGSS -DLITECGSS_USE_PHYSFS ${RUBY_INCLUDE_DIR_CFLAGS}")
+
+# LiteRGSS2 names its init function from INIT_FUNCTION_NAME (extconf.rb sets
+# it, our CMakeLists stands in for extconf.rb). Upstream's Tracy builds name it
+# Init_LiteRGSS_tracy, so that a Tracy .so is never loaded by a Ruby that did
+# not start the profiler. extension-init.c calls it right after starting the
+# profiler, and `require 'LiteRGSS'` is answered by its rb_provide: the static
+# runtime keeps Init_LiteRGSS in both builds, PSDK's require unchanged.
+# Android shared builds: Init_libLiteRGSS, Ruby's dlopen name of libLiteRGSS.so.
+if(BUILD_SHARED_LIBS AND PLATFORM_LOWER STREQUAL "android")
+    set(LITERGSS2_INIT_FUNCTION_NAME "Init_libLiteRGSS")
+else()
+    set(LITERGSS2_INIT_FUNCTION_NAME "Init_LiteRGSS")
+endif()
+string(APPEND LITERGSS2_EXTRA_CFLAGS " -DINIT_FUNCTION_NAME=${LITERGSS2_INIT_FUNCTION_NAME}")
 
 # litergss2 configure command (CMake-based)
 # Note: Now builds as static library for all platforms internally
@@ -124,6 +138,7 @@ if(BUILD_SHARED_WRAPPER)
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a" # LiteCGSS setup usually static
         "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.${DEP_EXT}"
+        "${BUILD_STAGING_DIR}/usr/local/lib/libTracyClient.a" # Always static (litecgss.cmake)
         "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libogg.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.${DEP_EXT}"
@@ -248,6 +263,9 @@ else()
             # resolves without any .so loading at runtime.
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs-ruby.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
+            # Tracy client: LiteCGSS's zones, started by extension-init.c
+            # (empty without LITERGSS_USE_TRACY)
+            "${BUILD_STAGING_DIR}/usr/local/lib/libTracyClient.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libfreetype.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libogg.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.a"

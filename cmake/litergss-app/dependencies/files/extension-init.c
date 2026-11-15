@@ -32,7 +32,31 @@ extern void Init_physfs(void);
 /* ruby-client.c: registers ruby/litergss with embedded-ruby-vm's install */
 extern void litergss_register_ruby_client(void);
 
+#ifdef LITERGSS_USE_TRACY
+/* Tracy C API (tracy/TracyC.h, TRACY_MANUAL_LIFETIME), libTracyClient.a.
+ * Declared here: TracyC.h only declares them under Tracy's own defines. */
+extern void ___tracy_startup_profiler(void);
+extern int ___tracy_profiler_started(void);
+
+/* LiteCGSS is built with TRACY_MANUAL_LIFETIME: its zones crash until the
+ * profiler is started, and no Ruby code can do it (upstream expects the
+ * caller of LiteRGSS_tracy.so to). Started before any LiteCGSS code runs,
+ * once per process: the VM may be initialised again (soft reset), the
+ * profiler outlives it. Never shut down: LiteCGSS objects freed by the
+ * last GC still open zones. TRACY_ON_DEMAND: nothing is recorded until a
+ * Tracy server connects (Android: adb forward tcp:8086 tcp:8086). */
+static void litergss_start_tracy(void) {
+    if (!___tracy_profiler_started()) {
+        ___tracy_startup_profiler();
+    }
+}
+#endif
+
 void initialize_litergss_extensions(void) {
+#ifdef LITERGSS_USE_TRACY
+    litergss_start_tracy();
+#endif
+
     /* Initialize the ruby-physfs gem first — pokemonsdk Ruby code that
      * runs during LiteRGSS initialization may already need PhysFS::mount.
      * The gem is statically compiled into libphysfs-ruby.a (built by
@@ -44,6 +68,10 @@ void initialize_litergss_extensions(void) {
     /* Initialize LiteRGSS extension */
     Init_LiteRGSS();
     rb_provide("LiteRGSS");
+#ifdef LITERGSS_USE_TRACY
+    /* Upstream's name for a Tracy build: scripts requiring it get this one */
+    rb_provide("LiteRGSS_tracy");
+#endif
 
     /* Initialize SFMLAudio extension */
     Init_SFMLAudio();

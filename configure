@@ -45,6 +45,8 @@ Configuration Options:
   --enable-static           Build static libraries (.a files) - default
   --enable-debug            Build with debug symbols and logging (CMAKE_BUILD_TYPE=Debug)
   --enable-release          Build with optimizations (CMAKE_BUILD_TYPE=Release)
+  --enable-tracy            Build with the Tracy profiler client (LiteCGSS instrumented,
+                            profiler started with the Ruby VM; connect a Tracy v0.13.1 server)
   --with-ruby-variant=X.Y   Ruby minor version to embed: 3.0 (default), 3.2 or 3.3
                             (the variants pinned in external/embedded-ruby-vm/RUBY_LIBS_VERSIONS)
   --prefix=PREFIX           Installation prefix (default: /usr/local)
@@ -115,6 +117,10 @@ while [ $# -gt 0 ]; do
 			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release"
 			shift
 			;;
+		--enable-tracy)
+			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DLITERGSS_USE_TRACY=ON"
+			shift
+			;;
 		--with-ruby-variant=*)
 			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DRUBY_VARIANT=${1#*=}"
 			shift
@@ -141,6 +147,13 @@ while [ $# -gt 0 ]; do
 			;;
 	esac
 done
+
+# Tracy is always passed explicitly: a cached ON from an earlier
+# --enable-tracy configure must not survive a configure without it
+case "$EXTRA_CMAKE_ARGS" in
+	*-DLITERGSS_USE_TRACY=ON*) ;;
+	*) EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DLITERGSS_USE_TRACY=OFF" ;;
+esac
 
 # Apply default if no toolchain params specified
 if [ -z "$TOOLCHAIN_PARAMS_LIST" ]; then
@@ -256,6 +269,9 @@ elif echo "$EXTRA_CMAKE_ARGS" | grep -q "CMAKE_BUILD_TYPE=Release"; then
 	echo "Build type: Release (optimized)"
 else
 	echo "Build type: Default (unspecified)"
+fi
+if echo "$EXTRA_CMAKE_ARGS" | grep -q "LITERGSS_USE_TRACY=ON"; then
+	echo "Tracy profiler: enabled"
 fi
 
 # Generate Makefile
