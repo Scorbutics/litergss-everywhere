@@ -926,8 +926,9 @@ jobs:
 
           for VERSION in $VERSIONS; do
             for PACKAGE in $PACKAGES; do
+              # GitHub names them groupId.artifactId: compare the artifactId
               case " $LINUX_PACKAGES " in
-                *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
+                *" ${PACKAGE##*.} "*) PACKAGE_SCOPE=linux ;;
                 *) PACKAGE_SCOPE=apple ;;
               esac
               [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
@@ -1339,8 +1340,9 @@ jobs:
           PACKAGES=""
 
           for PACKAGE in $PACKAGES; do
+            # GitHub names them groupId.artifactId: compare the artifactId
             case " $LINUX_PACKAGES " in
-              *" $PACKAGE "*) PACKAGE_SCOPE=linux ;;
+              *" ${PACKAGE##*.} "*) PACKAGE_SCOPE=linux ;;
               *) PACKAGE_SCOPE=apple ;;
             esac
             [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
