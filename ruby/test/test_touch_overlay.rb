@@ -1181,7 +1181,7 @@ class TestTouchOverlay < Minitest::Test
   end
 
   def test_a_scale_or_opacity_out_of_range_refuses_the_file
-    [{ 'scale' => 0.4 }, { 'scale' => 2.5 }, { 'scale' => 'big' }, { 'opacity' => 0.0 }, { 'opacity' => 0.9 }].each do |data|
+    [{ 'scale' => 0.4 }, { 'scale' => 2.5 }, { 'scale' => 'big' }, { 'opacity' => -0.1 }, { 'opacity' => 0.9 }].each do |data|
       _, err = capture_io { refute load_file(data) }
       assert_match(/layout: (scale|opacity) in/, err)
     end

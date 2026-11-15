@@ -136,7 +136,7 @@ class PlayerLayout private constructor(private val root: Map<String, JsonElement
 
         /** The runtime's LayoutFile ranges. */
         val SCALES = 0.5..2.0
-        val OPACITIES = 0.1..0.8
+        val OPACITIES = 0.0..0.8
         const val DEFAULT_OPACITY = 0.5
         const val SCALE_STEP = 0.25
         const val OPACITY_STEP = 0.1

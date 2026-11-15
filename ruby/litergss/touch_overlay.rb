@@ -131,7 +131,7 @@ module LiteRGSS
     # - action_layout, xy_layout: win over TouchOverlay's; scale (0.5 to 2):
     #   of the whole gamepad, on top of TouchOverlay.scale and of each size,
     #   snapped like them and capped to keep the gamepad in the window;
-    #   opacity (0.1 to 0.8): of the buttons at rest, 0.5 by default; gap
+    #   opacity (0 to 0.8): of the buttons at rest, 0.5 by default; gap
     #   (0.5 to 3): of both crosses' buttons apart, on top of each group's
     #   (the product kept in that range), the L / R row staying above them
     #   and the buttons shrinking if the window needs it
@@ -144,7 +144,7 @@ module LiteRGSS
       GAPS = (0.5..3.0).freeze
       SCALES = (0.5..2.0).freeze
       # Lower than lit_opacity reaches, so a pressed button still looks brighter
-      OPACITIES = (0.1..0.8).freeze
+      OPACITIES = (0.0..0.8).freeze
       PNG_SIGNATURE = "\x89PNG".b.freeze
 
       Placement = Struct.new(:anchor, :x, :y, :size, :gap, :visible)
