@@ -63,7 +63,16 @@ foreach(I RANGE 0 ${LAST_IDX})
         if(DEP_${I}_HASH)
             set(HASH_COMMENT " # ${DEP_${I}_HASH}")
         endif()
-        string(APPEND DOWNLOAD_COMMANDS "    wget -q -O /opt/deps-cache/downloads/${DEP_${I}_FILENAME} \"${DEP_${I}_URL}\" && \\
+        # DEP_<i>_URL is a list of mirrors: each one in turn until one answers
+        # (as PreloadDeps.cmake does)
+        set(_wget_mirrors "")
+        foreach(_mirror IN LISTS DEP_${I}_URL)
+            if(_wget_mirrors)
+                string(APPEND _wget_mirrors " || ")
+            endif()
+            string(APPEND _wget_mirrors "wget -q -O /opt/deps-cache/downloads/${DEP_${I}_FILENAME} \"${_mirror}\"")
+        endforeach()
+        string(APPEND DOWNLOAD_COMMANDS "    { ${_wget_mirrors}; } && \\
     echo \"  Downloaded: ${DEP_${I}_NAME} ${DEP_${I}_VERSION}\" && \\\n")
         math(EXPR URL_DEP_COUNT "${URL_DEP_COUNT} + 1")
     elseif(DEP_${I}_TYPE STREQUAL "git")
