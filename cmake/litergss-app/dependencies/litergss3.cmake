@@ -13,7 +13,7 @@
 
 set(LITERGSS3_VERSION "3.0.0")
 set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
-set(LITERGSS3_GIT_TAG "bbcf61cda8a14ad2a9851b8c9c74ec877f452dc9")  # android-raylib
+set(LITERGSS3_GIT_TAG "bbcf61cda8a14ad2a9851b8c9c74ec877f452dc9")  # development
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
 # APP_DEPENDENCIES order). ruby/ruby.h and ruby/config.h are both there.

@@ -6,6 +6,26 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master]
+  # release-raylib.yml: a tag's raylib runtime, in a run of its own (the
+  # artifacts of one run share their names)
+  workflow_call:
+    inputs:
+      backend:
+        type: string
+        default: "sfml"
+      platforms:
+        type: string
+        default: ""
+      # Empty: as a push (the tag decides the Ruby variant)
+      android_abis:
+        type: string
+        default: ""
+      ruby_variant:
+        type: string
+        default: ""
+      build_type:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       platforms:
@@ -102,19 +122,20 @@ jobs:
           # A debug build (workflow_dispatch, build_type: debug) is never a release
           # and carries -debug: X.Y.Z-ruby3.0-debug[-SNAPSHOT], never replacing the
           # optimised runtime of the same version, nor making a GitHub Release.
-          BUILD_TYPE="${{ github.event.inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
+          BUILD_TYPE="${{ inputs.build_type || env.DEFAULT_BUILD_TYPE }}"
           if [ "$BUILD_TYPE" = "debug" ]; then
             DEBUG_SUFFIX="-debug"
           else
             DEBUG_SUFFIX=""
           fi
-          # The graphics backend (manual runs only; pushes, PRs and tags build sfml).
+          # The graphics backend: sfml on pushes, PRs and tags (this file), raylib
+          # on a tag's own run (release-raylib.yml, Ruby 3.2+) and manual runs.
           # raylib (LiteRGSS3) carries -raylib after the Ruby variant:
           # X.Y.Z-ruby3.3-raylib[-debug][-SNAPSHOT], the same artifacts as sfml's
-          # under another version (one runtime per app: the two cannot coexist).
-          # Until LiteRGSS3 runs PSDK on Android, it is never a release (no
-          # GitHub Release, no Package.swift, no Kotlin host publish).
-          BACKEND="${{ github.event.inputs.backend || 'sfml' }}"
+          # under another version (one runtime per app: the two cannot coexist),
+          # in the same GitHub Release. Package.swift and the Kotlin host stay
+          # sfml's.
+          BACKEND="${{ inputs.backend || 'sfml' }}"
           if [ "$BACKEND" = "raylib" ]; then
             DEBUG_SUFFIX="-raylib${DEBUG_SUFFIX}"
           fi
@@ -127,18 +148,15 @@ jobs:
             fi
             RUBY_VARIANT="${BASH_REMATCH[1]}"
             VERSION="${GITHUB_REF_NAME#v}${DEBUG_SUFFIX}"
-            if [ "$BACKEND" = "raylib" ]; then
-              VERSION="${VERSION}-SNAPSHOT"  # raylib: snapshots only, until it ships
-            fi
-            # Debug and raylib runs on a tag are never a release
-            if [ -n "$DEBUG_SUFFIX" ]; then
+            # A debug run on a tag is never a release
+            if [ "$BUILD_TYPE" = "debug" ]; then
               echo "is_release=false" >> "$GITHUB_OUTPUT"
             else
               echo "is_release=true" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "is_release=false" >> "$GITHUB_OUTPUT"
-            RUBY_VARIANT="${{ github.event.inputs.ruby_variant || env.DEFAULT_RUBY_VARIANT }}"
+            RUBY_VARIANT="${{ inputs.ruby_variant || env.DEFAULT_RUBY_VARIANT }}"
             # Read the submodule commit, then fetch NEXT_VERSION from it via the API
             SM_COMMIT=$(git ls-tree HEAD external/embedded-ruby-vm | awk '{print $3}')
             SM_REPO=$(git config --file .gitmodules submodule.external/embedded-ruby-vm.url | sed 's|.*github.com[:/]||;s|\.git$||')
@@ -171,8 +189,8 @@ jobs:
           echo "tracy_version=$TRACY_VERSION" >> "$GITHUB_OUTPUT"
           echo "Tracy version: $TRACY_VERSION"
 
-          PLATFORMS="${{ github.event.inputs.platforms || env.DEFAULT_PLATFORMS }}"
-          ANDROID_ABIS="${{ github.event.inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
+          PLATFORMS="${{ inputs.platforms || env.DEFAULT_PLATFORMS }}"
+          ANDROID_ABIS="${{ inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
 
           if [ "$BUILD_TYPE" = "debug" ]; then
             echo "build_type_flag=--enable-debug" >> "$GITHUB_OUTPUT"
@@ -1204,6 +1222,7 @@ jobs:
       && needs.package-linux.result == 'success'
       && needs.prepare.outputs.is_release == 'true'
       && needs.prepare.outputs.is_default_variant == 'true'
+      && needs.prepare.outputs.backend == 'sfml'
       && needs.prepare.outputs.has_android == 'true'
     runs-on: ubuntu-latest
     name: Publish Kotlin host
@@ -1340,7 +1359,7 @@ jobs:
 
       - name: Update Package.swift with XCFramework checksum
         # Package.swift on master tracks the default Ruby variant
-        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true'
+        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true' && needs.prepare.outputs.backend == 'sfml'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

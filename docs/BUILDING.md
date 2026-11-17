@@ -169,7 +169,7 @@ One build embeds one LiteRGSS, selected with `./configure --with-backend=sfml|ra
 
 Audio is SFML's in both (`ruby-sfml-audio`): the raylib build only compiles SFML's audio and system modules, and no freetype. LiteRGSS3 fetches nothing itself: raylib, PhysicsFS and Tracy are built here and installed in the staging prefix, where LiteRGSS3 finds them as CMake packages. On Android, raylib runs on its hosted platform (`patches/raylib/android/`): it renders into the app's `Surface` through the same `cgss_android_*` bridge, with OpenGL ES 3 (link the app with `GLESv3`). Both backends package the same `librgss_runtime.a` (`runtime-package.cmake`). Clean the build directory when switching backends.
 
-In CI, pushes, pull requests and tags build `sfml`. A raylib runtime is a manual run of the workflow with `backend: raylib` (and `ruby_variant` 3.2 or 3.3; iOS is skipped). Its packages are the same artifacts under another version, `-raylib` after the Ruby variant: `<NEXT_VERSION>-ruby3.3-raylib-SNAPSHOT` (and `-raylib-tracy-SNAPSHOT`), an app picks its backend by version. Until LiteRGSS3 runs PSDK on Android, a raylib run is never a release, even on a tag: snapshots only, no GitHub Release, no `Package.swift`, no Kotlin host publish.
+In CI, pushes and pull requests build `sfml`. A release tag `vX.Y.Z-ruby3.2` or `-ruby3.3` builds both: `sfml` (`build.yml`) and, in a run of its own, `raylib` (`release-raylib.yml`, Android and Linux x86_64; iOS has no raylib platform, macOS is not built yet). The raylib packages are the same artifacts under another version, `-raylib` after the Ruby variant: `X.Y.Z-ruby3.3-raylib` (and `-raylib-tracy`), in the same GitHub Release; an app picks its backend by version. `Package.swift` and the Kotlin host stay sfml's. A manual run of the workflow with `backend: raylib` (and `ruby_variant` 3.2 or 3.3) gives `<NEXT_VERSION>-ruby3.3-raylib-SNAPSHOT`.
 
 ### Debug builds in CI
 
@@ -208,7 +208,7 @@ Anything shipped (litergss-everywhere tag, PSDK-android release) must not depend
 
 1. Tag the embedded-ruby-vm commit as `vX.Y.Z` and push the tag; wait for its CI release.
 2. Point the submodule at that commit and commit the bump.
-3. Tag litergss-everywhere once per Ruby variant: `vX.Y.Z-ruby3.0`, `vX.Y.Z-ruby3.2`, `vX.Y.Z-ruby3.3`. Each tag builds and publishes its own variant (GitHub release and Maven version `X.Y.Z-ruby<variant>`); only the default variant (3.0) updates `Package.swift` on master.
+3. Tag litergss-everywhere once per Ruby variant: `vX.Y.Z-ruby3.0`, `vX.Y.Z-ruby3.2`, `vX.Y.Z-ruby3.3`. Each tag builds and publishes its own variant (GitHub release and Maven version `X.Y.Z-ruby<variant>`); only the default variant (3.0) updates `Package.swift` on master. The 3.2 and 3.3 tags also build the raylib runtime (`X.Y.Z-ruby<variant>-raylib`, same release).
 
 The other git dependencies (LiteCGSS, LiteRGSS2, SFML, sfmlaudio) are pinned to commit SHAs in `cmake/litergss-app/dependencies/`; bump them explicitly.
 
