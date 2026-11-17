@@ -49,6 +49,8 @@ Configuration Options:
                             profiler started with the Ruby VM; connect a Tracy v0.13.1 server)
   --with-ruby-variant=X.Y   Ruby minor version to embed: 3.0 (default), 3.2 or 3.3
                             (the variants pinned in external/embedded-ruby-vm/RUBY_LIBS_VERSIONS)
+  --with-backend=NAME       Graphics backend: sfml (LiteRGSS2, default) or raylib (LiteRGSS3:
+                            Android, Linux, macOS; Ruby 3.2+). Default: \$LITERGSS_BACKEND, else sfml
   --prefix=PREFIX           Installation prefix (default: /usr/local)
   --build-dir=DIR           Build directory (default: build)
   --target-dir=DIR          Output directory for artifacts (default: target)
@@ -123,6 +125,11 @@ while [ $# -gt 0 ]; do
 			;;
 		--with-ruby-variant=*)
 			EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DRUBY_VARIANT=${1#*=}"
+			RUBY_VARIANT_ARG="${1#*=}"
+			shift
+			;;
+		--with-backend=*)
+			BACKEND="${1#*=}"
 			shift
 			;;
 		--prefix=*)
@@ -154,6 +161,33 @@ case "$EXTRA_CMAKE_ARGS" in
 	*-DLITERGSS_USE_TRACY=ON*) ;;
 	*) EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DLITERGSS_USE_TRACY=OFF" ;;
 esac
+
+# Graphics backend: always passed explicitly, like Tracy (a cached raylib
+# must not survive a configure without it)
+BACKEND="${BACKEND:-${LITERGSS_BACKEND:-sfml}}"
+case "$BACKEND" in
+	sfml) ;;
+	raylib)
+		# Ruby 3.0 is the CMake default (ruby-for-android.cmake)
+		case "${RUBY_VARIANT_ARG:-3.0}" in
+			3.0|3.1)
+				echo "Error: --with-backend=raylib needs Ruby 3.2 or newer: add --with-ruby-variant=3.2 or 3.3"
+				exit 1
+				;;
+		esac
+		case "$TOOLCHAIN_PARAMS_LIST" in
+			*ios*)
+				echo "Error: --with-backend=raylib has no iOS support (raylib 6 has no iOS platform)"
+				exit 1
+				;;
+		esac
+		;;
+	*)
+		echo "Error: --with-backend must be sfml or raylib, not '$BACKEND'"
+		exit 1
+		;;
+esac
+EXTRA_CMAKE_ARGS="$EXTRA_CMAKE_ARGS -DLITERGSS_BACKEND=$BACKEND"
 
 # Apply default if no toolchain params specified
 if [ -z "$TOOLCHAIN_PARAMS_LIST" ]; then
@@ -273,6 +307,7 @@ fi
 if echo "$EXTRA_CMAKE_ARGS" | grep -q "LITERGSS_USE_TRACY=ON"; then
 	echo "Tracy profiler: enabled"
 fi
+echo "Graphics backend: $BACKEND"
 
 # Generate Makefile
 echo "Generating Makefile..."

@@ -13,21 +13,21 @@ docker-compose --version
 cmake --version   # 3.16+
 make --version
 ruby --version    # 3.0+
-export ANDROID_NDK=/path/to/android-ndk   # r22b+, for Android builds
+export ANDROID_NDK=/path/to/android-ndk   # r22b to r27 (r28+ cannot build SFML 2.6), for Android builds
 ```
 
 Linux builds also need the X11, OpenGL, udev and audio development packages. OpenAL Soft is
 configured to fail without ALSA and PulseAudio instead of building a runtime with no sound:
 
 ```bash
-sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
     libgl1-mesa-dev libudev-dev libasound2-dev libpulse-dev
 ```
 
 A binary only runs on the glibc it was linked against or a newer one: CI builds Linux on
 `ubuntu-24.04` (glibc 2.39). It cannot go older, the prebuilt embedded-ruby-vm and
-ruby-for-android objects need glibc 2.38: build Linux with `--without-docker` on 24.04 or
-newer, the Docker image (22.04) cannot link it.
+ruby-for-android objects need glibc 2.38: build Linux on 24.04 or newer, with
+`--without-docker` or in the Docker image (Ubuntu 24.04, Android NDK r27d).
 
 ## Configure and Build
 
@@ -157,6 +157,19 @@ Snapshots are pruned weekly (the 20 most recent and those younger than 90 days a
 ### Ruby variant
 
 One build embeds one Ruby minor version, selected with `./configure --with-ruby-variant=3.0|3.2|3.3` (default 3.0, `-DRUBY_VARIANT` in CMake). The ruby-for-android release of each variant is pinned in `external/embedded-ruby-vm/RUBY_LIBS_VERSIONS`, and the embedded-ruby-vm release holds every variant (`embedded-ruby-vm-<platform>-ruby<variant>.tar.gz`). Clean the build directory when switching variants.
+
+### Graphics backend
+
+One build embeds one LiteRGSS, selected with `./configure --with-backend=sfml|raylib` (else the `LITERGSS_BACKEND` environment variable, else `sfml`; `-DLITERGSS_BACKEND` in CMake):
+
+| Backend | Engine | Built by | Platforms | Ruby |
+|---|---|---|---|---|
+| `sfml` (default) | LiteRGSS2 + LiteCGSS2 on SFML-opengl-es2 | `litergss2.cmake`, `litecgss.cmake` | all | 3.0+ |
+| `raylib` | LiteRGSS3 on raylib 6 | `litergss3.cmake`, `raylib.cmake`, `physfs.cmake`, `tracy.cmake` | Android, Linux, macOS | 3.2+ |
+
+Audio is SFML's in both (`ruby-sfml-audio`): the raylib build only compiles SFML's audio and system modules, and no freetype. LiteRGSS3 fetches nothing itself: raylib, PhysicsFS and Tracy are built here and installed in the staging prefix, where LiteRGSS3 finds them as CMake packages. On Android, raylib runs on its hosted platform (`patches/raylib/android/`): it renders into the app's `Surface` through the same `cgss_android_*` bridge, with OpenGL ES 3 (link the app with `GLESv3`). Both backends package the same `librgss_runtime.a` (`runtime-package.cmake`). Clean the build directory when switching backends.
+
+In CI, pushes, pull requests and tags build `sfml`. A raylib runtime is a manual run of the workflow with `backend: raylib` (and `ruby_variant` 3.2 or 3.3; iOS is skipped). Its packages are the same artifacts under another version, `-raylib` after the Ruby variant: `<NEXT_VERSION>-ruby3.3-raylib-SNAPSHOT` (and `-raylib-tracy-SNAPSHOT`), an app picks its backend by version. Until LiteRGSS3 runs PSDK on Android, a raylib run is never a release, even on a tag: snapshots only, no GitHub Release, no `Package.swift`, no Kotlin host publish.
 
 ### Debug builds in CI
 

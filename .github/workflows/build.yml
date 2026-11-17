@@ -42,6 +42,14 @@ on:
           - "3.0"
           - "3.2"
           - "3.3"
+      backend:
+        description: "Graphics backend: sfml (LiteRGSS2) or raylib (LiteRGSS3, snapshots only, Ruby 3.2+, no iOS)"
+        required: false
+        default: "sfml"
+        type: choice
+        options:
+          - "sfml"
+          - "raylib"
       build_type:
         description: "Build type"
         required: false
@@ -75,6 +83,7 @@ jobs:
       version: ${{ steps.set-params.outputs.version }}
       tracy_version: ${{ steps.set-params.outputs.tracy_version }}
       ruby_variant: ${{ steps.set-params.outputs.ruby_variant }}
+      backend: ${{ steps.set-params.outputs.backend }}
       is_default_variant: ${{ steps.set-params.outputs.is_default_variant }}
       android_abis: ${{ steps.set-params.outputs.android_abis }}
       android_abis_json: ${{ steps.set-params.outputs.android_abis_json }}
@@ -99,6 +108,18 @@ jobs:
           else
             DEBUG_SUFFIX=""
           fi
+          # The graphics backend (manual runs only; pushes, PRs and tags build sfml).
+          # raylib (LiteRGSS3) carries -raylib after the Ruby variant:
+          # X.Y.Z-ruby3.3-raylib[-debug][-SNAPSHOT], the same artifacts as sfml's
+          # under another version (one runtime per app: the two cannot coexist).
+          # Until LiteRGSS3 runs PSDK on Android, it is never a release (no
+          # GitHub Release, no Package.swift, no Kotlin host publish).
+          BACKEND="${{ github.event.inputs.backend || 'sfml' }}"
+          if [ "$BACKEND" = "raylib" ]; then
+            DEBUG_SUFFIX="-raylib${DEBUG_SUFFIX}"
+          fi
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "Graphics backend: $BACKEND"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-ruby([0-9]+\.[0-9]+)$ ]]; then
               echo "::error::Release tags must be vX.Y.Z-rubyA.B (e.g. v1.2.0-ruby3.0), got $GITHUB_REF_NAME"
@@ -106,6 +127,10 @@ jobs:
             fi
             RUBY_VARIANT="${BASH_REMATCH[1]}"
             VERSION="${GITHUB_REF_NAME#v}${DEBUG_SUFFIX}"
+            if [ "$BACKEND" = "raylib" ]; then
+              VERSION="${VERSION}-SNAPSHOT"  # raylib: snapshots only, until it ships
+            fi
+            # Debug and raylib runs on a tag are never a release
             if [ -n "$DEBUG_SUFFIX" ]; then
               echo "is_release=false" >> "$GITHUB_OUTPUT"
             else
@@ -121,6 +146,13 @@ jobs:
               "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}${DEBUG_SUFFIX}-SNAPSHOT"
           fi
           echo "ruby_variant=$RUBY_VARIANT" >> "$GITHUB_OUTPUT"
+          if [ "$BACKEND" = "raylib" ]; then
+            case "$RUBY_VARIANT" in
+              3.0|3.1)
+                echo "::error::The raylib backend (LiteRGSS3) needs Ruby 3.2 or newer, not $RUBY_VARIANT"
+                exit 1 ;;
+            esac
+          fi
           if [ "$RUBY_VARIANT" = "${{ env.DEFAULT_RUBY_VARIANT }}" ]; then
             echo "is_default_variant=true" >> "$GITHUB_OUTPUT"
           else
@@ -177,7 +209,12 @@ jobs:
             case "$plat" in
               android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
               linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
-              ios)            echo "has_ios=true" >> "$GITHUB_OUTPUT" ;;
+              ios)
+                if [ "$BACKEND" = "raylib" ]; then
+                  echo "::notice::No iOS with the raylib backend (raylib 6 has no iOS platform): iOS skipped"
+                else
+                  echo "has_ios=true" >> "$GITHUB_OUTPUT"
+                fi ;;
               macos)          echo "has_macos=true" >> "$GITHUB_OUTPUT" ;;
             esac
           done
@@ -234,6 +271,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android \
@@ -249,6 +287,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android-tracy \
@@ -339,13 +378,14 @@ jobs:
             build-essential cmake ruby-dev ninja-build \
             libtool autoconf automake libncurses-dev \
             zip unzip wget gettext patch \
-            libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
             libgl1-mesa-dev libudev-dev libasound2-dev libpulse-dev pkg-config
 
       - name: Configure
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -430,6 +470,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/${{ matrix.target }}-toolchain.params \
             --enable-static \
@@ -492,6 +533,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \
@@ -548,6 +590,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             ${{ needs.prepare.outputs.android_toolchain_args }} \
             --build-dir=build-android \
@@ -621,7 +664,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake \
-            libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
             libgl1-mesa-dev libudev-dev pkg-config
 
       - name: Set up JDK
@@ -634,6 +677,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -691,6 +735,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
             --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
@@ -754,6 +799,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
+            --with-backend=${{ needs.prepare.outputs.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \

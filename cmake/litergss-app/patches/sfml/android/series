@@ -10,3 +10,7 @@ dont_load_from_inputstream_android.patch
 # Skips desktop OpenGL search (uses built-in OpenGL ES)
 # Adds CMAKE_PREFIX_PATH to dependency search paths
 static-libraries.patch
+
+# NDK r27 removed ALooper_pollAll (it may ignore wakes): drain the
+# callbacks with ALooper_pollOnce instead
+alooper-pollonce.patch

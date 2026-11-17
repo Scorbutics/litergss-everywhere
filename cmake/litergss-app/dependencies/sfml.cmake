@@ -25,6 +25,20 @@ else()
     set(LIB_EXT_FILE "-s.a")
 endif()
 
+# The raylib backend (LiteRGSS3) draws with raylib: SFML is the runtime's
+# audio only (ruby-sfml-audio links sfml-audio and sfml-system), so neither its
+# window, graphics nor network module is built, nor FreeType (graphics' only).
+if(LITERGSS_BACKEND STREQUAL "raylib")
+    set(_SFML_MODULE_ARGS -DSFML_BUILD_GRAPHICS=FALSE -DSFML_BUILD_WINDOW=FALSE -DSFML_BUILD_NETWORK=FALSE -DSFML_BUILD_AUDIO=TRUE)
+    set(_SFML_DEPENDS openal-soft libogg libvorbis flac)
+    # Window / graphics / network: not built, nothing to stage
+    set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/core/CopyIfExists.cmake)
+else()
+    set(_SFML_MODULE_ARGS "")
+    set(_SFML_DEPENDS freetype openal-soft libogg libvorbis flac)
+    set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -E copy_if_different)
+endif()
+
 # SFML configure command (CMake-based)
 get_sub_cmake_cross_args(_SFML_CMAKE_ARGS)
 set(SFML_CONFIGURE_CMD
@@ -48,6 +62,7 @@ set(SFML_CONFIGURE_CMD
     -DFREETYPE_LIBRARY=${BUILD_STAGING_DIR}/usr/local/lib/libfreetype${LIB_EXT}
     -DFREETYPE_INCLUDE_DIRS=${BUILD_STAGING_DIR}/usr/local/include/
     -DCUSTOM_LIB_PATH=${BUILD_STAGING_DIR}/usr/local
+    ${_SFML_MODULE_ARGS}
     .
 )
 
@@ -65,13 +80,13 @@ add_external_dependency(
     
     INSTALL_COMMAND     ${CMAKE_COMMAND} -E make_directory ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-system${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-window${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-graphics${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
+                        COMMAND ${_SFML_DISPLAY_COPY} ${SFML_SOURCE_DIR}/lib/libsfml-window${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
+                        COMMAND ${_SFML_DISPLAY_COPY} ${SFML_SOURCE_DIR}/lib/libsfml-graphics${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-audio${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SFML_SOURCE_DIR}/lib/libsfml-network${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
+                        COMMAND ${_SFML_DISPLAY_COPY} ${SFML_SOURCE_DIR}/lib/libsfml-network${LIB_EXT_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/core/CopyIfExists.cmake ${SFML_SOURCE_DIR}/lib/libsfml-main.a ${BUILD_STAGING_DIR}/usr/local/lib/
                         COMMAND ${CMAKE_COMMAND} -E make_directory ${BUILD_STAGING_DIR}/usr/local/include/
                         COMMAND ${CMAKE_COMMAND} -E copy_directory ${SFML_SOURCE_DIR}/include ${BUILD_STAGING_DIR}/usr/local/include/
     
-    DEPENDS             freetype openal-soft libogg libvorbis flac
+    DEPENDS             ${_SFML_DEPENDS}
 )

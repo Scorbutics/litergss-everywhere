@@ -1,7 +1,9 @@
-FROM eclipse-temurin:17-jdk-jammy
+FROM eclipse-temurin:17-jdk-noble
 
 ENV ANDROID_NDK_HOME /opt/android-ndk
-ENV ANDROID_NDK_VERSION r25b
+# r27 (LTS, clang 18): r28 (clang 19) libc++ has no std::char_traits<unsigned int>, which
+# SFML 2.6 (sf::String, std::basic_string<Uint32>) needs
+ENV ANDROID_NDK_VERSION r27d
 
 # Install dependencies
 RUN apt-get update && \
@@ -24,6 +26,7 @@ RUN apt-get update && \
     libxrandr-dev \
     libxcursor-dev \
     libxi-dev \
+    libxinerama-dev \
     libgl1-mesa-dev \
     libudev-dev \
     libasound2-dev \
