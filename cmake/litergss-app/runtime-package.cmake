@@ -128,13 +128,12 @@ else()
         file(COPY ${lib} DESTINATION "${BUILD_STAGING_DIR}/usr/local/lib/ruby/")
     endforeach()
 
-    # Copy Ruby headers for consumers
+    # Ruby's headers are already in the staging prefix, as consumers want
+    # them (ruby-for-android.cmake: usr/local/include/ruby-<ABI>/ruby/). No
+    # copy of EMBEDDED_RUBY_VM_INCLUDE_DIRS here: those are that staging
+    # directory, and copying its ruby/ into ruby-<ABI>/ (which a reconfigure
+    # did) put Ruby's assert.h where <cassert> finds it first.
     file(MAKE_DIRECTORY "${BUILD_STAGING_DIR}/usr/local/include")
-    foreach(include_dir ${EMBEDDED_RUBY_VM_INCLUDE_DIRS})
-        if(EXISTS "${include_dir}")
-            file(COPY "${include_dir}/" DESTINATION "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}/")
-        endif()
-    endforeach()
 
     # ========================================================================
     # Create "fat" static library combining all dependencies
