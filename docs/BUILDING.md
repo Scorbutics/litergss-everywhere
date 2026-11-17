@@ -13,21 +13,21 @@ docker-compose --version
 cmake --version   # 3.16+
 make --version
 ruby --version    # 3.0+
-export ANDROID_NDK=/path/to/android-ndk   # r22b+, for Android builds
+export ANDROID_NDK=/path/to/android-ndk   # r22b to r27 (r28+ cannot build SFML 2.6), for Android builds
 ```
 
 Linux builds also need the X11, OpenGL, udev and audio development packages. OpenAL Soft is
 configured to fail without ALSA and PulseAudio instead of building a runtime with no sound:
 
 ```bash
-sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libxi-dev \
+sudo apt-get install libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
     libgl1-mesa-dev libudev-dev libasound2-dev libpulse-dev
 ```
 
 A binary only runs on the glibc it was linked against or a newer one: CI builds Linux on
 `ubuntu-24.04` (glibc 2.39). It cannot go older, the prebuilt embedded-ruby-vm and
-ruby-for-android objects need glibc 2.38: build Linux with `--without-docker` on 24.04 or
-newer, the Docker image (22.04) cannot link it.
+ruby-for-android objects need glibc 2.38: build Linux on 24.04 or newer, with
+`--without-docker` or in the Docker image (Ubuntu 24.04, Android NDK r27d).
 
 ## Configure and Build
 
