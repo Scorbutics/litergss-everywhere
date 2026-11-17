@@ -1,0 +1,22 @@
+name: Build LiteRGSS (raylib)
+
+# A release tag's raylib runtime (LiteRGSS3), next to the sfml one that
+# build.yml builds for the same tag: X.Y.Z-rubyA.B-raylib, in the same GitHub
+# Release and as its own Maven versions. A run of its own, as the artifacts of
+# one run share their names. Ruby 3.2 and newer only: no -ruby3.0 tags.
+# Android and Linux x86_64 (iOS has no raylib platform; macOS is not built yet).
+on:
+  push:
+    tags: ['v*', '!v*-ruby3.0']
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  raylib:
+    uses: ./.github/workflows/build.yml
+    with:
+      backend: raylib
+      platforms: android,linux-x86_64
+    secrets: inherit
