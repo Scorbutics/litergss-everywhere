@@ -64,6 +64,13 @@ ndk_triple_for_abi() {
 	esac
 }
 
+# EGL and OpenGL ES 3, for the raylib backend's runtime (LiteRGSS3 on raylib's
+# hosted platform), which calls them directly: the wrapper's own link list
+# (embedded-ruby-vm/kmp-publish/wrapper) has neither. Both are system
+# libraries on every device the AAR targets (API 26+), so the SFML backend's
+# wrapper links them too.
+WRAPPER_GL_LIBS="-lEGL -lGLESv3"
+
 # Clean stale jniLibs
 rm -rf "$KMP_PUBLISH_DIR/src/main/jniLibs"
 
@@ -92,6 +99,7 @@ for i in "${!ABIS[@]}"; do
 		-DANDROID_STL=c++_shared \
 		-DTARGET_ABI="$abi" \
 		-DFAT_LIB_PATH="$(realpath "$fat_lib")" \
+		-DCMAKE_SHARED_LINKER_FLAGS="$WRAPPER_GL_LIBS" \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 	if ! cmake --build "$WRAPPER_BUILD_DIR"; then

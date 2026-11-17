@@ -343,10 +343,15 @@ static void virtual_keyboard_thunk(int show)
     }
 }
 
+#ifdef LITERGSS_SFML_WINDOW
 /* SFML (HostedAndroidWindow.hpp): sf::Keyboard::setVirtualKeyboardVisible
  * calls this handler, while set, instead of the InputMethodManager on the
- * window (which shows a keyboard bound to no text field, unable to type). */
+ * window (which shows a keyboard bound to no text field, unable to type).
+ * LiteRGSS2 only: the raylib backend's runtime has no SFML window module,
+ * and LiteRGSS3's Sf::Keyboard.virtual_keyboard= goes through
+ * cgss_android_request_virtual_keyboard, the callback set above. */
 void sf_android_set_hosted_virtual_keyboard_handler(void (*handler)(int visible));
+#endif
 
 JNIEXPORT void JNICALL
 Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIEnv* env, jclass clazz,
@@ -362,9 +367,11 @@ Java_com_scorbutics_litergss_NativeSurface_nativeSetVirtualKeyboardCallback(JNIE
         __atomic_store_n(&g_nativeSurfaceClass, (jclass) (*env)->NewGlobalRef(env, clazz), __ATOMIC_RELEASE);
     }
     cgss_android_set_virtual_keyboard_callback(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
+#ifdef LITERGSS_SFML_WINDOW
     /* Sf::Keyboard.virtual_keyboard= (any game, any engine) reaches the
      * host's IME bridge, which focuses its text field */
     sf_android_set_hosted_virtual_keyboard_handler(armed == JNI_TRUE ? virtual_keyboard_thunk : NULL);
+#endif
 }
 
 /* ------------------------------------------------------------------

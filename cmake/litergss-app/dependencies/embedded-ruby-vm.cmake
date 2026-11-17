@@ -237,10 +237,16 @@ list(APPEND _ERVM_INSTALL_CMD
 # at fat-lib link time). The bridge has no Ruby-VM concerns; libembedded-
 # ruby.a is just the convenient orchestrator-controlled archive to embed
 # extra orchestrator-level .o files into, exactly as extension-init.c above.
+# LITERGSS_SFML_WINDOW: the runtime has SFML's window module (sfml backend),
+# whose hosted virtual-keyboard handler the bridge sets too.
 if(_ERVM_PLATFORM STREQUAL "android")
+    set(_ERVM_JNI_DEFINES "")
+    if(LITERGSS_BACKEND STREQUAL "sfml")
+        set(_ERVM_JNI_DEFINES -DLITERGSS_SFML_WINDOW)
+    endif()
     list(APPEND _ERVM_INSTALL_CMD
         COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
-            ${_ERVM_WARNING_FLAGS}
+            ${_ERVM_WARNING_FLAGS} ${_ERVM_JNI_DEFINES}
             -o ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
             ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c
         COMMAND ${CMAKE_AR} r
