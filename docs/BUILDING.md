@@ -158,6 +158,17 @@ Snapshots are pruned weekly (the 20 most recent and those younger than 90 days a
 
 One build embeds one Ruby minor version, selected with `./configure --with-ruby-variant=3.0|3.2|3.3` (default 3.0, `-DRUBY_VARIANT` in CMake). The ruby-for-android release of each variant is pinned in `external/embedded-ruby-vm/RUBY_LIBS_VERSIONS`, and the embedded-ruby-vm release holds every variant (`embedded-ruby-vm-<platform>-ruby<variant>.tar.gz`). Clean the build directory when switching variants.
 
+### Graphics backend
+
+One build embeds one LiteRGSS, selected with `./configure --with-backend=sfml|raylib` (else the `LITERGSS_BACKEND` environment variable, else `sfml`; `-DLITERGSS_BACKEND` in CMake):
+
+| Backend | Engine | Built by | Platforms | Ruby |
+|---|---|---|---|---|
+| `sfml` (default) | LiteRGSS2 + LiteCGSS2 on SFML-opengl-es2 | `litergss2.cmake`, `litecgss.cmake` | all | 3.0+ |
+| `raylib` | LiteRGSS3 on raylib 6 | `litergss3.cmake`, `raylib.cmake`, `physfs.cmake`, `tracy.cmake` | Android, Linux, macOS | 3.2+ |
+
+Audio is SFML's in both (`ruby-sfml-audio`): the raylib build only compiles SFML's audio and system modules, and no freetype. LiteRGSS3 fetches nothing itself: raylib, PhysicsFS and Tracy are built here and installed in the staging prefix, where LiteRGSS3 finds them as CMake packages. On Android, raylib runs on its hosted platform (`patches/raylib/android/`): it renders into the app's `Surface` through the same `cgss_android_*` bridge, with OpenGL ES 3 (link the app with `GLESv3`). Both backends package the same `librgss_runtime.a` (`runtime-package.cmake`). Clean the build directory when switching backends.
+
 ### Debug builds in CI
 
 Pushes, pull requests and tags always build the runtimes optimised (`--enable-release`). A native debug build (`--enable-debug`, `CMAKE_BUILD_TYPE=Debug`) is a manual run of the workflow with `build_type: debug`. Its packages carry `-debug` in their version (`<NEXT_VERSION>-ruby3.0-debug-SNAPSHOT`, and `-debug-tracy-SNAPSHOT`; `X.Y.Z-ruby3.0-debug` when run on a tag), so they never replace the optimised runtimes of the same version. Such a run is never a release: no GitHub Release, no `Package.swift` update, no Kotlin host publish.
