@@ -54,10 +54,10 @@ index 5e5dd91..23c16b0 100644
      target_link_options(raylib PUBLIC -Wl,--wrap=fopen)
 diff --git a/src/platforms/rcore_android_hosted.c b/src/platforms/rcore_android_hosted.c
 new file mode 100644
-index 0000000..5f80896
+index 0000000..8509cfb
 --- /dev/null
 +++ b/src/platforms/rcore_android_hosted.c
-@@ -0,0 +1,989 @@
+@@ -0,0 +1,1031 @@
 +/**********************************************************************************************
 +*
 +*   rcore_android_hosted - Functions to manage window, graphics device and inputs
@@ -401,6 +401,21 @@ index 0000000..5f80896
 +    pthread_mutex_unlock(&shared.lock);
 +}
 +
++bool RaylibHostedGetSurfaceSize(int *width, int *height)
++{
++    // The host's surface, known from its first attach on, InitWindow() or
++    // not: the "monitor" of a hosted window (its last size while detached)
++    pthread_mutex_lock(&shared.lock);
++    bool known = (shared.width > 0) && (shared.height > 0);
++    if (known)
++    {
++        *width = shared.width;
++        *height = shared.height;
++    }
++    pthread_mutex_unlock(&shared.lock);
++    return known;
++}
++
 +bool RaylibHostedIsReady(void)
 +{
 +    pthread_mutex_lock(&shared.lock);
@@ -419,6 +434,33 @@ index 0000000..5f80896
 +{
 +    HostedEvent event = { .type = HOSTED_CLOSE };
 +    HostedQueue(&event);
++}
++
++bool RaylibHostedMakeCurrent(bool current)
++{
++    // The context follows the thread doing GL work (LiteCGSS moves it with
++    // Ruby's GVL): released on one thread, made current on the next, bound
++    // to the window surface, or to the offscreen one while detached
++    if (platform.context == EGL_NO_CONTEXT) return false;
++    if (!current) return eglMakeCurrent(platform.device, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) == EGL_TRUE;
++    EGLSurface surface = (platform.surface != EGL_NO_SURFACE)? platform.surface : platform.pbuffer;
++    return eglMakeCurrent(platform.device, surface, surface, platform.context) == EGL_TRUE;
++}
++
++void RaylibHostedClearClose(void)
++{
++    // A close request ends one window: the next one (raylib keeps its window
++    // and context across them) starts open, a close still queued included
++    pthread_mutex_lock(&shared.lock);
++    int kept = 0;
++    for (int i = 0; i < shared.count; i++)
++    {
++        const HostedEvent event = shared.events[(shared.head + i)%HOSTED_EVENT_QUEUE_SIZE];
++        if (event.type != HOSTED_CLOSE) shared.events[(shared.head + kept++)%HOSTED_EVENT_QUEUE_SIZE] = event;
++    }
++    shared.count = kept;
++    pthread_mutex_unlock(&shared.lock);
++    CORE.Window.shouldClose = false;
 +}
 +
 +void RaylibHostedPushTouch(int phase, int pointerId, float x, float y)
@@ -1049,10 +1091,10 @@ index 0000000..5f80896
 +}
 diff --git a/src/raylib_android_hosted.h b/src/raylib_android_hosted.h
 new file mode 100644
-index 0000000..d452708
+index 0000000..d89c95d
 --- /dev/null
 +++ b/src/raylib_android_hosted.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,70 @@
 +/**********************************************************************************************
 +*
 +*   raylib_android_hosted.h - the host side of PLATFORM_ANDROID_HOSTED
@@ -1094,11 +1136,14 @@ index 0000000..d452708
 +void RaylibHostedSetWindow(void *nativeWindow, int width, int height);  // An ANativeWindow*: raylib takes its own reference
 +void RaylibHostedClearWindow(void);                                     // The surface is going away: stop presenting to it
 +void RaylibHostedResize(int width, int height);                         // The surface changed size
++bool RaylibHostedGetSurfaceSize(int *width, int *height);               // The host's surface size (false: never attached), before InitWindow() too
 +bool RaylibHostedIsReady(void);                                         // InitWindow() done (events have a window to reach)
 +
 +// Window events (host thread)
 +void RaylibHostedPushFocus(bool gained);
 +void RaylibHostedPushClose(void);                                       // WindowShouldClose() becomes true
++bool RaylibHostedMakeCurrent(bool current);                             // Render thread: the GL context current on the calling thread (true) or released from it (false)
++void RaylibHostedClearClose(void);                                      // Render thread: WindowShouldClose() false again, queued closes dropped (the next window)
 +
 +// Input (host thread). Positions in surface pixels.
 +#define RAYLIB_HOSTED_TOUCH_DOWN 0
