@@ -17,7 +17,7 @@
 set(LITERGSS3_VERSION "3.0.0")
 # -D overrides them, for a local checkout (file:///path/to/litergss3)
 if(NOT DEFINED LITERGSS3_GIT_URL)
-    set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
+    set(LITERGSS3_GIT_URL "https://github.com/PokemonWorkshop/litergss3.git")
 endif()
 if(NOT DEFINED LITERGSS3_GIT_TAG)
     set(LITERGSS3_GIT_TAG "a5c1f2000ca0f139cc836b22b70d92519d4a3277")  # development
