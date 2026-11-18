@@ -4,10 +4,27 @@ services:
     volumes:
       - .:/src:ro # Your editable source code on host
       - currentdata:/opt/current # Named volume for build
-    command: rsync -a --delete --exclude "target*/" --exclude "build*/" /src/ /opt/current/src/
-    # --delete removes files in the named volume that were deleted in src,
-    # never the build and target directories (build-<name>, target-<name>
-    # too): their caches and downloads live in the volume only
+    # --delete removes files in the named volume that were deleted in src.
+    # Of the build directories (build, build-<name>), only the dependency
+    # caches are sent: downloads/ and git-cache/, which CI fills on the host
+    # before the build (PreloadDeps.cmake). Nothing in them is ever deleted
+    # (P): the container downloads there too, and the host has not those.
+    # The builds themselves are in /opt/current/<build dir>, out of src.
+    # Nested build/ and target*/ directories are not sent either.
+    command:
+      - rsync
+      - -a
+      - --delete
+      - --filter=P /build*/***
+      - --filter=P /target*/***
+      - --include=/build*/
+      - --include=/build*/downloads/***
+      - --include=/build*/git-cache/***
+      - --exclude=/build*/**
+      - --exclude=build/
+      - --exclude=target*/
+      - /src/
+      - /opt/current/src/
 
   litergss-dev:
     # Use litergss-deps image if available (has pre-cached dependencies),

@@ -326,7 +326,11 @@ HAS_ANDROID=@HAS_ANDROID@
 PROJECT_NAME=litergss-everywhere
 CONTAINER=$(PROJECT_NAME)_dev
 DOCKER_WORKDIR=/opt/current/src
-DOCKER_BUILD_DIR=/opt/current/build
+# One tree per --build-dir (named like it, next to the sources): a variant,
+# backend or Ruby version built in its own directory never picks up what
+# another one installed (stale Ruby headers, other libraries). The default,
+# build, is the tree all builds shared before.
+DOCKER_BUILD_DIR=/opt/current/$(notdir $(patsubst %/,%,$(BUILD_DIR)))
 
 .PHONY: all build configure-cmake export install test publish-kmp clean clean-libs clean-downloads clean-artifacts clean-all help sync docker-init docker-start docker-check-running docker-check-volume docker-sync android-example android-example-build android-example-install docker-deps-image download-deps
 

@@ -188,7 +188,9 @@ Export to a target directory of its own, so a Tracy runtime never replaces the r
 make && make export   # fat libs and archives in target-android-tracy/
 ```
 
-In Docker mode the container always builds in the same tree (`/opt/current/build`, `--build-dir` only places the downloads cache). A `./configure` without `--enable-tracy` switches it back: it passes `-DLITERGSS_USE_TRACY=OFF` explicitly, and LiteCGSS and `extension-init.c` are rebuilt.
+In Docker mode the container builds in one tree per `--build-dir`, named like it (`/opt/current/build` by default, `/opt/current/build-raylib30-android` for `--build-dir=build-raylib30-android`): give each Ruby variant or backend you build locally its own `--build-dir`, so none picks up what another installed. With the same `--build-dir`, a `./configure` without `--enable-tracy` switches the tree back: it passes `-DLITERGSS_USE_TRACY=OFF` explicitly, and LiteCGSS and `extension-init.c` are rebuilt.
+
+`make` syncs the sources into the container's volume before every build. Of the `build*/` directories it only sends `downloads/` and `git-cache/` (the dependencies `make download-deps` or CI fetched on the host), and never deletes anything in them.
 
 `make install` also publishes the KMP module, under the same Maven coordinates as a release build (`0.0.0-SNAPSHOT` in Maven Local, unless `KMP_VERSION` is set): the Tracy runtime then replaces the release one for every app that resolves it.
 
