@@ -3,7 +3,7 @@
 
 set(SFML_VERSION "2.6.1-es2")
 set(SFML_GIT_URL "https://github.com/Scorbutics/SFML-opengl-es2.git")
-set(SFML_GIT_TAG "60fc570b498116fe12db671d0130d4682c3a423a")  # HEAD
+set(SFML_GIT_TAG "e9fee994045758262be5ef9a2156210f3a638daa")  # main
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 set(SFML_DIR "${CMAKE_BINARY_DIR}/sfml/build_dir/${TARGET_ARCH}-${PLATFORM_LOWER}/sfml-${SFML_VERSION}")
@@ -37,6 +37,11 @@ else()
     set(_SFML_MODULE_ARGS "")
     set(_SFML_DEPENDS freetype openal-soft libogg libvorbis flac)
     set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -E copy_if_different)
+endif()
+
+# Android: LiteRGSS loads Image/Font files from the filesystem, not the APK assets
+if(PLATFORM_LOWER STREQUAL "android")
+    list(APPEND _SFML_MODULE_ARGS -DSFML_ANDROID_LOAD_FROM_ASSETS=FALSE)
 endif()
 
 # SFML configure command (CMake-based)

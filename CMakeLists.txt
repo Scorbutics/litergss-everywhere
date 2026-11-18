@@ -72,10 +72,10 @@ if(LITERGSS_BACKEND STREQUAL "raylib")
         set(_litergss_tracy_dep "tracy;")
     endif()
     set(_litergss_dependencies
-        "patchelf;libogg;libvorbis;flac;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;ruby-sfml-audio;raylib;physfs;${_litergss_tracy_dep}litergss3")
+        "libogg;libvorbis;flac;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;ruby-sfml-audio;raylib;physfs;${_litergss_tracy_dep}litergss3")
 else()
     set(_litergss_dependencies
-        "patchelf;libogg;libvorbis;flac;freetype;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;litecgss;ruby-sfml-audio;litergss2")
+        "libogg;libvorbis;flac;freetype;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;litecgss;ruby-sfml-audio;litergss2")
 endif()
 
 # ============================================================================

@@ -1,7 +1,7 @@
 /*
  * music_reopen_test.c - SFMLAudio::Music opening a second buffer.
  *
- * A Music owns a copy of the buffer it streams from (music-owns-memory.patch).
+ * A Music owns a copy of the buffer it streams from (sfmlaudio's sf_Music.cpp).
  * Opening another buffer must keep the current copy until the new file is
  * open: sf::Music::openFromMemory first stops the current file, and stopping
  * seeks it back to the start, reading the current buffer (PSDK crashed when

@@ -385,7 +385,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     rgss_add_native_test(rgss_smoke_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
     set_tests_properties(rgss_smoke_test PROPERTIES TIMEOUT 10)
 
-    # SFMLAudio::Music opening a second buffer (music-owns-memory.patch)
+    # SFMLAudio::Music opening a second buffer (sfmlaudio's sf_Music.cpp)
     rgss_add_native_test(rgss_music_reopen_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/music_reopen_test.c")
     # Ruby headers are third-party: SYSTEM keeps their warnings out of -Werror
     target_include_directories(rgss_music_reopen_test SYSTEM PRIVATE ${RUBY_FOR_ANDROID_INCLUDE_DIRS})
