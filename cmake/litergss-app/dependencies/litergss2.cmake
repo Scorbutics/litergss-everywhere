@@ -3,7 +3,7 @@
 
 set(LITERGSS2_VERSION "2.0.0")
 set(LITERGSS2_GIT_URL "https://gitlab.com/pokemonsdk/litergss2.git")
-set(LITERGSS2_GIT_TAG "b21dda43ad5d7f787c32ade109df34775732c6e6")  # development (Tracy)
+set(LITERGSS2_GIT_TAG "b92c09d0d21040a33056623d1d8471dd0d4ca593")  # development (Tracy, LiteCGSS with the Android JNI bridge)
 
 option(BUILD_SHARED_WRAPPER "Build single shared library wrapper (rgss_runtime) instead of archive" OFF)
 
