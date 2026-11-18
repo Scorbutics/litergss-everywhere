@@ -434,8 +434,12 @@ sync:
 docker-start:
 	@echo "Starting development container..."
 	@# Its exit status, not its output: "Started" also comes from the init
-	@# container, printed when litergss-dev (its image build) failed
-	@if out=$$(docker compose up -d litergss-dev 2>&1); then \
+	@# container, printed when litergss-dev (its image build) failed.
+	@# --no-deps: docker-sync ran init (rsync --delete) already. Started again
+	@# here, detached, it ran on during the build and deleted from the volume
+	@# what the host has not, the dependencies just downloaded among them
+	@# ("File to extract does not exist").
+	@if out=$$(docker compose up -d --no-deps litergss-dev 2>&1); then \
 		echo "Development container started"; \
 	else \
 		printf '%s\n' "$$out"; \
