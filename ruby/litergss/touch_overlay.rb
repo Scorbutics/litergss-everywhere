@@ -30,8 +30,10 @@
 # images (image). A layout file (load_layout, see LayoutFile) moves, resizes
 # and hides buttons, and adds buttons sending a key of its choice.
 #
-# A game drawing its own touch controls (Input::InputTouch, as pokemonsdk did
-# for Android) keeps them: the overlay never shows on its windows.
+# The overlay is the only on-screen gamepad, whatever the game: pokemonsdk's
+# former touch controls (Input::InputTouch, "InputTouch Viewport", in games
+# compiled before the overlay) are switched off, never drawn, never sending a
+# key (RetiredTouchControls).
 #
 # Layout and images come from PSDK's former "InputTouch Viewport" (pokemonsdk),
 # in window pixels instead of game pixels.
@@ -1404,6 +1406,20 @@ module LiteRGSS
       end
     end
 
+    # Prepended to the game's Input::InputTouch (retire_legacy_touch_controls):
+    # pokemonsdk creates it when Graphics starts (Input.load_touch_screen) and
+    # updates its singleton after every Graphics.update. It draws nothing and
+    # sends no key: the overlay is the gamepad.
+    module RetiredTouchControls
+      def initialize(*)
+        self.class.singleton = self if self.class.respond_to?(:singleton=)
+      end
+
+      def update_input_touch(*); end
+
+      def dispose(*); end
+    end
+
     # Prepended to LiteRGSS::DisplayWindow: keeps the game's event callbacks and
     # puts the overlay in front of the touch ones.
     module WindowHooks
@@ -1429,9 +1445,9 @@ module LiteRGSS
 
       def update(*args)
         overlay = @__touch_overlay
-        # Checked before drawing: a game defining its touch controls after
-        # creating its window never shows both
-        overlay.disable if overlay&.enabled? && TouchOverlay.game_has_touch_controls?
+        # Checked before drawing: a game defining its former touch controls
+        # after creating its window never shows them either
+        TouchOverlay.retire_legacy_touch_controls if overlay&.enabled?
         result = super
         TouchOverlay.guard(overlay) { overlay.update } if overlay&.enabled?
         result
@@ -1477,7 +1493,10 @@ module LiteRGSS
       def new(*args, &block)
         window = super
         begin
-          window.__attach_touch_overlay if TouchOverlay.enabled? && !TouchOverlay.game_has_touch_controls?
+          if TouchOverlay.enabled?
+            TouchOverlay.retire_legacy_touch_controls
+            window.__attach_touch_overlay
+          end
         rescue StandardError => e
           warn "[TouchOverlay] disabled: #{e.class}: #{e.message}"
         end
@@ -1686,12 +1705,41 @@ module LiteRGSS
         end
       end
 
-      # The game draws its own touch controls (pokemonsdk's former
-      # "InputTouch Viewport", still in games exported before the overlay).
-      # Only the real ones count: a game script reopening the class (built on
-      # them before) defines an empty Input::InputTouch.
+      # The overlay is the only on-screen gamepad: no game keeps touch controls
+      # of its own (retire_legacy_touch_controls). Kept, false, for the game
+      # scripts that ask.
       def game_has_touch_controls?
+        false
+      end
+
+      # pokemonsdk's former touch controls ("InputTouch Viewport", still in
+      # games compiled before the overlay): an Input::InputTouch with its
+      # singleton. Only the real ones count: a game script reopening the class
+      # (built on them before) defines an empty Input::InputTouch.
+      def legacy_touch_controls?
         defined?(::Input::InputTouch) && ::Input::InputTouch.respond_to?(:singleton) ? true : false
+      end
+
+      # Switch off pokemonsdk's former touch controls, the overlay replacing
+      # them: the ones already drawn are disposed, the ones created from now on
+      # draw nothing and send no key (RetiredTouchControls). Never fails the
+      # game: an error leaves them.
+      # @return [Boolean] if they were switched off now
+      def retire_legacy_touch_controls
+        return false unless legacy_touch_controls?
+
+        touch = ::Input::InputTouch
+        return false if touch.ancestors.include?(RetiredTouchControls)
+
+        drawn = touch.singleton
+        drawn&.dispose
+        touch.prepend(RetiredTouchControls)
+        # The game updates its singleton after every Graphics.update
+        touch.new if drawn
+        true
+      rescue StandardError => e
+        warn "[TouchOverlay] the game's former touch controls not switched off: #{e.class}: #{e.message}"
+        false
       end
 
       # Keyboard scancode a gamepad button sends: the layout file's key when it

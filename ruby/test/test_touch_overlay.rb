@@ -237,9 +237,28 @@ class TestTouchOverlay < Minitest::Test
     Overlay.on_settings = nil
   end
 
-  # pokemonsdk's former InputTouch: a class with its singleton viewport
+  # pokemonsdk's former InputTouch: its pad drawn when created (singleton),
+  # touches turned into keys after every Graphics.update
   def own_touch_controls
-    Class.new { def self.singleton = nil }
+    Class.new do
+      class << self
+        attr_accessor :singleton
+      end
+      attr_reader :drawn
+
+      def initialize
+        @drawn = true
+        self.class.singleton = self
+      end
+
+      def update_input_touch
+        raise 'the former touch controls sent keys'
+      end
+
+      def dispose
+        @drawn = false
+      end
+    end
   end
 
   PNG = "\x89PNG fake".b
@@ -412,17 +431,31 @@ class TestTouchOverlay < Minitest::Test
     assert_empty @game[:touch_began]
   end
 
-  def test_a_game_with_its_own_touch_controls_never_gets_the_overlay
+  # Old PSDK (InputTouch Viewport) gets the overlay too: its own pad, created
+  # once the window is (Graphics.init_sprite), draws nothing and sends no key
+  def test_a_game_with_its_former_touch_controls_gets_the_overlay_only
     Object.const_set(:Input, Module.new)
     Input.const_set(:InputTouch, own_touch_controls)
     window = LiteRGSS::DisplayWindow.new(2424, 1080)
-    assert_nil window.touch_overlay
-    assert_empty window.viewports
-    touches = []
-    window.on_touch_began = proc { |*args| touches << args }
-    window.queue(:touch_began, 0, 2257, 835)
-    window.update
-    assert_equal [[0, 2257, 835]], touches
+    refute_nil window.touch_overlay
+    refute_empty window.viewports
+    pad = Input::InputTouch.new
+    refute pad.drawn
+    assert_same pad, Input::InputTouch.singleton
+    Input::InputTouch.singleton.update_input_touch
+    refute Overlay.game_has_touch_controls?
+  end
+
+  # Drawn before the window (a game creating it earlier): disposed, a retired
+  # singleton left for the game's update
+  def test_former_touch_controls_already_drawn_are_disposed
+    Object.const_set(:Input, Module.new)
+    Input.const_set(:InputTouch, own_touch_controls)
+    drawn = Input::InputTouch.new
+    LiteRGSS::DisplayWindow.new(2424, 1080)
+    refute drawn.drawn
+    refute_same drawn, Input::InputTouch.singleton
+    Input::InputTouch.singleton.update_input_touch
   end
 
   def test_a_touch_outside_the_buttons_reaches_the_game
@@ -530,15 +563,17 @@ class TestTouchOverlay < Minitest::Test
     assert_equal [Sf::Keyboard::Scancode::Menu], @game[:key_pressed].map { |a| a[1] }
   end
 
-  def test_a_game_with_its_own_touch_controls_disables_the_overlay
+  # Defined after the window: switched off at the next frame, the overlay kept
+  def test_former_touch_controls_defined_later_are_switched_off
     Object.const_set(:Input, Module.new)
     Input.const_set(:InputTouch, own_touch_controls)
     frame
-    assert @window.viewports.all?(&:disposed?)
+    refute Input::InputTouch.new.drawn
+    refute @window.viewports.all?(&:disposed?)
     @window.queue(:touch_began, 0, *center('a'))
     frame
-    assert_equal 1, @game[:touch_began].size
-    assert_empty @game[:key_pressed]
+    assert_empty @game[:touch_began]
+    assert_equal [Sf::Keyboard::Scancode::Enter], @game[:key_pressed].map { |a| a[1] }
   end
 
   # Regression: an error in the overlay (it used Sf::Keyboard::Unknown, which

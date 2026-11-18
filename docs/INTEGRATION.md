@@ -390,8 +390,10 @@ games compiled on another platform:
 - a button sends the key events a keyboard would, through the key callbacks the
   game set on the window: the first keyboard binding of its virtual key in the
   game's `Input::Keys`, else `LiteRGSS::TouchOverlay::DEFAULT_KEYS`;
-- a game that defines its own touch controls (`Input::InputTouch`) keeps them: the
-  overlay disables itself.
+- it is the only on-screen gamepad: the touch controls of games compiled by an older
+  pokemonsdk (`Input::InputTouch`, "InputTouch Viewport") are switched off, never
+  drawn and never sending a key. `TouchOverlay.game_has_touch_controls?` stays, always
+  false, for the game scripts that call it.
 
 `LiteRGSS::TouchOverlay.enabled = false` keeps it off the windows created afterwards.
 
