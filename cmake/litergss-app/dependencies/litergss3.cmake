@@ -14,8 +14,13 @@
 # header-only and compiled out here by CGSS_NO_LOGS).
 
 set(LITERGSS3_VERSION "3.0.0")
-set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
-set(LITERGSS3_GIT_TAG "2597e308b59cbd12930b425969e54075db90d150")  # development
+# -D overrides them, for a local checkout (file:///path/to/litergss3)
+if(NOT DEFINED LITERGSS3_GIT_URL)
+    set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
+endif()
+if(NOT DEFINED LITERGSS3_GIT_TAG)
+    set(LITERGSS3_GIT_TAG "8f4853b7e22de86eae84ff9c14520d087d240548")  # development
+endif()
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
 # APP_DEPENDENCIES order). ruby/ruby.h and ruby/config.h are both there.
