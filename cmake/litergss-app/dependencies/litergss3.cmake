@@ -15,7 +15,7 @@
 
 set(LITERGSS3_VERSION "3.0.0")
 set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
-set(LITERGSS3_GIT_TAG "e215fe316e5324111277419cde912d9cb9a15f09")  # development
+set(LITERGSS3_GIT_TAG "2597e308b59cbd12930b425969e54075db90d150")  # development
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
 # APP_DEPENDENCIES order). ruby/ruby.h and ruby/config.h are both there.
