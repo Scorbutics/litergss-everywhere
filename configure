@@ -457,11 +457,12 @@ docker-start:
 	fi
 
 # Initialize Docker environment (sync + start)
+# The sync runs every time, container up or not: skipped while it ran, the
+# volume kept building the sources of when it started (hours of commits).
+# It is incremental and leaves build*/ and target*/ alone (docker-compose.yml).
 docker-init:
-	@if docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
-		echo "Container already running, skipping sync"; \
-	else \
-		$(MAKE) docker-sync; \
+	@$(MAKE) docker-sync
+	@if ! docker ps --filter "name=$(CONTAINER)" --format "{{.Names}}" 2>/dev/null | grep -q "^$(CONTAINER)$$"; then \
 		$(MAKE) docker-start; \
 	fi
 

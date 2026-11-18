@@ -4,8 +4,10 @@ services:
     volumes:
       - .:/src:ro # Your editable source code on host
       - currentdata:/opt/current # Named volume for build
-    command: rsync -a --delete --exclude "target/" --exclude "build/" /src/ /opt/current/src/
-    # --delete removes files in the named volume that were deleted in src
+    command: rsync -a --delete --exclude "target*/" --exclude "build*/" /src/ /opt/current/src/
+    # --delete removes files in the named volume that were deleted in src,
+    # never the build and target directories (build-<name>, target-<name>
+    # too): their caches and downloads live in the volume only
 
   litergss-dev:
     # Use litergss-deps image if available (has pre-cached dependencies),
