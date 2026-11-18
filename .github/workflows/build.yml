@@ -6,26 +6,6 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master]
-  # release-raylib.yml: a tag's raylib runtime, in a run of its own (the
-  # artifacts of one run share their names)
-  workflow_call:
-    inputs:
-      backend:
-        type: string
-        default: "sfml"
-      platforms:
-        type: string
-        default: ""
-      # Empty: as a push (the tag decides the Ruby variant)
-      android_abis:
-        type: string
-        default: ""
-      ruby_variant:
-        type: string
-        default: ""
-      build_type:
-        type: string
-        default: ""
   workflow_dispatch:
     inputs:
       platforms:
@@ -62,14 +42,15 @@ on:
           - "3.0"
           - "3.2"
           - "3.3"
-      backend:
-        description: "Graphics backend: sfml (LiteRGSS2) or raylib (LiteRGSS3, snapshots only, Ruby 3.2+, no iOS)"
+      backends:
+        description: "Graphics backends: sfml (LiteRGSS2), raylib (LiteRGSS3: Ruby 3.2+, no iOS) or both"
         required: false
         default: "sfml"
         type: choice
         options:
           - "sfml"
           - "raylib"
+          - "sfml,raylib"
       build_type:
         description: "Build type"
         required: false
@@ -100,10 +81,11 @@ jobs:
       has_ios: ${{ steps.set-params.outputs.has_ios }}
       has_macos: ${{ steps.set-params.outputs.has_macos }}
       is_release: ${{ steps.set-params.outputs.is_release }}
-      version: ${{ steps.set-params.outputs.version }}
-      tracy_version: ${{ steps.set-params.outputs.tracy_version }}
       ruby_variant: ${{ steps.set-params.outputs.ruby_variant }}
-      backend: ${{ steps.set-params.outputs.backend }}
+      backends: ${{ steps.set-params.outputs.backends }}
+      backends_json: ${{ steps.set-params.outputs.backends_json }}
+      has_sfml: ${{ steps.set-params.outputs.has_sfml }}
+      versions_json: ${{ steps.set-params.outputs.versions_json }}
       is_default_variant: ${{ steps.set-params.outputs.is_default_variant }}
       android_abis: ${{ steps.set-params.outputs.android_abis }}
       android_abis_json: ${{ steps.set-params.outputs.android_abis_json }}
@@ -128,26 +110,14 @@ jobs:
           else
             DEBUG_SUFFIX=""
           fi
-          # The graphics backend: sfml on pushes, PRs and tags (this file), raylib
-          # on a tag's own run (release-raylib.yml, Ruby 3.2+) and manual runs.
-          # raylib (LiteRGSS3) carries -raylib after the Ruby variant:
-          # X.Y.Z-ruby3.3-raylib[-debug][-SNAPSHOT], the same artifacts as sfml's
-          # under another version (one runtime per app: the two cannot coexist),
-          # in the same GitHub Release. Package.swift and the Kotlin host stay
-          # sfml's.
-          BACKEND="${{ inputs.backend || 'sfml' }}"
-          if [ "$BACKEND" = "raylib" ]; then
-            DEBUG_SUFFIX="-raylib${DEBUG_SUFFIX}"
-          fi
-          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
-          echo "Graphics backend: $BACKEND"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-ruby([0-9]+\.[0-9]+)$ ]]; then
               echo "::error::Release tags must be vX.Y.Z-rubyA.B (e.g. v1.2.0-ruby3.0), got $GITHUB_REF_NAME"
               exit 1
             fi
             RUBY_VARIANT="${BASH_REMATCH[1]}"
-            VERSION="${GITHUB_REF_NAME#v}${DEBUG_SUFFIX}"
+            BASE_VERSION="${GITHUB_REF_NAME#v}"
+            SNAPSHOT_SUFFIX=""
             # A debug run on a tag is never a release
             if [ "$BUILD_TYPE" = "debug" ]; then
               echo "is_release=false" >> "$GITHUB_OUTPUT"
@@ -160,34 +130,64 @@ jobs:
             # Read the submodule commit, then fetch NEXT_VERSION from it via the API
             SM_COMMIT=$(git ls-tree HEAD external/embedded-ruby-vm | awk '{print $3}')
             SM_REPO=$(git config --file .gitmodules submodule.external/embedded-ruby-vm.url | sed 's|.*github.com[:/]||;s|\.git$||')
-            VERSION="$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}${DEBUG_SUFFIX}-SNAPSHOT"
+            BASE_VERSION="$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://raw.githubusercontent.com/${SM_REPO}/${SM_COMMIT}/NEXT_VERSION" | tr -d '[:space:]')-ruby${RUBY_VARIANT}"
+            SNAPSHOT_SUFFIX="-SNAPSHOT"
           fi
           echo "ruby_variant=$RUBY_VARIANT" >> "$GITHUB_OUTPUT"
-          if [ "$BACKEND" = "raylib" ]; then
-            case "$RUBY_VARIANT" in
-              3.0|3.1)
-                echo "::error::The raylib backend (LiteRGSS3) needs Ruby 3.2 or newer, not $RUBY_VARIANT"
-                exit 1 ;;
-            esac
-          fi
           if [ "$RUBY_VARIANT" = "${{ env.DEFAULT_RUBY_VARIANT }}" ]; then
             echo "is_default_variant=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_default_variant=false" >> "$GITHUB_OUTPUT"
           fi
           echo "Ruby variant: $RUBY_VARIANT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION"
-          # The Tracy runtime (--enable-tracy), for debug builds: X.Y.Z-ruby3.0-tracy,
-          # -tracy before -SNAPSHOT so that Maven still sees a snapshot
-          if [[ "$VERSION" == *-SNAPSHOT ]]; then
-            TRACY_VERSION="${VERSION%-SNAPSHOT}-tracy-SNAPSHOT"
+
+          # The graphics backends, each a matrix axis of the build and install
+          # jobs, all packaged and released by this one run. Manual runs: the
+          # input. Release tags: sfml, and raylib (LiteRGSS3) from Ruby 3.2 on.
+          # Pushes and PRs: sfml.
+          case "$RUBY_VARIANT" in
+            3.0|3.1) RAYLIB_OK=false ;;
+            *)       RAYLIB_OK=true ;;
+          esac
+          if [ -n "${{ inputs.backends }}" ]; then
+            BACKENDS="${{ inputs.backends }}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "$RAYLIB_OK" = true ]; then
+            BACKENDS="sfml,raylib"
           else
-            TRACY_VERSION="${VERSION}-tracy"
+            BACKENDS="sfml"
           fi
-          echo "tracy_version=$TRACY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Tracy version: $TRACY_VERSION"
+          BACKENDS_JSON=$(echo "$BACKENDS" | jq -Rc 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
+          if jq -e 'index("raylib")' <<< "$BACKENDS_JSON" >/dev/null && [ "$RAYLIB_OK" != true ]; then
+            echo "::error::The raylib backend (LiteRGSS3) needs Ruby 3.2 or newer, not $RUBY_VARIANT"
+            exit 1
+          fi
+          if jq -e 'index("sfml")' <<< "$BACKENDS_JSON" >/dev/null; then HAS_SFML=true; else HAS_SFML=false; fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          echo "backends_json=$BACKENDS_JSON" >> "$GITHUB_OUTPUT"
+          echo "has_sfml=$HAS_SFML" >> "$GITHUB_OUTPUT"
+          echo "Graphics backends: $BACKENDS"
+
+          # The versions, per backend. raylib carries -raylib after the Ruby
+          # variant: X.Y.Z-ruby3.3-raylib[-debug][-SNAPSHOT], the same artifacts
+          # as sfml's under another version (one runtime per app: the two
+          # cannot coexist), in the same GitHub Release. Package.swift, iOS and
+          # the Kotlin host are sfml's only.
+          # The Tracy runtime (--enable-tracy), for debug builds: <version>-tracy,
+          # before -SNAPSHOT so that Maven still sees a snapshot.
+          VERSIONS_JSON='{}'
+          for BACKEND in $(jq -r '.[]' <<< "$BACKENDS_JSON"); do
+            case "$BACKEND" in
+              sfml)   BACKEND_SUFFIX="" ;;
+              raylib) BACKEND_SUFFIX="-raylib" ;;
+              *) echo "::error::Unknown graphics backend '$BACKEND' (sfml or raylib)"; exit 1 ;;
+            esac
+            V="${BASE_VERSION}${BACKEND_SUFFIX}${DEBUG_SUFFIX}"
+            VERSIONS_JSON=$(jq -c --arg b "$BACKEND" --arg v "${V}${SNAPSHOT_SUFFIX}" --arg t "${V}-tracy${SNAPSHOT_SUFFIX}" \
+              '.[$b] = {version: $v, tracy: $t}' <<< "$VERSIONS_JSON")
+          done
+          echo "versions_json=$VERSIONS_JSON" >> "$GITHUB_OUTPUT"
+          echo "Versions: $VERSIONS_JSON"
 
           PLATFORMS="${{ inputs.platforms || env.DEFAULT_PLATFORMS }}"
           ANDROID_ABIS="${{ inputs.android_abis || env.DEFAULT_ANDROID_ABIS }}"
@@ -228,10 +228,11 @@ jobs:
               android)        echo "has_android=true" >> "$GITHUB_OUTPUT" ;;
               linux-x86_64)   echo "has_linux_x86_64=true" >> "$GITHUB_OUTPUT" ;;
               ios)
-                if [ "$BACKEND" = "raylib" ]; then
-                  echo "::notice::No iOS with the raylib backend (raylib 6 has no iOS platform): iOS skipped"
-                else
+                # raylib 6 has no iOS platform: iOS is sfml's only
+                if [ "$HAS_SFML" = true ]; then
                   echo "has_ios=true" >> "$GITHUB_OUTPUT"
+                else
+                  echo "::notice::No iOS with the raylib backend (raylib 6 has no iOS platform): iOS skipped"
                 fi ;;
               macos)          echo "has_macos=true" >> "$GITHUB_OUTPUT" ;;
             esac
@@ -247,12 +248,14 @@ jobs:
     if: needs.prepare.outputs.has_android == 'true'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         abi: ${{ fromJson(needs.prepare.outputs.android_abis_json) }}
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
     # Both runtimes, one after the other in the same build tree: the release
     # one, then the Tracy one (<version>-tracy, debug builds). --enable-tracy
     # only rebuilds LiteCGSS, LiteRGSS2, extension-init.o and the fat library.
-    name: Build Android (${{ matrix.abi }})
+    name: Build Android (${{ matrix.backend }}, ${{ matrix.abi }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -289,7 +292,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android \
@@ -305,7 +308,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --with-toolchain-params=toolchain-params/${{ matrix.abi }}-android-toolchain.params \
             --build-dir=build-android \
             --target-dir=target-android-tracy \
@@ -338,7 +341,7 @@ jobs:
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: build-android-${{ matrix.abi }}
+          name: build-android-${{ matrix.backend }}-${{ matrix.abi }}
           path: target-android/
           if-no-files-found: error
           retention-days: 1
@@ -347,7 +350,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # build-tracy-android-*: not matched by the release install's build-android-*
-          name: build-tracy-android-${{ matrix.abi }}
+          name: build-tracy-android-${{ matrix.backend }}-${{ matrix.abi }}
           path: target-android-tracy/
           if-no-files-found: error
           retention-days: 1
@@ -365,7 +368,11 @@ jobs:
     env:
       CC: gcc-14
       CXX: g++-14
-    name: Build Linux x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
+    name: Build Linux x86_64 (${{ matrix.backend }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -408,7 +415,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -433,7 +440,7 @@ jobs:
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: build-linux-x86_64
+          name: build-linux-x86_64-${{ matrix.backend }}
           path: target-linux-x86_64/
           if-no-files-found: error
           retention-days: 1
@@ -493,7 +500,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=sfml \
             --without-docker \
             --with-toolchain-params=toolchain-params/${{ matrix.target }}-toolchain.params \
             --enable-static \
@@ -520,7 +527,11 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.has_macos == 'true'
     runs-on: macos-15
-    name: Build macOS arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
+    name: Build macOS arm64 (${{ matrix.backend }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -556,7 +567,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \
@@ -573,7 +584,7 @@ jobs:
       - name: Upload build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: build-macos-arm64
+          name: build-macos-arm64-${{ matrix.backend }}
           path: target-macos/
           if-no-files-found: error
           retention-days: 1
@@ -588,9 +599,11 @@ jobs:
     if: needs.prepare.outputs.has_android == 'true'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
         tracy: [false, true]
-    name: Install Android${{ matrix.tracy && ' (Tracy)' || '' }}
+    name: Install Android (${{ matrix.backend }}${{ matrix.tracy && ', Tracy' || '' }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -600,7 +613,7 @@ jobs:
       - name: Download per-ABI build outputs
         uses: actions/download-artifact@v4
         with:
-          pattern: ${{ matrix.tracy && 'build-tracy-android' || 'build-android' }}-*
+          pattern: ${{ matrix.tracy && 'build-tracy-android' || 'build-android' }}-${{ matrix.backend }}-*
           path: build-artifacts
 
       - name: Set up JDK
@@ -613,7 +626,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --without-docker \
             ${{ needs.prepare.outputs.android_toolchain_args }} \
             --build-dir=build-android \
@@ -634,7 +647,7 @@ jobs:
         env:
           # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
-          KMP_VERSION: ${{ matrix.tracy && needs.prepare.outputs.tracy_version || needs.prepare.outputs.version }}
+          KMP_VERSION: ${{ matrix.tracy && fromJson(needs.prepare.outputs.versions_json)[matrix.backend].tracy || fromJson(needs.prepare.outputs.versions_json)[matrix.backend].version }}
         run: make publish-kmp
 
       - name: Find AAR artifact
@@ -651,7 +664,7 @@ jobs:
       - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.tracy && 'intermediate-android-tracy' || 'intermediate-android' }}
+          name: intermediate-android-${{ matrix.backend }}${{ matrix.tracy && '-tracy' || '' }}
           path: ${{ steps.find-aar.outputs.aar_path }}
           if-no-files-found: error
           retention-days: 1
@@ -659,7 +672,7 @@ jobs:
       - name: Upload Maven repo
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.tracy && 'intermediate-android-tracy-maven' || 'intermediate-android-maven' }}
+          name: intermediate-android-${{ matrix.backend }}${{ matrix.tracy && '-tracy' || '' }}-maven
           path: target-android/maven/
           if-no-files-found: warn
           retention-days: 1
@@ -674,7 +687,11 @@ jobs:
     env:
       CC: gcc-14
       CXX: g++-14
-    name: Install Linux x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
+    name: Install Linux x86_64 (${{ matrix.backend }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -684,7 +701,7 @@ jobs:
       - name: Download build outputs
         uses: actions/download-artifact@v4
         with:
-          name: build-linux-x86_64
+          name: build-linux-x86_64-${{ matrix.backend }}
           path: target-linux-x86_64
 
       - name: Install build dependencies
@@ -705,7 +722,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/x86_64-linux-toolchain.params \
             --build-dir=build-linux-x86_64 \
@@ -716,7 +733,7 @@ jobs:
         env:
           # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
-          KMP_VERSION: ${{ needs.prepare.outputs.version }}
+          KMP_VERSION: ${{ fromJson(needs.prepare.outputs.versions_json)[matrix.backend].version }}
         run: make publish-kmp
 
       - name: Check the standalone runtime
@@ -727,7 +744,7 @@ jobs:
       - name: Upload target artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-linux-x86_64
+          name: intermediate-linux-x86_64-${{ matrix.backend }}
           path: target-linux-x86_64/
           if-no-files-found: error
           retention-days: 1
@@ -763,7 +780,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=sfml \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-ios-device-toolchain.params \
             --with-toolchain-params=toolchain-params/arm64-ios-simulator-toolchain.params \
@@ -785,7 +802,7 @@ jobs:
         env:
           # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
-          KMP_VERSION: ${{ needs.prepare.outputs.version }}
+          KMP_VERSION: ${{ fromJson(needs.prepare.outputs.versions_json).sfml.version }}
         run: make publish-kmp
 
       - name: Upload target artifacts
@@ -801,7 +818,11 @@ jobs:
     needs: [prepare, build-macos]
     if: needs.prepare.outputs.has_macos == 'true'
     runs-on: macos-15
-    name: Install macOS arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJson(needs.prepare.outputs.backends_json) }}
+    name: Install macOS arm64 (${{ matrix.backend }})
     steps:
       - name: Checkout with submodules
         uses: actions/checkout@v4
@@ -811,7 +832,7 @@ jobs:
       - name: Download build outputs
         uses: actions/download-artifact@v4
         with:
-          name: build-macos-arm64
+          name: build-macos-arm64-${{ matrix.backend }}
           path: target-macos
 
       - name: Install build dependencies
@@ -827,7 +848,7 @@ jobs:
         run: |
           ./configure \
             --with-ruby-variant=${{ needs.prepare.outputs.ruby_variant }} \
-            --with-backend=${{ needs.prepare.outputs.backend }} \
+            --with-backend=${{ matrix.backend }} \
             --without-docker \
             --with-toolchain-params=toolchain-params/arm64-macos-toolchain.params \
             --enable-static \
@@ -839,13 +860,13 @@ jobs:
         env:
           # Without it the Gradle publication falls back to NEXT_VERSION-SNAPSHOT,
           # and a release tag ships artifacts whose POM says -SNAPSHOT.
-          KMP_VERSION: ${{ needs.prepare.outputs.version }}
+          KMP_VERSION: ${{ fromJson(needs.prepare.outputs.versions_json)[matrix.backend].version }}
         run: make publish-kmp
 
       - name: Upload target artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: intermediate-macos
+          name: intermediate-macos-${{ matrix.backend }}
           path: target-macos/
           if-no-files-found: error
           retention-days: 1
@@ -899,58 +920,44 @@ jobs:
     permissions:
       contents: write
       packages: write
+    env:
+      BACKENDS: ${{ needs.prepare.outputs.backends }}
+      VERSIONS: ${{ needs.prepare.outputs.versions_json }}
     steps:
-      - name: Download Android AAR
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          sparse-checkout: .github/scripts
+
+      # One directory per artifact: staging/intermediate-android-<backend>[-tracy][-maven],
+      # staging/intermediate-linux-x86_64-<backend>
+      - name: Download Android builds
         if: needs.prepare.outputs.has_android == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: intermediate-android
-          path: staging/android
+          pattern: intermediate-android-*
+          path: staging
 
-      - name: Download Android Maven repo
-        if: needs.prepare.outputs.has_android == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-android-maven
-          path: staging/android-maven
-
-      - name: Download Android Tracy AAR
-        if: needs.prepare.outputs.has_android == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-android-tracy
-          path: staging/android-tracy
-
-      - name: Download Android Tracy Maven repo
-        if: needs.prepare.outputs.has_android == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: intermediate-android-tracy-maven
-          path: staging/android-tracy-maven
-
-      - name: Download Linux x86_64 build
+      - name: Download Linux x86_64 builds
         if: needs.prepare.outputs.has_linux_x86_64 == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: intermediate-linux-x86_64
-          path: staging/linux-x86_64
+          pattern: intermediate-linux-x86_64-*
+          path: staging
 
       - name: Assemble release
         run: |
           mkdir -p release
-          if [ -d staging/android ]; then
-            mkdir -p release/android
-            cp staging/android/*.aar release/android/
-            echo "Included Android AAR:"
-            ls -lh release/android/
-          fi
-          if [ -d staging/linux-x86_64 ]; then
-            mkdir -p release/linux-x86_64
-            cp -r staging/linux-x86_64/* release/linux-x86_64/
-            echo "Included Linux x86_64 artifacts:"
-            ls -lh release/linux-x86_64/
-          fi
-          echo ""
+          for B in ${BACKENDS//,/ }; do
+            if [ -d "staging/intermediate-android-$B" ]; then
+              mkdir -p "release/$B/android"
+              cp staging/intermediate-android-$B/*.aar "release/$B/android/"
+            fi
+            if [ -d "staging/intermediate-linux-x86_64-$B" ]; then
+              mkdir -p "release/$B/linux-x86_64"
+              cp -r staging/intermediate-linux-x86_64-$B/* "release/$B/linux-x86_64/"
+            fi
+          done
           echo "=== Final release contents ==="
           find release -type f | sort
 
@@ -967,29 +974,26 @@ jobs:
       - name: Assemble release archives
         if: needs.prepare.outputs.is_release == 'true'
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p release-assets
-
-          if [ -d staging/android ]; then
-            for aar in staging/android/*.aar; do
-              BASENAME=$(basename "$aar" .aar)
-              cp "$aar" "release-assets/${BASENAME}-${VERSION}.aar"
+          for B in ${BACKENDS//,/ }; do
+            VERSION=$(jq -r --arg b "$B" '.[$b].version' <<< "$VERSIONS")
+            TRACY_VERSION=$(jq -r --arg b "$B" '.[$b].tracy' <<< "$VERSIONS")
+            for aar in staging/intermediate-android-$B/*.aar; do
+              [ -f "$aar" ] || continue
+              cp "$aar" "release-assets/$(basename "$aar" .aar)-${VERSION}.aar"
             done
-          fi
-          if [ -d staging/android-tracy ]; then
-            for aar in staging/android-tracy/*.aar; do
-              BASENAME=$(basename "$aar" .aar)
-              cp "$aar" "release-assets/${BASENAME}-${{ needs.prepare.outputs.tracy_version }}.aar"
+            for aar in staging/intermediate-android-$B-tracy/*.aar; do
+              [ -f "$aar" ] || continue
+              cp "$aar" "release-assets/$(basename "$aar" .aar)-${TRACY_VERSION}.aar"
             done
-          fi
-
-          if [ -d staging/linux-x86_64 ]; then
-            tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" --exclude=./runtime -C staging/linux-x86_64 .
-            # Artifacts lose the executable bit on the way here
-            chmod +x staging/linux-x86_64/runtime/x86_64-linux/ruby
-            tar -czf "release-assets/litergss-runtime-linux-x86_64-${VERSION}.tar.gz" -C staging/linux-x86_64/runtime/x86_64-linux .
-          fi
-
+            LINUX="staging/intermediate-linux-x86_64-$B"
+            if [ -d "$LINUX" ]; then
+              tar -czf "release-assets/litergss-linux-x86_64-${VERSION}.tar.gz" --exclude=./runtime -C "$LINUX" .
+              # Artifacts lose the executable bit on the way here
+              chmod +x "$LINUX/runtime/x86_64-linux/ruby"
+              tar -czf "release-assets/litergss-runtime-linux-x86_64-${VERSION}.tar.gz" -C "$LINUX/runtime/x86_64-linux" .
+            fi
+          done
           echo "=== Release assets ==="
           ls -lh release-assets/
 
@@ -1006,14 +1010,12 @@ jobs:
       # --- Publish to GitHub Packages (Maven) ---
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Write Maven settings
-        if: needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true'
         run: |
           cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
@@ -1028,199 +1030,27 @@ jobs:
           SETTINGS_EOF
 
       - name: Delete existing SNAPSHOT package versions
-        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_android == 'true' || needs.prepare.outputs.has_linux_x86_64 == 'true')
+        if: needs.prepare.outputs.is_release != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Only the packages this job publishes: the other package job may
-          # already have re-published its own.
-          SCOPE: linux
+        # Every backend's runtime version and Tracy one (rgss-runtime-android only)
+        run: .github/scripts/delete-snapshots.sh linux $(jq -r '.[] | .version, .tracy' <<< "$VERSIONS")
+
+      - name: Publish to GitHub Packages
         run: |
-          # The release runtime's version and the Tracy one's (rgss-runtime-android only)
-          VERSIONS="${{ needs.prepare.outputs.version }} ${{ needs.prepare.outputs.tracy_version }}"
-          OWNER="${{ github.repository_owner }}"
-          echo "Deleting existing SNAPSHOT package versions (${VERSIONS}, ${SCOPE} packages) before re-publishing..."
-          # Published by package-linux; every other package by package-apple.
-          LINUX_PACKAGES="rgss-runtime-android rgss-runtime-desktop rgss-runtime-linuxx64"
-
-          # List all packages in the repository
-          PACKAGES=$(gh api \
-            "/orgs/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null) || \
-          PACKAGES=$(gh api \
-            "/users/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null) || \
-          PACKAGES=""
-
-          for VERSION in $VERSIONS; do
-            for PACKAGE in $PACKAGES; do
-              # GitHub names them groupId.artifactId: compare the artifactId
-              case " $LINUX_PACKAGES " in
-                *" ${PACKAGE##*.} "*) PACKAGE_SCOPE=linux ;;
-                *) PACKAGE_SCOPE=apple ;;
-              esac
-              [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
-
-              # Find the version ID matching our SNAPSHOT version
-              VERSION_ID=$(gh api \
-                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
-                --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-              VERSION_ID=$(gh api \
-                "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
-                --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-              VERSION_ID=""
-
-              if [ -n "$VERSION_ID" ]; then
-                echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
-                # Try deleting the version; if it's the last version, delete the whole package instead
-                if ! gh api --method DELETE \
-                  "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
-                  ! gh api --method DELETE \
-                  "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
-                  echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
-                  gh api --method DELETE \
-                    "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
-                    gh api --method DELETE \
-                    "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
-                    echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
-                fi
-              fi
-            done
+          for B in ${BACKENDS//,/ }; do
+            VERSION=$(jq -r --arg b "$B" '.[$b].version' <<< "$VERSIONS")
+            TRACY_VERSION=$(jq -r --arg b "$B" '.[$b].tracy' <<< "$VERSIONS")
+            if [ "${{ needs.prepare.outputs.has_android }}" = true ]; then
+              .github/scripts/deploy-maven.sh rgss-runtime-android "$VERSION" aar "staging/intermediate-android-$B-maven"
+              .github/scripts/deploy-maven.sh rgss-runtime-android "$TRACY_VERSION" aar "staging/intermediate-android-$B-tracy-maven"
+            fi
+            if [ "${{ needs.prepare.outputs.has_linux_x86_64 }}" = true ]; then
+              LINUX="staging/intermediate-linux-x86_64-$B"
+              .github/scripts/deploy-maven.sh rgss-runtime-desktop "$VERSION" jar "$LINUX/maven" optional
+              .github/scripts/deploy-maven.sh rgss-runtime-linuxx64 "$VERSION" klib "$LINUX/maven-native" optional
+            fi
           done
-          echo "SNAPSHOT cleanup complete."
-
-      - name: Publish AAR to GitHub Packages
-        if: needs.prepare.outputs.has_android == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          AAR_FILE=$(find staging/android-maven -name '*.aar' | head -1)
-          POM_FILE=$(find staging/android-maven -name '*.pom' | head -1)
-
-          if [ -z "$AAR_FILE" ]; then
-            echo "ERROR: No AAR file found in staging/android-maven"
-            exit 1
-          fi
-
-          echo "Publishing AAR as com.scorbutics.rubyvm:rgss-runtime-android:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-android
-            -Dversion="$VERSION"
-            -Dpackaging=aar
-            -Dfile="$AAR_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
-
-      - name: Publish Tracy AAR to GitHub Packages
-        if: needs.prepare.outputs.has_android == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.tracy_version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          AAR_FILE=$(find staging/android-tracy-maven -name '*.aar' | head -1)
-          POM_FILE=$(find staging/android-tracy-maven -name '*.pom' | head -1)
-
-          if [ -z "$AAR_FILE" ]; then
-            echo "ERROR: No AAR file found in staging/android-tracy-maven"
-            exit 1
-          fi
-
-          echo "Publishing Tracy AAR as com.scorbutics.rubyvm:rgss-runtime-android:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-android
-            -Dversion="$VERSION"
-            -Dpackaging=aar
-            -Dfile="$AAR_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
-
-      - name: Publish Desktop JAR to GitHub Packages (Linux)
-        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          JAR_FILE=$(find staging/linux-x86_64/maven -name '*.jar' ! -name '*-sources.jar' | head -1)
-          POM_FILE=$(find staging/linux-x86_64/maven -name '*.pom' | head -1)
-
-          if [ -z "$JAR_FILE" ]; then
-            echo "Warning: No Desktop JAR found in staging/linux-x86_64/maven"
-            find staging/linux-x86_64/maven -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:rgss-runtime-desktop:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-desktop
-            -Dversion="$VERSION"
-            -Dpackaging=jar
-            -Dfile="$JAR_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
-
-      - name: Publish Linux Native klib to GitHub Packages
-        if: needs.prepare.outputs.has_linux_x86_64 == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          KLIB_FILE=$(find staging/linux-x86_64/maven-native -name '*.klib' | head -1)
-          POM_FILE=$(find staging/linux-x86_64/maven-native -name '*.pom' | head -1)
-
-          if [ -z "$KLIB_FILE" ]; then
-            echo "Warning: No Linux Native klib found in staging/linux-x86_64/maven-native"
-            find staging/linux-x86_64/maven-native -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing Linux Native klib as com.scorbutics.rubyvm:rgss-runtime-linuxx64:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-linuxx64
-            -Dversion="$VERSION"
-            -Dpackaging=klib
-            -Dfile="$KLIB_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
 
   # litergss-host X.Y.Z, once per release (the default variant's tag), only
   # after rgss-runtime-android X.Y.Z-rubyA.B is out: a failed Android / Linux
@@ -1232,7 +1062,7 @@ jobs:
       && needs.package-linux.result == 'success'
       && needs.prepare.outputs.is_release == 'true'
       && needs.prepare.outputs.is_default_variant == 'true'
-      && needs.prepare.outputs.backend == 'sfml'
+      && needs.prepare.outputs.has_sfml == 'true'
       && needs.prepare.outputs.has_android == 'true'
     runs-on: ubuntu-latest
     name: Publish Kotlin host
@@ -1257,7 +1087,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION="${{ fromJson(needs.prepare.outputs.versions_json).sfml.version }}"
           ./gradlew --no-daemon publishAllPublicationsToGithubRepository -Pversion="${VERSION%-ruby*}"
 
   package-apple:
@@ -1278,7 +1108,17 @@ jobs:
     permissions:
       contents: write
       packages: write
+    env:
+      BACKENDS: ${{ needs.prepare.outputs.backends }}
+      VERSIONS: ${{ needs.prepare.outputs.versions_json }}
+      # iOS is sfml's only (raylib 6 has no iOS platform)
+      IOS_VERSION: ${{ fromJson(needs.prepare.outputs.versions_json).sfml.version }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          sparse-checkout: .github/scripts
+
       - name: Download iOS build
         if: needs.prepare.outputs.has_ios == 'true'
         uses: actions/download-artifact@v4
@@ -1286,37 +1126,33 @@ jobs:
           name: intermediate-ios
           path: staging/ios
 
-      - name: Download macOS build
+      # staging/intermediate-macos-<backend>
+      - name: Download macOS builds
         if: needs.prepare.outputs.has_macos == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: intermediate-macos
-          path: staging/macos
+          pattern: intermediate-macos-*
+          path: staging
 
       - name: Assemble release
         run: |
           mkdir -p release
           if [ -d staging/ios ]; then
-            mkdir -p release/ios
+            mkdir -p release/sfml/ios
             # Copy build archives (flat, from both device + simulator ABIs)
-            find staging/ios -maxdepth 1 -type f -exec cp {} release/ios/ \;
-            echo "Included iOS artifacts:"
-            ls -lh release/ios/ 2>/dev/null || true
+            find staging/ios -maxdepth 1 -type f -exec cp {} release/sfml/ios/ \;
             # Copy XCFramework if present
             if [ -d staging/ios/xcframework ]; then
-              mkdir -p release/xcframework
-              cp -r staging/ios/xcframework/* release/xcframework/
-              echo "Included iOS XCFramework:"
-              find release/xcframework -type f | head -20
+              mkdir -p release/sfml/xcframework
+              cp -r staging/ios/xcframework/* release/sfml/xcframework/
             fi
           fi
-          if [ -d staging/macos ]; then
-            mkdir -p release/macos
-            cp -r staging/macos/* release/macos/
-            echo "Included macOS artifacts:"
-            ls -lh release/macos/
-          fi
-          echo ""
+          for B in ${BACKENDS//,/ }; do
+            if [ -d "staging/intermediate-macos-$B" ]; then
+              mkdir -p "release/$B/macos"
+              cp -r staging/intermediate-macos-$B/* "release/$B/macos/"
+            fi
+          done
           echo "=== Final release contents ==="
           find release -type f | sort
 
@@ -1333,25 +1169,25 @@ jobs:
       - name: Assemble release archives
         if: needs.prepare.outputs.is_release == 'true'
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p release-assets
 
           if [ -d staging/ios ]; then
             # Archive iOS build outputs (excludes xcframework subdir)
-            tar -czf "release-assets/litergss-ios-${VERSION}.tar.gz" \
+            tar -czf "release-assets/litergss-ios-${IOS_VERSION}.tar.gz" \
               --exclude='xcframework' -C staging/ios .
           fi
 
           if [ -d staging/ios/xcframework ]; then
             # ZIP format required for Swift Package Manager binary targets
-            cd staging/ios/xcframework
-            zip -r "$OLDPWD/release-assets/RubyVM-xcframework-${VERSION}.zip" .
-            cd "$OLDPWD"
+            (cd staging/ios/xcframework && zip -r "$GITHUB_WORKSPACE/release-assets/RubyVM-xcframework-${IOS_VERSION}.zip" .)
           fi
 
-          if [ -d staging/macos ]; then
-            tar -czf "release-assets/litergss-macos-arm64-${VERSION}.tar.gz" -C staging/macos .
-          fi
+          for B in ${BACKENDS//,/ }; do
+            VERSION=$(jq -r --arg b "$B" '.[$b].version' <<< "$VERSIONS")
+            if [ -d "staging/intermediate-macos-$B" ]; then
+              tar -czf "release-assets/litergss-macos-arm64-${VERSION}.tar.gz" -C "staging/intermediate-macos-$B" .
+            fi
+          done
 
           echo "=== Release assets ==="
           ls -lh release-assets/
@@ -1368,12 +1204,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Package.swift with XCFramework checksum
-        # Package.swift on master tracks the default Ruby variant
-        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true' && needs.prepare.outputs.backend == 'sfml'
+        # Package.swift on master tracks the default Ruby variant (sfml: iOS)
+        if: needs.prepare.outputs.is_release == 'true' && needs.prepare.outputs.has_ios == 'true' && needs.prepare.outputs.is_default_variant == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
+          VERSION="$IOS_VERSION"
           ZIP_FILE="release-assets/RubyVM-xcframework-${VERSION}.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
@@ -1423,14 +1259,12 @@ jobs:
       # --- Publish to GitHub Packages (Maven) ---
 
       - name: Set up JDK
-        if: needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
       - name: Write Maven settings
-        if: needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true'
         run: |
           cat > /tmp/maven-settings.xml <<SETTINGS_EOF
           <settings>
@@ -1445,217 +1279,43 @@ jobs:
           SETTINGS_EOF
 
       - name: Delete existing SNAPSHOT package versions
-        if: needs.prepare.outputs.is_release != 'true' && (needs.prepare.outputs.has_ios == 'true' || needs.prepare.outputs.has_macos == 'true')
+        if: needs.prepare.outputs.is_release != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Only the packages this job publishes: the other package job may
-          # already have re-published its own.
-          SCOPE: apple
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          OWNER="${{ github.repository_owner }}"
-          echo "Deleting existing SNAPSHOT package versions (${VERSION}, ${SCOPE} packages) before re-publishing..."
-          # Published by package-linux; every other package by package-apple.
-          LINUX_PACKAGES="rgss-runtime-android rgss-runtime-desktop rgss-runtime-linuxx64"
+        run: .github/scripts/delete-snapshots.sh apple $(jq -r '.[].version' <<< "$VERSIONS")
 
-          # List all packages in the repository
-          PACKAGES=$(gh api \
-            "/orgs/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null) || \
-          PACKAGES=$(gh api \
-            "/users/${OWNER}/packages?package_type=maven" \
-            --paginate --jq '.[].name' 2>/dev/null) || \
-          PACKAGES=""
-
-          for PACKAGE in $PACKAGES; do
-            # GitHub names them groupId.artifactId: compare the artifactId
-            case " $LINUX_PACKAGES " in
-              *" ${PACKAGE##*.} "*) PACKAGE_SCOPE=linux ;;
-              *) PACKAGE_SCOPE=apple ;;
-            esac
-            [ "$PACKAGE_SCOPE" = "$SCOPE" ] || continue
-
-            # Find the version ID matching our SNAPSHOT version
-            VERSION_ID=$(gh api \
-              "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-            VERSION_ID=$(gh api \
-              "/users/${OWNER}/packages/maven/${PACKAGE}/versions" \
-              --paginate --jq ".[] | select(.name == \"${VERSION}\") | .id" 2>/dev/null) || \
-            VERSION_ID=""
-
-            if [ -n "$VERSION_ID" ]; then
-              echo "Deleting ${PACKAGE}@${VERSION} (version ID: ${VERSION_ID})"
-              # Try deleting the version; if it's the last version, delete the whole package instead
-              if ! gh api --method DELETE \
-                "/orgs/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null && \
-                ! gh api --method DELETE \
-                "/users/${OWNER}/packages/maven/${PACKAGE}/versions/${VERSION_ID}" 2>/dev/null; then
-                echo "Version delete failed, trying to delete entire package ${PACKAGE}..."
-                gh api --method DELETE \
-                  "/orgs/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
-                  gh api --method DELETE \
-                  "/users/${OWNER}/packages/maven/${PACKAGE}" 2>/dev/null || \
-                  echo "Warning: failed to delete ${PACKAGE}@${VERSION}"
-              fi
-            fi
-          done
-          echo "SNAPSHOT cleanup complete."
-
-      - name: Publish Desktop JAR to GitHub Packages (macOS)
+      - name: Publish macOS Desktop JARs to GitHub Packages
         if: needs.prepare.outputs.has_macos == 'true'
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          JAR_FILE=$(find staging/macos/maven -name '*.jar' ! -name '*-sources.jar' | head -1)
-          POM_FILE=$(find staging/macos/maven -name '*.pom' | head -1)
-
-          if [ -z "$JAR_FILE" ]; then
-            echo "Warning: No Desktop JAR found in staging/macos/maven"
-            find staging/macos/maven -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing Desktop JAR as com.scorbutics.rubyvm:rgss-runtime-desktop-macos:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-desktop-macos
-            -Dversion="$VERSION"
-            -Dpackaging=jar
-            -Dfile="$JAR_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
+          for B in ${BACKENDS//,/ }; do
+            VERSION=$(jq -r --arg b "$B" '.[$b].version' <<< "$VERSIONS")
+            .github/scripts/deploy-maven.sh rgss-runtime-desktop-macos "$VERSION" jar "staging/intermediate-macos-$B/maven" optional
+          done
 
       # --- iOS + KMP metadata (built by install-ios, which runs on macOS) ---
 
-      - name: Publish KMP metadata module to GitHub Packages
+      - name: Publish iOS and KMP metadata to GitHub Packages
         if: needs.prepare.outputs.has_ios == 'true'
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          # Publish the .module file (Gradle module metadata) — this is the key artifact
-          # that enables commonMain dependency resolution across all targets.
-          MODULE_FILE=$(find staging/ios/maven-kmp/rgss-runtime -name '*.module' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime -name '*.pom' | head -1)
-
-          if [ -z "$MODULE_FILE" ] || [ -z "$POM_FILE" ]; then
-            echo "Warning: KMP metadata not found in staging/ios/maven-kmp/rgss-runtime"
-            find staging/ios/maven-kmp -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing KMP metadata as com.scorbutics.rubyvm:rgss-runtime:${VERSION}"
-
-          mvn deploy:deploy-file \
-            -DgroupId=com.scorbutics.rubyvm \
-            -DartifactId=rgss-runtime \
-            -Dversion="$VERSION" \
-            -Dpackaging=module \
-            -Dfile="$MODULE_FILE" \
-            -DpomFile="$POM_FILE" \
-            -DrepositoryId=github \
-            -Durl="$REPO_URL" \
-            --settings /tmp/maven-settings.xml
-
-      - name: Publish iOS arm64 klib to GitHub Packages
-        if: needs.prepare.outputs.has_ios == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          KLIB_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iosarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iosarm64 -name '*.pom' | head -1)
-
-          if [ -z "$KLIB_FILE" ]; then
-            echo "Warning: No iOS arm64 klib found"
-            find staging/ios/maven-kmp -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing iOS arm64 klib as com.scorbutics.rubyvm:rgss-runtime-iosarm64:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-iosarm64
-            -Dversion="$VERSION"
-            -Dpackaging=klib
-            -Dfile="$KLIB_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
-
-      - name: Publish iOS simulator arm64 klib to GitHub Packages
-        if: needs.prepare.outputs.has_ios == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
-
-          KLIB_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iossimulatorarm64 -name '*.klib' | head -1)
-          POM_FILE=$(find staging/ios/maven-kmp/rgss-runtime-iossimulatorarm64 -name '*.pom' | head -1)
-
-          if [ -z "$KLIB_FILE" ]; then
-            echo "Warning: No iOS simulator arm64 klib found"
-            find staging/ios/maven-kmp -type f 2>/dev/null
-            exit 0
-          fi
-
-          echo "Publishing iOS simulator arm64 klib as com.scorbutics.rubyvm:rgss-runtime-iossimulatorarm64:${VERSION}"
-
-          DEPLOY_ARGS=(
-            -DgroupId=com.scorbutics.rubyvm
-            -DartifactId=rgss-runtime-iossimulatorarm64
-            -Dversion="$VERSION"
-            -Dpackaging=klib
-            -Dfile="$KLIB_FILE"
-            -DrepositoryId=github
-            -Durl="$REPO_URL"
-          )
-          if [ -n "$POM_FILE" ]; then
-            DEPLOY_ARGS+=(-DpomFile="$POM_FILE")
-          else
-            DEPLOY_ARGS+=(-DgeneratePom=true)
-          fi
-
-          mvn deploy:deploy-file "${DEPLOY_ARGS[@]}" --settings /tmp/maven-settings.xml
-
-      - name: Publish iOS native libraries to GitHub Packages
-        if: needs.prepare.outputs.has_ios == 'true'
-        run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO_URL="https://maven.pkg.github.com/${{ github.repository }}"
+          KMP=staging/ios/maven-kmp
+          # The .module (Gradle module metadata) enables commonMain dependency
+          # resolution across all targets
+          .github/scripts/deploy-maven.sh rgss-runtime "$IOS_VERSION" module "$KMP/rgss-runtime" optional
+          .github/scripts/deploy-maven.sh rgss-runtime-iosarm64 "$IOS_VERSION" klib "$KMP/rgss-runtime-iosarm64" optional
+          .github/scripts/deploy-maven.sh rgss-runtime-iossimulatorarm64 "$IOS_VERSION" klib "$KMP/rgss-runtime-iossimulatorarm64" optional
 
           for native_zip in staging/ios/native-ios/*.zip; do
             [ -f "$native_zip" ] || continue
             ARTIFACT_ID=$(basename "$native_zip" .zip)
-
             echo "Publishing $ARTIFACT_ID native library"
-
             mvn deploy:deploy-file \
               -DgroupId=com.scorbutics.rubyvm \
               -DartifactId="$ARTIFACT_ID" \
-              -Dversion="$VERSION" \
+              -Dversion="$IOS_VERSION" \
               -Dpackaging=zip \
               -Dfile="$native_zip" \
               -DgeneratePom=true \
               -DrepositoryId=github \
-              -Durl="$REPO_URL" \
+              -Durl="https://maven.pkg.github.com/${{ github.repository }}" \
               --settings /tmp/maven-settings.xml
           done
