@@ -360,6 +360,11 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.has_linux_x86_64 == 'true'
     runs-on: ubuntu-24.04
+    # GCC 14: GCC 13 (ubuntu-24.04's default) at -O3 builds raylib 6.0 with
+    # broken render textures (incomplete framebuffers, viewports drawn black)
+    env:
+      CC: gcc-14
+      CXX: g++-14
     name: Build Linux x86_64
     steps:
       - name: Checkout with submodules
@@ -392,7 +397,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 \
             build-essential cmake ruby-dev ninja-build \
             libtool autoconf automake libncurses-dev \
             zip unzip wget gettext patch \
@@ -664,6 +669,11 @@ jobs:
     needs: [prepare, build-linux-x86_64]
     if: needs.prepare.outputs.has_linux_x86_64 == 'true'
     runs-on: ubuntu-24.04
+    # GCC 14: GCC 13 (ubuntu-24.04's default) at -O3 builds raylib 6.0 with
+    # broken render textures (incomplete framebuffers, viewports drawn black)
+    env:
+      CC: gcc-14
+      CXX: g++-14
     name: Install Linux x86_64
     steps:
       - name: Checkout with submodules
@@ -680,7 +690,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends gcc-14 g++-14 \
             build-essential cmake \
             libx11-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev \
             libgl1-mesa-dev libudev-dev pkg-config

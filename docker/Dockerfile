@@ -10,6 +10,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
     build-essential \
+    gcc-14 \
+    g++-14 \
     cmake \
     ruby-dev \
     ninja-build \
@@ -34,6 +36,13 @@ RUN apt-get update && \
     pkg-config \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# GCC 14 as the default compiler: GCC 13 (24.04's) at -O3 builds raylib 6.0
+# with broken render textures (incomplete framebuffers, viewports drawn black)
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
+        --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+    && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 140 \
+    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140
 
 # Get the Android NDK
 RUN mkdir /tmp/android-ndk && \

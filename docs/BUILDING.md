@@ -16,7 +16,7 @@ ruby --version    # 3.0+
 export ANDROID_NDK=/path/to/android-ndk   # r22b to r27 (r28+ cannot build SFML 2.6), for Android builds
 ```
 
-Linux builds also need the X11, OpenGL, udev and audio development packages. OpenAL Soft is
+Linux builds need GCC 14 or newer (`CC=gcc-14 CXX=g++-14` on Ubuntu 24.04, whose GCC 13 at `-O3` builds raylib 6.0 with broken render textures: viewports drawn black; the Docker image and CI use GCC 14), and the X11, OpenGL, udev and audio development packages. OpenAL Soft is
 configured to fail without ALSA and PulseAudio instead of building a runtime with no sound:
 
 ```bash
