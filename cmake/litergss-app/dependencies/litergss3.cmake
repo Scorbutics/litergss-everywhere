@@ -3,7 +3,8 @@
 # raylib backend: LITERGSS_BACKEND=raylib picks it instead of litergss2.cmake.
 #
 # Built in LiteRGSS3's embedded mode (LITERGSS_EMBEDDED): libLiteRGSS.a
-# registers Init_LiteRGSS for extension-init.c, compiled against the target
+# registers Init_LiteRGSS (Init_libLiteRGSS on Android shared builds) for
+# extension-init.c, compiled against the target
 # Ruby's headers in the staging prefix (Ruby 3.2 or newer: CMakeLists.txt).
 # LiteRGSS3 fetches nothing: raylib, PhysicsFS and Tracy are the packages
 # raylib.cmake, physfs.cmake and tracy.cmake installed in the staging prefix,
@@ -14,11 +15,15 @@
 
 set(LITERGSS3_VERSION "3.0.0")
 set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
-set(LITERGSS3_GIT_TAG "d7fe1b158c2baff0e5fff2ca397221eae40f60da")  # development
+set(LITERGSS3_GIT_TAG "e215fe316e5324111277419cde912d9cb9a15f09")  # development
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
 # APP_DEPENDENCIES order). ruby/ruby.h and ruby/config.h are both there.
 set(_LITERGSS3_RUBY_HDR_DIR "${BUILD_STAGING_DIR}/usr/local/include/ruby-${RUBY_MINOR_VERSION}")
+
+# Init_<name> extension-init.c calls: Init_libLiteRGSS on Android shared
+# builds (ruby-extension-names.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../ruby-extension-names.cmake)
 
 set(_LITERGSS3_DEPENDS raylib physfs embedded-ruby-vm)
 if(LITERGSS_USE_TRACY)
@@ -32,6 +37,7 @@ set(LITERGSS3_CONFIGURE_CMD
     "-DCMAKE_PREFIX_PATH=${BUILD_STAGING_DIR}/usr/local"
     "-DCMAKE_FIND_ROOT_PATH=${BUILD_STAGING_DIR}/usr/local"
     -DLITERGSS_EMBEDDED=ON
+    -DLITERGSS_EXTENSION_NAME=${LITERGSS_EXT_NAME}
     "-DRUBY_HDR_DIR=${_LITERGSS3_RUBY_HDR_DIR}"
     "-DRUBY_ARCH_HDR_DIR=${_LITERGSS3_RUBY_HDR_DIR}"
     -DCGSS_BACKEND=raylib
@@ -99,7 +105,7 @@ endif()
 # raylib.cmake / physfs.cmake / tracy.cmake)
 set(RGSS_ENGINE_SHARED_LIBS
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libSFMLAudio.a"
+        "${RUBY_SFML_AUDIO_LIBRARY}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"

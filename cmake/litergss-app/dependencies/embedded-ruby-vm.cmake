@@ -208,7 +208,12 @@ if(APPLE)
 endif()
 
 # extension-init.c starts the Tracy profiler (LITERGSS_USE_TRACY, CMakeLists.txt)
-set(_ERVM_EXT_INIT_DEFINES "")
+# and calls the extensions' init functions (ruby-extension-names.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/../ruby-extension-names.cmake)
+set(_ERVM_EXT_INIT_DEFINES
+    -DLITERGSS_INIT_FUNCTION=Init_${LITERGSS_EXT_NAME}
+    -DSFMLAUDIO_INIT_FUNCTION=Init_${SFMLAUDIO_EXT_NAME}
+)
 if(LITERGSS_USE_TRACY)
     list(APPEND _ERVM_EXT_INIT_DEFINES -DLITERGSS_USE_TRACY)
 endif()
@@ -231,22 +236,16 @@ list(APPEND _ERVM_INSTALL_CMD
 )
 
 # Android only: compile litergss_surface_jni.c and inject it into the same
-# libembedded-ruby.a. This is the LiteRGSS hosted-Activity JNI bridge — pure
-# JNI glue that forwards Surface lifecycle / touch events to LiteCGSS's
-# cgss_android_* C-linkage shims (defined in libLiteCGSS_engine.a, resolved
-# at fat-lib link time). The bridge has no Ruby-VM concerns; libembedded-
-# ruby.a is just the convenient orchestrator-controlled archive to embed
-# extra orchestrator-level .o files into, exactly as extension-init.c above.
-# LITERGSS_SFML_WINDOW: the runtime has SFML's window module (sfml backend),
-# whose hosted virtual-keyboard handler the bridge sets too.
+# libembedded-ruby.a. Its JNI_OnLoad registers LiteCGSS's hosted-Activity JNI
+# bridge (cgss_android_register_natives, in libLiteCGSS_engine.a, resolved at
+# fat-lib link time) on the runtime's Kotlin class, NativeSurface, and pauses
+# SFML's audio with the surface. No Ruby-VM concerns; libembedded-ruby.a is
+# just the convenient orchestrator-controlled archive to embed extra
+# orchestrator-level .o files into, exactly as extension-init.c above.
 if(_ERVM_PLATFORM STREQUAL "android")
-    set(_ERVM_JNI_DEFINES "")
-    if(LITERGSS_BACKEND STREQUAL "sfml")
-        set(_ERVM_JNI_DEFINES -DLITERGSS_SFML_WINDOW)
-    endif()
     list(APPEND _ERVM_INSTALL_CMD
         COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
-            ${_ERVM_WARNING_FLAGS} ${_ERVM_JNI_DEFINES}
+            ${_ERVM_WARNING_FLAGS}
             -o ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
             ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c
         COMMAND ${CMAKE_AR} r
@@ -270,3 +269,11 @@ add_external_dependency(
 
     DEPENDS             ruby-for-android
 )
+
+# The install step compiles these into libembedded-ruby.a: editing one alone
+# re-runs it (ExternalProject only tracks its own commands)
+set(_ERVM_INSTALL_SOURCES ${CMAKE_CURRENT_LIST_DIR}/files/extension-init.c)
+if(_ERVM_PLATFORM STREQUAL "android")
+    list(APPEND _ERVM_INSTALL_SOURCES ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c)
+endif()
+ExternalProject_Add_StepDependencies(embedded-ruby-vm_external install ${_ERVM_INSTALL_SOURCES})

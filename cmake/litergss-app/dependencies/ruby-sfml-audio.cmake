@@ -19,14 +19,10 @@ set(RUBY_SFML_AUDIO_SOURCE_DIR "${CMAKE_BINARY_DIR}/ruby-sfml-audio/build_dir/${
 
 # Extension name: Ruby calls Init_<name> for <name>.so. Android only packages
 # native libraries named lib*.so: a shared build there is libSFMLAudio.so
-# (Init_libSFMLAudio). Everywhere else, and every static build (libSFMLAudio.a,
-# which extension-init.c registers), it keeps the default SFMLAudio
-# (Init_SFMLAudio).
-if(BUILD_SHARED_LIBS AND PLATFORM_LOWER STREQUAL "android")
-    set(RUBY_SFML_AUDIO_EXT_NAME "libSFMLAudio")
-else()
-    set(RUBY_SFML_AUDIO_EXT_NAME "SFMLAudio")
-endif()
+# (Init_libSFMLAudio). Everywhere else, and every static build
+# (libSFMLAudio.a), it keeps SFMLAudio (ruby-extension-names.cmake).
+include(${CMAKE_CURRENT_LIST_DIR}/../ruby-extension-names.cmake)
+set(RUBY_SFML_AUDIO_EXT_NAME "${SFMLAUDIO_EXT_NAME}")
 
 # ruby-sfml-audio configure command (CMake-based)
 get_sub_cmake_cross_args(_RUBY_SFML_AUDIO_CMAKE_ARGS)
@@ -42,17 +38,18 @@ set(RUBY_SFML_AUDIO_CONFIGURE_CMD
     .
 )
 
+# RUBY_SFML_AUDIO_LIBRARY: the installed extension, which the runtime links
+# (litergss2.cmake / litergss3.cmake)
 if(BUILD_SHARED_LIBS)
     # Shared build: the Ruby extension itself, <name>.so (its soname too)
-    set(RUBY_SFML_AUDIO_INSTALL_CMD
-        ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/${RUBY_SFML_AUDIO_EXT_NAME}.so ${BUILD_STAGING_DIR}/usr/local/lib/
-    )
+    set(_RUBY_SFML_AUDIO_FILE "${RUBY_SFML_AUDIO_EXT_NAME}.so")
 else()
-    # Static build: just copy .a file
-    set(RUBY_SFML_AUDIO_INSTALL_CMD
-        ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/libSFMLAudio.a ${BUILD_STAGING_DIR}/usr/local/lib/
-    )
+    set(_RUBY_SFML_AUDIO_FILE "libSFMLAudio.a")
 endif()
+set(RUBY_SFML_AUDIO_LIBRARY "${BUILD_STAGING_DIR}/usr/local/lib/${_RUBY_SFML_AUDIO_FILE}")
+set(RUBY_SFML_AUDIO_INSTALL_CMD
+    ${CMAKE_COMMAND} -E copy ${RUBY_SFML_AUDIO_SOURCE_DIR}/lib/${_RUBY_SFML_AUDIO_FILE} ${BUILD_STAGING_DIR}/usr/local/lib/
+)
 set(RUBY_SFML_AUDIO_DEPENDS sfml embedded-ruby-vm)
 
 add_external_dependency(

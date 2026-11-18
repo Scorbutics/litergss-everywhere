@@ -24,13 +24,10 @@ set(LITERGSS2_EXTRA_CFLAGS "-I${BUILD_STAGING_DIR}/usr/local/include/LiteCGSS -D
 # not start the profiler. extension-init.c calls it right after starting the
 # profiler, and `require 'LiteRGSS'` is answered by its rb_provide: the static
 # runtime keeps Init_LiteRGSS in both builds, PSDK's require unchanged.
-# Android shared builds: Init_libLiteRGSS, Ruby's dlopen name of libLiteRGSS.so.
-if(BUILD_SHARED_LIBS AND PLATFORM_LOWER STREQUAL "android")
-    set(LITERGSS2_INIT_FUNCTION_NAME "Init_libLiteRGSS")
-else()
-    set(LITERGSS2_INIT_FUNCTION_NAME "Init_LiteRGSS")
-endif()
-string(APPEND LITERGSS2_EXTRA_CFLAGS " -DINIT_FUNCTION_NAME=${LITERGSS2_INIT_FUNCTION_NAME}")
+# Android shared builds: Init_libLiteRGSS, Ruby's dlopen name of libLiteRGSS.so
+# (ruby-extension-names.cmake).
+include(${CMAKE_CURRENT_LIST_DIR}/../ruby-extension-names.cmake)
+string(APPEND LITERGSS2_EXTRA_CFLAGS " -DINIT_FUNCTION_NAME=Init_${LITERGSS_EXT_NAME}")
 
 # litergss2 configure command (CMake-based)
 # Note: Now builds as static library for all platforms internally
@@ -111,7 +108,7 @@ else()
 endif()
 set(RGSS_ENGINE_SHARED_LIBS
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a" # Always static as per above
-        "${BUILD_STAGING_DIR}/usr/local/lib/libSFMLAudio.a" # Ruby SFMLAudio extension
+        "${RUBY_SFML_AUDIO_LIBRARY}" # Ruby SFMLAudio extension (ruby-sfml-audio.cmake)
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-graphics.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-window.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"

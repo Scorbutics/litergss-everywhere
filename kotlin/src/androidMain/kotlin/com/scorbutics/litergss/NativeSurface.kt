@@ -24,7 +24,11 @@ import android.view.Surface
  * `LiteRGSS::DisplayWindow.new` runs from Ruby, per the project rule
  * "Ruby VM thread = draw thread".
  *
- * The library that exports these symbols is `librgss_runtime.so`, the same
+ * Their implementations are LiteCGSS's JNI bridge (HostSurfaceJni.cpp),
+ * registered on this object by `librgss_runtime.so`'s JNI_OnLoad
+ * (litergss_surface_jni.c): names and signatures must match its table.
+ *
+ * The library that holds them is `librgss_runtime.so`, the same
  * .so as rgss-runtime-android's (built by embedded-ruby-vm's
  * `kmp-publish/wrapper/CMakeLists.txt`). Callers that already configured
  * `LibraryConfig.libraryName = "rgss_runtime"` and triggered any
@@ -177,7 +181,7 @@ object NativeSurface {
         nativeSetVirtualKeyboardCallback(listener != null)
     }
 
-    /** JNI entry. Called by litergss_surface_jni.c via the registered callback. */
+    /** JNI entry. Called by LiteCGSS's JNI bridge via the registered callback. */
     @JvmStatic
     @Suppress("unused")
     private fun dispatchVirtualKeyboardRequest(show: Boolean) {

@@ -25,9 +25,18 @@
  *   require 'LiteRGSS'
  *   require 'SFMLAudio'
  */
+/* The extensions' init functions: Init_<name>, where an Android shared build
+ * names them lib<name> (cmake/litergss-app/ruby-extension-names.cmake) */
+#ifndef LITERGSS_INIT_FUNCTION
+#define LITERGSS_INIT_FUNCTION Init_LiteRGSS
+#endif
+#ifndef SFMLAUDIO_INIT_FUNCTION
+#define SFMLAUDIO_INIT_FUNCTION Init_SFMLAudio
+#endif
+
 /* Forward declarations of extension initialization functions */
-extern void Init_LiteRGSS(void);
-extern void Init_SFMLAudio(void);
+extern void LITERGSS_INIT_FUNCTION(void);
+extern void SFMLAUDIO_INIT_FUNCTION(void);
 extern void Init_physfs(void);
 /* ruby-client.c: registers ruby/litergss with embedded-ruby-vm's install */
 extern void litergss_register_ruby_client(void);
@@ -66,7 +75,7 @@ void initialize_litergss_extensions(void) {
     rb_provide("physfs");
 
     /* Initialize LiteRGSS extension */
-    Init_LiteRGSS();
+    LITERGSS_INIT_FUNCTION();
     rb_provide("LiteRGSS");
 #ifdef LITERGSS_USE_TRACY
     /* Upstream's name for a Tracy build: scripts requiring it get this one */
@@ -74,7 +83,7 @@ void initialize_litergss_extensions(void) {
 #endif
 
     /* Initialize SFMLAudio extension */
-    Init_SFMLAudio();
+    SFMLAUDIO_INIT_FUNCTION();
     rb_provide("SFMLAudio");
 
     /* Inject the PhysFS gem's reentrant Monitor into LiteRGSS so that

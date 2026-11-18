@@ -3,7 +3,7 @@
 
 set(LITECGSS_VERSION "1.0.0")
 set(LITECGSS_GIT_URL "https://gitlab.com/NuriYuri/litecgss.git")
-set(LITECGSS_GIT_TAG "2c9e158c1556d973e31e32308d4766cd44ec451b")  # development (Tracy), pinned by LiteRGSS2
+set(LITECGSS_GIT_TAG "9e50cfe4314a761c8f0938fc1a5cca63c3cc842b")  # development (Tracy, Android JNI bridge); LiteRGSS2 pins an older one
 
 string(TOLOWER "${TARGET_PLATFORM}" PLATFORM_LOWER)
 

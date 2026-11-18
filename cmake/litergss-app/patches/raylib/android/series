@@ -2,8 +2,8 @@
 # Patches are applied in order listed here
 
 # PLATFORM=AndroidHosted: raylib renders into a surface the application owns
-# (the SurfaceView's ANativeWindow, handed through litergss_surface_jni.c and
-# LiteCGSS' host surface) instead of owning a NativeActivity. No
+# (the SurfaceView's ANativeWindow, handed through LiteCGSS' JNI bridge and
+# host surface) instead of owning a NativeActivity. No
 # android_main / native_app_glue, no asset-manager fopen() (LiteRGSS reads the
 # file system), OpenGL ES 3. Host API: raylib_android_hosted.h (installed).
 android-hosted-platform.patch
