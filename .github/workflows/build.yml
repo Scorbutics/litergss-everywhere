@@ -622,6 +622,17 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-install-android-${{ runner.os }}-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle*', 'external/embedded-ruby-vm/kmp-publish/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-install-android-${{ runner.os }}-
+
       - name: Configure
         run: |
           ./configure \
@@ -718,6 +729,17 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-install-linux-x86_64-${{ runner.os }}-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle*', 'external/embedded-ruby-vm/kmp-publish/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-install-linux-x86_64-${{ runner.os }}-
+
       - name: Configure
         run: |
           ./configure \
@@ -775,6 +797,17 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-install-ios-${{ runner.os }}-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle*', 'external/embedded-ruby-vm/kmp-publish/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-install-ios-${{ runner.os }}-
 
       - name: Configure
         run: |
@@ -844,6 +877,17 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-install-macos-${{ runner.os }}-${{ hashFiles('external/embedded-ruby-vm/kmp-publish/**/*.gradle*', 'external/embedded-ruby-vm/kmp-publish/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-install-macos-${{ runner.os }}-
+
       - name: Configure
         run: |
           ./configure \
@@ -897,6 +941,17 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-kotlin-host-${{ runner.os }}-${{ hashFiles('kotlin/**/*.gradle*', 'kotlin/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-kotlin-host-${{ runner.os }}-
 
       - name: Build and test
         run: ./gradlew --no-daemon build
@@ -1082,6 +1137,17 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+
+      # Gradle's dependencies and wrapper: without them every run downloads
+      # them from Maven Central, which answers parallel jobs with 429s
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-publish-kotlin-host-${{ runner.os }}-${{ hashFiles('kotlin/**/*.gradle*', 'kotlin/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-publish-kotlin-host-${{ runner.os }}-
 
       - name: Publish to GitHub Packages
         env:
