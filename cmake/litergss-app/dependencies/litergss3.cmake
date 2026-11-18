@@ -72,25 +72,18 @@ add_external_dependency(
 # ============================================================================
 # THE RUNTIME (cmake/litergss-app/runtime-package.cmake)
 # ============================================================================
-# No SFML graphics/window/network, no freetype: only SFML's audio and system
-# modules, for ruby-sfml-audio (sfml.cmake).
+# No SFML, OpenAL, Ogg, Vorbis, FLAC nor freetype: the audio is raylib's
+# (ruby-raylib-audio, its decoders and miniaudio in libraylib.a).
 set(RGSS_ENGINE litergss3)
+set(RGSS_AUDIO_DEPENDENCY ruby-raylib-audio)
 set(RGSS_ENGINE_FAT_LIBS
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libSFMLAudio.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system-s.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio-s.a"
+            "${BUILD_STAGING_DIR}/usr/local/lib/libRaylibAudio.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libraylib.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
             # ruby-physfs gem (Init_physfs), built by ruby-for-android
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs-ruby.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libogg.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisenc.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisfile.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libFLAC.a"
-            "${BUILD_STAGING_DIR}/usr/lib/libopenal.a"
 )
 if(LITERGSS_USE_TRACY)
     # Tracy client (tracy.cmake), started by extension-init.c
@@ -103,23 +96,17 @@ else()
 endif()
 # The engine side is always static here (BUILD_SHARED_LIBS=OFF above, and in
 # raylib.cmake / physfs.cmake / tracy.cmake)
+# (the audio extension follows BUILD_SHARED_LIBS: RaylibAudio.so keeps its own
+# raylib private, ruby-raylib-audio.cmake)
 set(RGSS_ENGINE_SHARED_LIBS
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteRGSS.a"
-        "${RUBY_SFML_AUDIO_LIBRARY}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio.${DEP_EXT}"
+        "${RUBY_RAYLIB_AUDIO_LIBRARY}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
         "${BUILD_STAGING_DIR}/usr/local/lib/libraylib.a"
         "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libogg.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbis.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisenc.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libvorbisfile.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libFLAC.${DEP_EXT}"
-        "${BUILD_STAGING_DIR}/usr/lib/libopenal.${DEP_EXT}"
 )
 if(LITERGSS_USE_TRACY)
     list(APPEND RGSS_ENGINE_SHARED_LIBS "${BUILD_STAGING_DIR}/usr/local/lib/libTracyClient.a")
 endif()
-set(RGSS_ENGINE_SHARED_DEPENDS sfml raylib physfs openal-soft flac libogg libvorbis)
+set(RGSS_ENGINE_SHARED_DEPENDS raylib physfs ruby-raylib-audio)
 include(${CMAKE_CURRENT_LIST_DIR}/../runtime-package.cmake)

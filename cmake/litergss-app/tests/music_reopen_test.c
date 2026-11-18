@@ -12,7 +12,11 @@
  * released copy, which the runtime (not instrumented) would otherwise get
  * away with, the memory still being mapped.
  *
- * Only Ruby and the SFMLAudio extension are started: no standard library is
+ * The raylib backend's audio extension, RaylibAudio, runs it through its
+ * SFMLAudio API: AUDIO_INIT_FUNCTION is the backend's (Init_SFMLAudio or
+ * Init_RaylibAudio).
+ *
+ * Only Ruby and the audio extension are started: no standard library is
  * needed. MUSIC_FIXTURE_PATH and MUSIC_LONGER_FIXTURE_PATH are OGG files of
  * different sizes (fixtures/tone.ogg, fixtures/tone-long.ogg): a copy of the
  * same size could reuse the current buffer in place, releasing nothing. The
@@ -36,7 +40,10 @@ __attribute__((weak)) unsigned long __isoc23_strtoul(const char *nptr, char **en
     return strtoul(nptr, endptr, base);
 }
 
-extern void Init_SFMLAudio(void);
+#ifndef AUDIO_INIT_FUNCTION
+#define AUDIO_INIT_FUNCTION Init_SFMLAudio
+#endif
+extern void AUDIO_INIT_FUNCTION(void);
 
 static const char* CHECK_SCRIPT =
     "music = SFMLAudio::Music.new\n"
@@ -48,7 +55,7 @@ static const char* CHECK_SCRIPT =
 
 static VALUE init_audio(VALUE unused) {
     (void)unused;
-    Init_SFMLAudio();
+    AUDIO_INIT_FUNCTION();
     return Qnil;
 }
 

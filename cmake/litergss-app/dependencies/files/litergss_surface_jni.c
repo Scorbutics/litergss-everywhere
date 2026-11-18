@@ -9,8 +9,9 @@
  * the runtime knows:
  *   - its Kotlin class, com.scorbutics.litergss.NativeSurface (kotlin/), on
  *     which the bridge registers its natives when the runtime is loaded;
- *   - its audio: SFML's (ruby-sfml-audio), paused while the game has no
- *     surface (the app in the background), whatever its scripts do.
+ *   - its audio: SFML's (ruby-sfml-audio), or raylib's (ruby-raylib-audio,
+ *     LITERGSS_AUDIO_RAYLIB), paused while the game has no surface (the app
+ *     in the background), whatever its scripts do.
  *
  * Compilation/packaging: compiled by embedded-ruby-vm.cmake and appended
  * (ar r) to libembedded-ruby.a, as extension-init.c is. LiteCGSS's headers are
@@ -25,13 +26,21 @@ typedef void (*cgss_android_host_surface_listener_t)(int attached);
 void cgss_android_set_host_surface_listener(cgss_android_host_surface_listener_t listener);
 int cgss_android_register_natives(JNIEnv* env, jclass hostClass);
 
-/* SFML (Audio/Android/HostedAudio.hpp): a device pause, not a mute: music
- * goes on where it was, and SFML's streaming threads wait meanwhile. */
+/* A device pause, not a mute: music goes on where it was, and the streaming
+ * threads wait meanwhile. */
+#ifdef LITERGSS_AUDIO_RAYLIB
+/* RaylibAudio (RaylibAudio/RaylibAudioDevice.h) */
+void raylib_audio_set_device_paused(int paused);
+#define litergss_set_audio_paused raylib_audio_set_device_paused
+#else
+/* SFML (Audio/Android/HostedAudio.hpp) */
 void sf_android_set_hosted_audio_paused(int paused);
+#define litergss_set_audio_paused sf_android_set_hosted_audio_paused
+#endif
 
 static void on_host_surface(int attached)
 {
-    sf_android_set_hosted_audio_paused(attached ? 0 : 1);
+    litergss_set_audio_paused(attached ? 0 : 1);
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)

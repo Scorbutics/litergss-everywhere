@@ -1,0 +1,351 @@
+raudio: loop points for a looping Music, stopping a paused stream, pausing the device,
+unloading a FLAC music
+
+Music gets a loop region, loopStart and loopEnd (frames, end excluded; 0, the
+default: the whole music loops). A looping music decodes up to loopEnd, then
+goes on from loopStart, sample-exactly: UpdateMusicStream() reads the decoded
+formats (WAV, OGG, MP3, QOA, FLAC) through one loop, ReadMusicFrames() and
+SeekMusicDecoder(). GetMusicTimePlayed() and SeekMusicStream() wrap into the
+loop region the same way.
+
+SeekMusicStream() seeks OGG sample-exactly (stb_vorbis_seek(), not
+stb_vorbis_seek_frame()), and seeks the decoder under the audio lock, which
+UpdateMusicStream() decodes under.
+
+StopAudioBufferInLockedState() also stops a paused buffer: it stayed paused,
+and resumed where it was, StopMusicStream() having rewound its decoder.
+
+PauseAudioDevice() / ResumeAudioDevice() stop and start the miniaudio device:
+nothing plays meanwhile, and every sound and music goes on where it was (an
+Android application in the background).
+
+UnloadMusicStream() of a FLAC music freed its decoder twice: drflac_close()
+frees it already (SUPPORT_FILEFORMAT_FLAC is off by default upstream).
+
+diff --git a/src/raudio.c b/src/raudio.c
+index f05567c..9416d08 100644
+--- a/src/raudio.c
++++ b/src/raudio.c
+@@ -552,6 +552,19 @@ bool IsAudioDeviceReady(void)
+     return AUDIO.System.isReady;
+ }
+ 
++// Pause the audio device: nothing plays, every sound and music stays where it is
++// (an application in the background)
++void PauseAudioDevice(void)
++{
++    if (AUDIO.System.isReady) ma_device_stop(&AUDIO.System.device);
++}
++
++// Resume the audio device paused by PauseAudioDevice()
++void ResumeAudioDevice(void)
++{
++    if (AUDIO.System.isReady) ma_device_start(&AUDIO.System.device);
++}
++
+ // Set master volume (listener)
+ void SetMasterVolume(float volume)
+ {
+@@ -1782,7 +1795,7 @@ void UnloadMusicStream(Music music)
+         else if (music.ctxType == MUSIC_AUDIO_QOA) qoaplay_close((qoaplay_desc *)music.ctxData);
+ #endif
+ #if SUPPORT_FILEFORMAT_FLAC
+-        else if (music.ctxType == MUSIC_AUDIO_FLAC) { drflac_close((drflac *)music.ctxData); drflac_free((drflac *)music.ctxData, NULL); }
++        else if (music.ctxType == MUSIC_AUDIO_FLAC) drflac_close((drflac *)music.ctxData); // Frees it too
+ #endif
+ #if SUPPORT_FILEFORMAT_XM
+         else if (music.ctxType == MUSIC_MODULE_XM) jar_xm_free_context((jar_xm_context_t *)music.ctxData);
+@@ -1843,42 +1856,103 @@ void StopMusicStream(Music music)
+     }
+ }
+ 
+-// Seek music to a certain position (in seconds)
+-void SeekMusicStream(Music music, float position)
++// Loop region of a looping music, in frames: [loopStart, loopEnd) when set, else the whole music
++static void GetMusicLoopRegion(Music music, unsigned int *begin, unsigned int *end)
+ {
+-    // Seeking is not supported in module formats
+-    if ((music.ctxType == MUSIC_MODULE_XM) || (music.ctxType == MUSIC_MODULE_MOD)) return;
++    *begin = 0;
++    *end = music.frameCount;
+ 
+-    unsigned int positionInFrames = (unsigned int)(position*music.stream.sampleRate);
++    if ((music.loopEnd > music.loopStart) && (music.loopEnd <= music.frameCount))
++    {
++        *begin = music.loopStart;
++        *end = music.loopEnd;
++    }
++}
++
++// Position in the file of a looping music that streamed a number of frames since its start
++static unsigned int WrapMusicFrame(Music music, unsigned int frame)
++{
++    unsigned int begin = 0;
++    unsigned int end = 0;
++    GetMusicLoopRegion(music, &begin, &end);
++
++    if ((frame < end) || (end <= begin)) return frame;
++    return begin + (frame - begin)%(end - begin);
++}
+ 
++// Read frames from the decoder of a music, in the format of its stream: the frames read
++static unsigned int ReadMusicFrames(Music music, void *framesOut, unsigned int frameCount)
++{
+     switch (music.ctxType)
+     {
+ #if SUPPORT_FILEFORMAT_WAV
+-        case MUSIC_AUDIO_WAV: drwav_seek_to_pcm_frame((drwav *)music.ctxData, positionInFrames); break;
++        case MUSIC_AUDIO_WAV:
++        {
++            if (music.stream.sampleSize == 16) return (unsigned int)drwav_read_pcm_frames_s16((drwav *)music.ctxData, frameCount, (short *)framesOut);
++            else return (unsigned int)drwav_read_pcm_frames_f32((drwav *)music.ctxData, frameCount, (float *)framesOut);
++        }
+ #endif
+ #if SUPPORT_FILEFORMAT_OGG
+-        case MUSIC_AUDIO_OGG: stb_vorbis_seek_frame((stb_vorbis *)music.ctxData, positionInFrames); break;
++        case MUSIC_AUDIO_OGG: return (unsigned int)stb_vorbis_get_samples_short_interleaved((stb_vorbis *)music.ctxData, music.stream.channels, (short *)framesOut, frameCount*music.stream.channels);
+ #endif
+ #if SUPPORT_FILEFORMAT_MP3
+-        case MUSIC_AUDIO_MP3: drmp3_seek_to_pcm_frame((drmp3 *)music.ctxData, positionInFrames); break;
++        case MUSIC_AUDIO_MP3: return (unsigned int)drmp3_read_pcm_frames_f32((drmp3 *)music.ctxData, frameCount, (float *)framesOut);
++#endif
++#if SUPPORT_FILEFORMAT_QOA
++        case MUSIC_AUDIO_QOA: return qoaplay_decode((qoaplay_desc *)music.ctxData, (float *)framesOut, frameCount);
++#endif
++#if SUPPORT_FILEFORMAT_FLAC
++        case MUSIC_AUDIO_FLAC: return (unsigned int)drflac_read_pcm_frames_s16((drflac *)music.ctxData, frameCount, (short *)framesOut);
++#endif
++        default: return 0;
++    }
++}
++
++// Seek the decoder of a music to a frame: the frame reached (QOA seeks to the start of its frames)
++static unsigned int SeekMusicDecoder(Music music, unsigned int frame)
++{
++    switch (music.ctxType)
++    {
++#if SUPPORT_FILEFORMAT_WAV
++        case MUSIC_AUDIO_WAV: drwav_seek_to_pcm_frame((drwav *)music.ctxData, frame); break;
++#endif
++#if SUPPORT_FILEFORMAT_OGG
++        // Sample-exact: stb_vorbis_seek_frame() stops at the start of the vorbis frame
++        case MUSIC_AUDIO_OGG: stb_vorbis_seek((stb_vorbis *)music.ctxData, frame); break;
++#endif
++#if SUPPORT_FILEFORMAT_MP3
++        case MUSIC_AUDIO_MP3: drmp3_seek_to_pcm_frame((drmp3 *)music.ctxData, frame); break;
+ #endif
+ #if SUPPORT_FILEFORMAT_QOA
+         case MUSIC_AUDIO_QOA:
+         {
+-            int qoaFrame = positionInFrames/QOA_FRAME_LEN;
+-            qoaplay_seek_frame((qoaplay_desc *)music.ctxData, qoaFrame); // Seeks to QOA frame, not PCM frame
+-
+-            // Compute QOA frame number and update positionInFrames
+-            positionInFrames = ((qoaplay_desc *)music.ctxData)->sample_position;
++            qoaplay_seek_frame((qoaplay_desc *)music.ctxData, frame/QOA_FRAME_LEN); // Seeks to QOA frame, not PCM frame
++            frame = ((qoaplay_desc *)music.ctxData)->sample_position;
+         } break;
+ #endif
+ #if SUPPORT_FILEFORMAT_FLAC
+-        case MUSIC_AUDIO_FLAC: drflac_seek_to_pcm_frame((drflac *)music.ctxData, positionInFrames); break;
++        case MUSIC_AUDIO_FLAC: drflac_seek_to_pcm_frame((drflac *)music.ctxData, frame); break;
+ #endif
+         default: break;
+     }
+ 
++    return frame;
++}
++
++// Seek music to a certain position (in seconds)
++void SeekMusicStream(Music music, float position)
++{
++    // Seeking is not supported in module formats
++    if ((music.ctxType == MUSIC_MODULE_XM) || (music.ctxType == MUSIC_MODULE_MOD)) return;
++
++    unsigned int positionInFrames = (unsigned int)(position*music.stream.sampleRate);
++
++    // A looping music plays its loop region again: seeking past its end goes into it
++    if (music.looping) positionInFrames = WrapMusicFrame(music, positionInFrames);
++
++    // UpdateMusicStream() reads the decoder under the lock, from another thread maybe
+     ma_mutex_lock(&AUDIO.System.lock);
++    positionInFrames = SeekMusicDecoder(music, positionInFrames);
+     music.stream.buffer->framesProcessed = positionInFrames;
+     music.stream.buffer->isSubBufferProcessed[0] = true;
+     music.stream.buffer->isSubBufferProcessed[1] = true;
+@@ -1936,89 +2010,42 @@ void UpdateMusicStream(Music music)
+ 
+         switch (music.ctxType)
+         {
+-        #if SUPPORT_FILEFORMAT_WAV
+             case MUSIC_AUDIO_WAV:
+-            {
+-                if (music.stream.sampleSize == 16)
+-                {
+-                    while (true)
+-                    {
+-                        int frameCountRead = (int)drwav_read_pcm_frames_s16((drwav *)music.ctxData, frameCountStillNeeded, (short *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize));
+-                        frameCountReadTotal += frameCountRead;
+-                        frameCountStillNeeded -= frameCountRead;
+-                        if (frameCountStillNeeded == 0) break;
+-                        else drwav_seek_to_first_pcm_frame((drwav *)music.ctxData);
+-                    }
+-                }
+-                else if (music.stream.sampleSize == 32)
+-                {
+-                    while (true)
+-                    {
+-                        int frameCountRead = (int)drwav_read_pcm_frames_f32((drwav *)music.ctxData, frameCountStillNeeded, (float *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize));
+-                        frameCountReadTotal += frameCountRead;
+-                        frameCountStillNeeded -= frameCountRead;
+-                        if (frameCountStillNeeded == 0) break;
+-                        else drwav_seek_to_first_pcm_frame((drwav *)music.ctxData);
+-                    }
+-                }
+-            } break;
+-        #endif
+-        #if SUPPORT_FILEFORMAT_OGG
+             case MUSIC_AUDIO_OGG:
+-            {
+-                while (true)
+-                {
+-                    int frameCountRead = stb_vorbis_get_samples_short_interleaved((stb_vorbis *)music.ctxData, music.stream.channels, (short *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize), frameCountStillNeeded*music.stream.channels);
+-                    frameCountReadTotal += frameCountRead;
+-                    frameCountStillNeeded -= frameCountRead;
+-                    if (frameCountStillNeeded == 0) break;
+-                    else stb_vorbis_seek_start((stb_vorbis *)music.ctxData);
+-                }
+-            } break;
+-        #endif
+-        #if SUPPORT_FILEFORMAT_MP3
+             case MUSIC_AUDIO_MP3:
+-            {
+-                while (true)
+-                {
+-                    int frameCountRead = (int)drmp3_read_pcm_frames_f32((drmp3 *)music.ctxData, frameCountStillNeeded, (float *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize));
+-                    frameCountReadTotal += frameCountRead;
+-                    frameCountStillNeeded -= frameCountRead;
+-                    if (frameCountStillNeeded == 0) break;
+-                    else drmp3_seek_to_start_of_stream((drmp3 *)music.ctxData);
+-                }
+-            } break;
+-        #endif
+-        #if SUPPORT_FILEFORMAT_QOA
+             case MUSIC_AUDIO_QOA:
+-            {
+-                unsigned int frameCountRead = qoaplay_decode((qoaplay_desc *)music.ctxData, (float *)AUDIO.System.pcmBuffer, framesToStream);
+-                frameCountReadTotal += frameCountRead;
+-                /*
+-                while (true)
+-                {
+-                    int frameCountRead = (int)qoaplay_decode((qoaplay_desc *)music.ctxData, (float *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize),  frameCountStillNeeded);
+-                    frameCountReadTotal += frameCountRead;
+-                    frameCountStillNeeded -= frameCountRead;
+-                    if (frameCountStillNeeded == 0) break;
+-                    else qoaplay_rewind((qoaplay_desc *)music.ctxData);
+-                }
+-                */
+-            } break;
+-        #endif
+-        #if SUPPORT_FILEFORMAT_FLAC
+             case MUSIC_AUDIO_FLAC:
+             {
+-                while (true)
++                // A looping music reads up to the end of its loop region, then goes on from its start
++                unsigned int loopBegin = 0;
++                unsigned int loopEnd = 0;
++                GetMusicLoopRegion(music, &loopBegin, &loopEnd);
++                unsigned int cursor = music.looping? WrapMusicFrame(music, music.stream.buffer->framesProcessed) : music.stream.buffer->framesProcessed;
++                int emptyReads = 0;
++
++                while (frameCountStillNeeded > 0)
+                 {
+-                    int frameCountRead = (int)drflac_read_pcm_frames_s16((drflac *)music.ctxData, frameCountStillNeeded, (short *)((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize));
+-                    frameCountReadTotal += frameCountRead;
+-                    frameCountStillNeeded -= frameCountRead;
+-                    if (frameCountStillNeeded == 0) break;
+-                    else drflac__seek_to_first_frame((drflac *)music.ctxData);
++                    unsigned int framesToRead = (unsigned int)frameCountStillNeeded;
++                    if (music.looping && (cursor + framesToRead > loopEnd)) framesToRead = loopEnd - cursor;
++
++                    unsigned int frameCountRead = ReadMusicFrames(music, (char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize, framesToRead);
++                    frameCountReadTotal += (int)frameCountRead;
++                    frameCountStillNeeded -= (int)frameCountRead;
++                    cursor += frameCountRead;
++
++                    if ((frameCountRead < framesToRead) || (music.looping && (cursor >= loopEnd)))
++                    {
++                        // Nothing left to read, or a decoder giving nothing from the loop start: silence
++                        emptyReads = (frameCountRead == 0)? emptyReads + 1 : 0;
++                        if (!music.looping || (emptyReads > 1)) break;
++
++                        SeekMusicDecoder(music, loopBegin);
++                        cursor = loopBegin;
++                    }
+                 }
++
++                if (frameCountStillNeeded > 0) memset((char *)AUDIO.System.pcmBuffer + frameCountReadTotal*frameSize, 0, frameCountStillNeeded*frameSize);
+             } break;
+-        #endif
+         #if SUPPORT_FILEFORMAT_XM
+             case MUSIC_MODULE_XM:
+             {
+@@ -2108,8 +2135,10 @@ float GetMusicTimePlayed(Music music)
+             int framesInBuffers = framesInFirstBuffer + framesInSecondBuffer;
+             if (((unsigned int)framesInBuffers > music.frameCount) && !music.looping) framesInBuffers = music.frameCount;
+             int framesSentToMix = music.stream.buffer->frameCursorPos%subBufferSize;
+-            int framesPlayed = (framesProcessed - framesInBuffers + framesSentToMix)%(int)music.frameCount;
+-            if (framesPlayed < 0) framesPlayed += music.frameCount;
++            int framesPlayed = framesProcessed - framesInBuffers + framesSentToMix;
++            if (framesPlayed < 0) framesPlayed = framesPlayed%(int)music.frameCount + (int)music.frameCount;
++            else if (music.looping) framesPlayed = (int)WrapMusicFrame(music, (unsigned int)framesPlayed);
++            else framesPlayed %= (int)music.frameCount;
+             secondsPlayed = (float)framesPlayed/music.stream.sampleRate;
+             ma_mutex_unlock(&AUDIO.System.lock);
+         }
+@@ -2709,15 +2738,13 @@ static void StopAudioBufferInLockedState(AudioBuffer *buffer)
+ {
+     if (buffer != NULL)
+     {
+-        if (IsAudioBufferPlayingInLockedState(buffer))
+-        {
+-            buffer->playing = false;
+-            buffer->paused = false;
+-            buffer->frameCursorPos = 0;
+-            buffer->framesProcessed = 0;
+-            buffer->isSubBufferProcessed[0] = true;
+-            buffer->isSubBufferProcessed[1] = true;
+-        }
++        // A paused buffer is stopped too: it would resume where it was paused
++        buffer->playing = false;
++        buffer->paused = false;
++        buffer->frameCursorPos = 0;
++        buffer->framesProcessed = 0;
++        buffer->isSubBufferProcessed[0] = true;
++        buffer->isSubBufferProcessed[1] = true;
+     }
+ }
+ 
+diff --git a/src/raylib.h b/src/raylib.h
+index bdca643..86134b9 100644
+--- a/src/raylib.h
++++ b/src/raylib.h
+@@ -497,6 +497,9 @@ typedef struct Music {
+ 
+     int ctxType;                // Type of music context (audio filetype)
+     void *ctxData;              // Audio context data, depends on type
++
++    unsigned int loopStart;     // Loop region start frame, when looping
++    unsigned int loopEnd;       // Loop region end frame (excluded), 0: the whole music loops
+ } Music;
+ 
+ // VrDeviceInfo, Head-Mounted-Display device parameters
+@@ -1662,6 +1665,8 @@ typedef void (*AudioCallback)(void *bufferData, unsigned int frames);
+ RLAPI void InitAudioDevice(void);                                     // Initialize audio device and context
+ RLAPI void CloseAudioDevice(void);                                    // Close the audio device and context
+ RLAPI bool IsAudioDeviceReady(void);                                  // Check if audio device has been initialized successfully
++RLAPI void PauseAudioDevice(void);                                    // Pause the audio device: everything stays where it is
++RLAPI void ResumeAudioDevice(void);                                   // Resume the audio device paused by PauseAudioDevice()
+ RLAPI void SetMasterVolume(float volume);                             // Set master volume (listener)
+ RLAPI float GetMasterVolume(void);                                    // Get master volume (listener)
+ 

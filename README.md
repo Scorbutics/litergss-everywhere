@@ -12,7 +12,7 @@ It builds LiteRGSS2 and all its dependencies into a single static library (`libr
 | Embedded Ruby VM | Cross-platform Kotlin/C wrapper ([docs](external/embedded-ruby-vm/README.md)) |
 | LiteRGSS2 | Ruby game scripting extensions |
 | SFML | Graphics, windowing, audio |
-| Audio codecs | Ogg, Vorbis, FLAC, OpenAL |
+| Audio codecs | Ogg, Vorbis, FLAC, OpenAL (raylib backend: raylib's audio, miniaudio) |
 | FreeType | Font rendering |
 | Ruby client code | `require 'litergss/touch_overlay'`: on-screen gamepad for touch devices ([integration](docs/INTEGRATION.md#ruby-client-code)) |
 

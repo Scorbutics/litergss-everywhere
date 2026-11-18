@@ -29,10 +29,15 @@ set(RGSS_EXPECTED_SYMBOLS
     assets_error_string
     get_default_install_dir
     set_android_app_data_dir
-    # LiteRGSS extensions
+    # LiteRGSS extensions (the audio one: the backend's, CMakeLists.txt)
     Init_LiteRGSS
-    Init_SFMLAudio
 )
+if(LITERGSS_BACKEND STREQUAL "raylib")
+    list(APPEND RGSS_EXPECTED_SYMBOLS Init_RaylibAudio)
+else()
+    list(APPEND RGSS_EXPECTED_SYMBOLS Init_SFMLAudio)
+endif()
+
 
 # Generate rgss_expected_symbols.h in the build directory.
 # This header provides only the symbol NAME list as string data.

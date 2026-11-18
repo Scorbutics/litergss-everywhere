@@ -24,19 +24,26 @@
  * The extensions will be available via require statements:
  *   require 'LiteRGSS'
  *   require 'SFMLAudio'
+ *   require 'RaylibAudio'   (raylib backend)
  */
 /* The extensions' init functions: Init_<name>, where an Android shared build
- * names them lib<name> (cmake/litergss-app/ruby-extension-names.cmake) */
+ * names them lib<name> (cmake/litergss-app/ruby-extension-names.cmake). The
+ * audio extension is the backend's: SFMLAudio, or RaylibAudio
+ * (LITERGSS_AUDIO_RAYLIB), which defines SFMLAudio's API too. */
 #ifndef LITERGSS_INIT_FUNCTION
 #define LITERGSS_INIT_FUNCTION Init_LiteRGSS
 #endif
-#ifndef SFMLAUDIO_INIT_FUNCTION
-#define SFMLAUDIO_INIT_FUNCTION Init_SFMLAudio
+#ifndef AUDIO_INIT_FUNCTION
+#ifdef LITERGSS_AUDIO_RAYLIB
+#define AUDIO_INIT_FUNCTION Init_RaylibAudio
+#else
+#define AUDIO_INIT_FUNCTION Init_SFMLAudio
+#endif
 #endif
 
 /* Forward declarations of extension initialization functions */
 extern void LITERGSS_INIT_FUNCTION(void);
-extern void SFMLAUDIO_INIT_FUNCTION(void);
+extern void AUDIO_INIT_FUNCTION(void);
 extern void Init_physfs(void);
 /* ruby-client.c: registers ruby/litergss with embedded-ruby-vm's install */
 extern void litergss_register_ruby_client(void);
@@ -82,8 +89,11 @@ void initialize_litergss_extensions(void) {
     rb_provide("LiteRGSS_tracy");
 #endif
 
-    /* Initialize SFMLAudio extension */
-    SFMLAUDIO_INIT_FUNCTION();
+    /* Initialize the audio extension: scripts require SFMLAudio either way */
+    AUDIO_INIT_FUNCTION();
+#ifdef LITERGSS_AUDIO_RAYLIB
+    rb_provide("RaylibAudio");
+#endif
     rb_provide("SFMLAudio");
 
     /* Inject the PhysFS gem's reentrant Monitor into LiteRGSS so that

@@ -25,19 +25,11 @@ else()
     set(LIB_EXT_FILE "-s.a")
 endif()
 
-# The raylib backend (LiteRGSS3) draws with raylib: SFML is the runtime's
-# audio only (ruby-sfml-audio links sfml-audio and sfml-system), so neither its
-# window, graphics nor network module is built, nor FreeType (graphics' only).
-if(LITERGSS_BACKEND STREQUAL "raylib")
-    set(_SFML_MODULE_ARGS -DSFML_BUILD_GRAPHICS=FALSE -DSFML_BUILD_WINDOW=FALSE -DSFML_BUILD_NETWORK=FALSE -DSFML_BUILD_AUDIO=TRUE)
-    set(_SFML_DEPENDS openal-soft libogg libvorbis flac)
-    # Window / graphics / network: not built, nothing to stage
-    set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/core/CopyIfExists.cmake)
-else()
-    set(_SFML_MODULE_ARGS "")
-    set(_SFML_DEPENDS freetype openal-soft libogg libvorbis flac)
-    set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -E copy_if_different)
-endif()
+# The sfml backend's only: the raylib backend (LiteRGSS3) has raylib's audio
+# (ruby-raylib-audio), no SFML.
+set(_SFML_MODULE_ARGS "")
+set(_SFML_DEPENDS freetype openal-soft libogg libvorbis flac)
+set(_SFML_DISPLAY_COPY ${CMAKE_COMMAND} -E copy_if_different)
 
 # Android: LiteRGSS loads Image/Font files from the filesystem, not the APK assets
 if(PLATFORM_LOWER STREQUAL "android")

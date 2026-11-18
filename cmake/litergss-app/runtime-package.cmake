@@ -19,6 +19,8 @@
 # EXPECTED SYMBOLS (shared between nm verify and smoke test)
 # ============================================================================
 include(${CMAKE_SOURCE_DIR}/cmake/litergss-app/expected_symbols.cmake)
+# AUDIO_EXT_NAME, for the music test
+include(${CMAKE_SOURCE_DIR}/cmake/litergss-app/ruby-extension-names.cmake)
 set(VERIFY_SYMBOLS_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/litergss-app/scripts/verify_symbols.cmake")
 
 # Generate the header so smoke_test.c can verify all symbols at link+run time
@@ -210,7 +212,7 @@ else()
             COMMENT "Creating fat static library lib${FAT_LIBRARY_NAME}.a (if its inputs changed)"
             VERBATIM
         )
-        add_dependencies(rgss_fat_library ${RGSS_ENGINE}_external ruby-sfml-audio_external litergss_ruby_client)
+        add_dependencies(rgss_fat_library ${RGSS_ENGINE}_external ${RGSS_AUDIO_DEPENDENCY}_external litergss_ruby_client)
 
         # Verify symbols are present in the fat static library.
         # For native builds the smoke test provides a stronger check
@@ -360,7 +362,7 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
                     "-framework CoreVideo"
                     "-framework Carbon"
                     "-framework Security"  # Ruby 3.0: SecRandomCopyBytes
-                    "-framework CoreAudio"     # OpenAL Soft's CoreAudio backend
+                    "-framework CoreAudio"     # OpenAL Soft's / miniaudio's CoreAudio backend
                     "-framework AudioToolbox"
                     compression
                     iconv
@@ -385,11 +387,13 @@ if(RGSS_SMOKE_TEST_ENABLED AND _RGSS_CAN_RUN_TESTS)
     rgss_add_native_test(rgss_smoke_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/smoke_test.c")
     set_tests_properties(rgss_smoke_test PROPERTIES TIMEOUT 10)
 
-    # SFMLAudio::Music opening a second buffer (sfmlaudio's sf_Music.cpp)
+    # SFMLAudio::Music opening a second buffer (sfmlaudio's sf_Music.cpp; the
+    # raylib backend's RaylibAudio, its SFMLAudio API)
     rgss_add_native_test(rgss_music_reopen_test "${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/music_reopen_test.c")
     # Ruby headers are third-party: SYSTEM keeps their warnings out of -Werror
     target_include_directories(rgss_music_reopen_test SYSTEM PRIVATE ${RUBY_FOR_ANDROID_INCLUDE_DIRS})
     target_compile_definitions(rgss_music_reopen_test PRIVATE
+        AUDIO_INIT_FUNCTION=Init_${AUDIO_EXT_NAME}
         MUSIC_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone.ogg"
         MUSIC_LONGER_FIXTURE_PATH="${CMAKE_SOURCE_DIR}/cmake/litergss-app/tests/fixtures/tone-long.ogg"
     )

@@ -44,7 +44,8 @@ enable_testing()
 #   sfml    LiteRGSS2 + LiteCGSS2 on SFML (litergss2.cmake): every platform
 #   raylib  LiteRGSS3 on raylib 6 (litergss3.cmake): Android, Linux, macOS;
 #           Ruby 3.2 or newer (its GL context follows the GVL)
-# Audio is SFML's in both (ruby-sfml-audio). Chosen by ./configure
+# Audio follows: SFML's (ruby-sfml-audio) with sfml, raylib's (ruby-raylib-audio,
+# which also defines SFMLAudio's API) with raylib. Chosen by ./configure
 # --with-backend=, else the LITERGSS_BACKEND environment variable, else sfml.
 if(DEFINED ENV{LITERGSS_BACKEND} AND NOT "$ENV{LITERGSS_BACKEND}" STREQUAL "")
     set(_litergss_backend_default "$ENV{LITERGSS_BACKEND}")
@@ -72,7 +73,7 @@ if(LITERGSS_BACKEND STREQUAL "raylib")
         set(_litergss_tracy_dep "tracy;")
     endif()
     set(_litergss_dependencies
-        "libogg;libvorbis;flac;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;ruby-sfml-audio;raylib;physfs;${_litergss_tracy_dep}litergss3")
+        "ruby-for-android;embedded-ruby-vm;raylib;ruby-raylib-audio;physfs;${_litergss_tracy_dep}litergss3")
 else()
     set(_litergss_dependencies
         "libogg;libvorbis;flac;freetype;openal-soft;ruby-for-android;embedded-ruby-vm;sfml;litecgss;ruby-sfml-audio;litergss2")

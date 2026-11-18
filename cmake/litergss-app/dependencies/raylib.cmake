@@ -8,8 +8,9 @@
 #   Linux    PLATFORM=Desktop (GLFW, X11 only)
 #   macOS    PLATFORM=Desktop (GLFW)
 #
-# raylib's audio module is left out: the runtime's audio is SFML's
-# (ruby-sfml-audio).
+# Its audio module (raudio) is the runtime's audio, through ruby-raylib-audio,
+# with FLAC on (off by default) and the loop points and device pause of
+# patches/raylib/common.
 
 set(RAYLIB_VERSION "6.0")
 set(RAYLIB_GIT_URL "https://github.com/raysan5/raylib.git")
@@ -26,7 +27,7 @@ else()
     message(FATAL_ERROR "raylib.cmake: no raylib platform for ${TARGET_PLATFORM}")
 endif()
 
-# CUSTOMIZE_BUILD (for SUPPORT_MODULE_RAUDIO=OFF) turns config.h's SUPPORT_*
+# CUSTOMIZE_BUILD (for SUPPORT_FILEFORMAT_FLAC=ON) turns config.h's SUPPORT_*
 # flags into options, and raylib 6.0's parser (cmake/ParseConfigHeader.cmake)
 # reads every flag config.h #defines as ON, the ones it defines to 0
 # included: SUPPORT_CUSTOM_FRAME_CONTROL among them, with which EndDrawing()
@@ -36,7 +37,7 @@ set(_RAYLIB_DEFAULT_OFF_FLAGS
     SUPPORT_FILEFORMAT_TGA SUPPORT_FILEFORMAT_JPG SUPPORT_FILEFORMAT_PSD
     SUPPORT_FILEFORMAT_HDR SUPPORT_FILEFORMAT_PIC SUPPORT_FILEFORMAT_PNM
     SUPPORT_FILEFORMAT_KTX SUPPORT_FILEFORMAT_ASTC SUPPORT_FILEFORMAT_PKM
-    SUPPORT_FILEFORMAT_PVR SUPPORT_FILEFORMAT_BDF SUPPORT_FILEFORMAT_FLAC
+    SUPPORT_FILEFORMAT_PVR SUPPORT_FILEFORMAT_BDF
 )
 list(TRANSFORM _RAYLIB_DEFAULT_OFF_FLAGS PREPEND "-D")
 list(TRANSFORM _RAYLIB_DEFAULT_OFF_FLAGS APPEND "=OFF")
@@ -48,7 +49,7 @@ set(RAYLIB_CONFIGURE_CMD
     -DBUILD_SHARED_LIBS=OFF
     -DBUILD_EXAMPLES=OFF
     -DCUSTOMIZE_BUILD=ON
-    -DSUPPORT_MODULE_RAUDIO=OFF
+    -DSUPPORT_FILEFORMAT_FLAC=ON
     ${_RAYLIB_DEFAULT_OFF_FLAGS}
     ${_RAYLIB_PLATFORM_ARGS}
     .

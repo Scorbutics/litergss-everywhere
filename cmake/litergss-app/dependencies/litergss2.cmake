@@ -127,4 +127,5 @@ set(RGSS_ENGINE_SHARED_LIBS
         "${BUILD_STAGING_DIR}/usr/lib/libopenal.${DEP_EXT}"
 )
 set(RGSS_ENGINE_SHARED_DEPENDS sfml litecgss openal-soft flac libogg libvorbis freetype)
+set(RGSS_AUDIO_DEPENDENCY ruby-sfml-audio)
 include(${CMAKE_CURRENT_LIST_DIR}/../runtime-package.cmake)

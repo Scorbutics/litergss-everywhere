@@ -1,0 +1,8 @@
+# Patch series for raylib on every platform
+# Patches are applied in order listed here
+
+# raudio: loop points for a looping Music (loopStart / loopEnd), which
+# ruby-raylib-audio sets from the LOOPSTART / LOOPLENGTH tags of PSDK musics;
+# stopping a paused stream; pausing the device (Android in the background);
+# unloading a FLAC music (a double free).
+raudio-loop-points-device-pause.patch

@@ -208,11 +208,18 @@ if(APPLE)
 endif()
 
 # extension-init.c starts the Tracy profiler (LITERGSS_USE_TRACY, CMakeLists.txt)
-# and calls the extensions' init functions (ruby-extension-names.cmake)
+# and calls the extensions' init functions (ruby-extension-names.cmake).
+# LITERGSS_AUDIO_RAYLIB: the audio extension is RaylibAudio (raylib backend),
+# for it and litergss_surface_jni.c.
 include(${CMAKE_CURRENT_LIST_DIR}/../ruby-extension-names.cmake)
+set(_ERVM_AUDIO_DEFINES "")
+if(LITERGSS_BACKEND STREQUAL "raylib")
+    set(_ERVM_AUDIO_DEFINES -DLITERGSS_AUDIO_RAYLIB)
+endif()
 set(_ERVM_EXT_INIT_DEFINES
     -DLITERGSS_INIT_FUNCTION=Init_${LITERGSS_EXT_NAME}
-    -DSFMLAUDIO_INIT_FUNCTION=Init_${SFMLAUDIO_EXT_NAME}
+    -DAUDIO_INIT_FUNCTION=Init_${AUDIO_EXT_NAME}
+    ${_ERVM_AUDIO_DEFINES}
 )
 if(LITERGSS_USE_TRACY)
     list(APPEND _ERVM_EXT_INIT_DEFINES -DLITERGSS_USE_TRACY)
@@ -239,13 +246,15 @@ list(APPEND _ERVM_INSTALL_CMD
 # libembedded-ruby.a. Its JNI_OnLoad registers LiteCGSS's hosted-Activity JNI
 # bridge (cgss_android_register_natives, in libLiteCGSS_engine.a, resolved at
 # fat-lib link time) on the runtime's Kotlin class, NativeSurface, and pauses
-# SFML's audio with the surface. No Ruby-VM concerns; libembedded-ruby.a is
-# just the convenient orchestrator-controlled archive to embed extra
-# orchestrator-level .o files into, exactly as extension-init.c above.
+# the audio (SFML's, or RaylibAudio's) with the surface. No Ruby-VM concerns;
+# libembedded-ruby.a is just the convenient orchestrator-controlled archive to
+# embed extra orchestrator-level .o files into, exactly as extension-init.c
+# above.
 if(_ERVM_PLATFORM STREQUAL "android")
     list(APPEND _ERVM_INSTALL_CMD
         COMMAND ${CMAKE_C_COMPILER} ${COMPILER_TARGET_FLAG} -c -fPIC ${CMAKE_C_FLAGS_LIST}
             ${_ERVM_WARNING_FLAGS}
+            ${_ERVM_AUDIO_DEFINES}
             -o ${CMAKE_BINARY_DIR}/litergss_surface_jni.o
             ${CMAKE_CURRENT_LIST_DIR}/files/litergss_surface_jni.c
         COMMAND ${CMAKE_AR} r
