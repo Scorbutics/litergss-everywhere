@@ -43,7 +43,7 @@ on:
           - "3.2"
           - "3.3"
       backends:
-        description: "Graphics backends: sfml (LiteRGSS2), raylib (LiteRGSS3: Ruby 3.2+, no iOS) or both"
+        description: "Graphics backends: sfml (LiteRGSS2), raylib (LiteRGSS3, no iOS) or both"
         required: false
         default: "sfml"
         type: choice
@@ -144,24 +144,17 @@ jobs:
 
           # The graphics backends, each a matrix axis of the build and install
           # jobs, all packaged and released by this one run. Manual runs: the
-          # input. Release tags: sfml, and raylib (LiteRGSS3) from Ruby 3.2 on.
+          # input. Release tags: sfml and raylib (LiteRGSS3), every variant
+          # (Ruby 3.0's internal thread events are patched in by ruby-for-android).
           # Pushes and PRs: sfml.
-          case "$RUBY_VARIANT" in
-            3.0|3.1) RAYLIB_OK=false ;;
-            *)       RAYLIB_OK=true ;;
-          esac
           if [ -n "${{ inputs.backends }}" ]; then
             BACKENDS="${{ inputs.backends }}"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]] && [ "$RAYLIB_OK" = true ]; then
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             BACKENDS="sfml,raylib"
           else
             BACKENDS="sfml"
           fi
           BACKENDS_JSON=$(echo "$BACKENDS" | jq -Rc 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
-          if jq -e 'index("raylib")' <<< "$BACKENDS_JSON" >/dev/null && [ "$RAYLIB_OK" != true ]; then
-            echo "::error::The raylib backend (LiteRGSS3) needs Ruby 3.2 or newer, not $RUBY_VARIANT"
-            exit 1
-          fi
           if jq -e 'index("sfml")' <<< "$BACKENDS_JSON" >/dev/null; then HAS_SFML=true; else HAS_SFML=false; fi
           echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
           echo "backends_json=$BACKENDS_JSON" >> "$GITHUB_OUTPUT"

@@ -5,7 +5,8 @@
 # Built in LiteRGSS3's embedded mode (LITERGSS_EMBEDDED): libLiteRGSS.a
 # registers Init_LiteRGSS (Init_libLiteRGSS on Android shared builds) for
 # extension-init.c, compiled against the target
-# Ruby's headers in the staging prefix (Ruby 3.2 or newer: CMakeLists.txt).
+# Ruby's headers in the staging prefix (with internal thread events: Ruby 3.2+,
+# or 3.0 patched by ruby-for-android; LiteRGSS3 checks ruby/thread.h).
 # LiteRGSS3 fetches nothing: raylib, PhysicsFS and Tracy are the packages
 # raylib.cmake, physfs.cmake and tracy.cmake installed in the staging prefix,
 # found through CMAKE_PREFIX_PATH (and CMAKE_FIND_ROOT_PATH, which the NDK
@@ -19,7 +20,7 @@ if(NOT DEFINED LITERGSS3_GIT_URL)
     set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
 endif()
 if(NOT DEFINED LITERGSS3_GIT_TAG)
-    set(LITERGSS3_GIT_TAG "8f4853b7e22de86eae84ff9c14520d087d240548")  # development
+    set(LITERGSS3_GIT_TAG "11f08922b4433b672185bc5c09c5c533ab9480eb")  # development
 endif()
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per

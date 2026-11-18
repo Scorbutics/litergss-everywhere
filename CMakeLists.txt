@@ -43,7 +43,9 @@ enable_testing()
 # ============================================================================
 #   sfml    LiteRGSS2 + LiteCGSS2 on SFML (litergss2.cmake): every platform
 #   raylib  LiteRGSS3 on raylib 6 (litergss3.cmake): Android, Linux, macOS;
-#           Ruby 3.2 or newer (its GL context follows the GVL)
+#           a Ruby with internal thread events (its GL context follows the
+#           GVL): 3.2+, or our 3.0 (ruby-for-android patches them in).
+#           LiteRGSS3 checks ruby/thread.h (cmake/RubyExtension.cmake)
 # Audio follows: SFML's (ruby-sfml-audio) with sfml, raylib's (ruby-raylib-audio,
 # which also defines SFMLAudio's API) with raylib. Chosen by ./configure
 # --with-backend=, else the LITERGSS_BACKEND environment variable, else sfml.
@@ -62,10 +64,6 @@ message(STATUS "LiteRGSS: graphics backend ${LITERGSS_BACKEND}")
 if(LITERGSS_BACKEND STREQUAL "raylib")
     if(TARGET_PLATFORM STREQUAL "iOS")
         message(FATAL_ERROR "The raylib backend has no iOS support (raylib 6 has no iOS platform): use --with-backend=sfml")
-    endif()
-    if(NOT DEFINED RUBY_VARIANT OR RUBY_VARIANT VERSION_LESS 3.2)
-        message(FATAL_ERROR "The raylib backend (LiteRGSS3) needs Ruby 3.2 or newer: --with-ruby-variant=3.2 or 3.3 "
-            "(now: ${RUBY_VARIANT})")
     endif()
     # Tracy: LiteRGSS3 links the Tracy package (tracy.cmake) LiteCGSS2 builds itself
     set(_litergss_tracy_dep "")
