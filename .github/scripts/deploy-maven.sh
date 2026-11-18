@@ -12,8 +12,10 @@ set -euo pipefail
 
 ARTIFACT_ID="$1" VERSION="$2" PACKAGING="$3" DIR="$4" MODE="${5:-required}"
 
-FILE=$(find "$DIR" -name "*.${PACKAGING}" ! -name '*-sources.*' 2>/dev/null | head -1)
-POM=$(find "$DIR" -name '*.pom' 2>/dev/null | head -1)
+# A missing <dir> is a missing file: find fails on it, and pipefail would
+# end the script here, before "optional" can let it through
+FILE=$(find "$DIR" -name "*.${PACKAGING}" ! -name '*-sources.*' 2>/dev/null | head -1 || true)
+POM=$(find "$DIR" -name '*.pom' 2>/dev/null | head -1 || true)
 
 if [ -z "$FILE" ] || { [ "$PACKAGING" = module ] && [ -z "$POM" ]; }; then
   if [ "$MODE" = optional ]; then
