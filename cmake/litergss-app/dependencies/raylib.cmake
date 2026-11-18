@@ -16,8 +16,19 @@ set(RAYLIB_VERSION "6.0")
 set(RAYLIB_GIT_URL "https://github.com/raysan5/raylib.git")
 set(RAYLIB_GIT_TAG "6.0")
 
+# New source files of a platform (files/raylib/, in raylib's source layout):
+# copied into the source tree before it is configured. The patches
+# (patches/raylib/) only edit raylib's own files, hooking these in.
+set(_RAYLIB_FILES "")
+set(_RAYLIB_FILES_DIR "${CMAKE_CURRENT_LIST_DIR}/files/raylib")
+
 if(TARGET_PLATFORM STREQUAL "Android")
     set(_RAYLIB_PLATFORM_ARGS -DPLATFORM=AndroidHosted)
+    # PLATFORM=AndroidHosted (patches/raylib/android/android-hosted-platform.patch)
+    list(APPEND _RAYLIB_FILES
+        src/platforms/rcore_android_hosted.c
+        src/raylib_android_hosted.h
+    )
 elseif(TARGET_PLATFORM STREQUAL "Linux")
     # X11 only (the Docker image has no Wayland development files)
     set(_RAYLIB_PLATFORM_ARGS -DPLATFORM=Desktop -DGLFW_BUILD_WAYLAND=OFF -DGLFW_BUILD_X11=ON)
@@ -42,8 +53,16 @@ set(_RAYLIB_DEFAULT_OFF_FLAGS
 list(TRANSFORM _RAYLIB_DEFAULT_OFF_FLAGS PREPEND "-D")
 list(TRANSFORM _RAYLIB_DEFAULT_OFF_FLAGS APPEND "=OFF")
 
+set(_RAYLIB_COPY_FILES_CMD "")
+set(_RAYLIB_FILES_SOURCES "")
+foreach(_file ${_RAYLIB_FILES})
+    list(APPEND _RAYLIB_COPY_FILES_CMD ${CMAKE_COMMAND} -E copy ${_RAYLIB_FILES_DIR}/${_file} ${_file} COMMAND)
+    list(APPEND _RAYLIB_FILES_SOURCES ${_RAYLIB_FILES_DIR}/${_file})
+endforeach()
+
 get_sub_cmake_cross_args(_RAYLIB_CMAKE_ARGS)
 set(RAYLIB_CONFIGURE_CMD
+    ${_RAYLIB_COPY_FILES_CMD}
     ${CMAKE_COMMAND}
     ${_RAYLIB_CMAKE_ARGS}
     -DBUILD_SHARED_LIBS=OFF
@@ -70,3 +89,9 @@ add_external_dependency(
 
     INSTALL_COMMAND     ${CMAKE_COMMAND} --install .
 )
+
+# Editing one of the copied files configures raylib again (ExternalProject only
+# tracks its own commands)
+if(_RAYLIB_FILES_SOURCES)
+    ExternalProject_Add_StepDependencies(raylib_external configure ${_RAYLIB_FILES_SOURCES})
+endif()

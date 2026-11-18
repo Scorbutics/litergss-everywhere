@@ -6,4 +6,6 @@
 # host surface) instead of owning a NativeActivity. No
 # android_main / native_app_glue, no asset-manager fopen() (LiteRGSS reads the
 # file system), OpenGL ES 3. Host API: raylib_android_hosted.h (installed).
+# Its new files (rcore_android_hosted.c, raylib_android_hosted.h) are not in
+# the patch: raylib.cmake copies them from dependencies/files/raylib/.
 android-hosted-platform.patch
