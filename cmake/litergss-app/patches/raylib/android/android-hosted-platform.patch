@@ -54,10 +54,10 @@ index 5e5dd91..23c16b0 100644
      target_link_options(raylib PUBLIC -Wl,--wrap=fopen)
 diff --git a/src/platforms/rcore_android_hosted.c b/src/platforms/rcore_android_hosted.c
 new file mode 100644
-index 0000000..8509cfb
+index 0000000..3206c84
 --- /dev/null
 +++ b/src/platforms/rcore_android_hosted.c
-@@ -0,0 +1,1031 @@
+@@ -0,0 +1,1094 @@
 +/**********************************************************************************************
 +*
 +*   rcore_android_hosted - Functions to manage window, graphics device and inputs
@@ -159,7 +159,17 @@ index 0000000..8509cfb
 +    int pointId[MAX_TOUCH_POINTS];      // Active touch points, in pressing order
 +    Vector2 position[MAX_TOUCH_POINTS];
 +    int pointCount;
++    // Pressed since the last PollInputEvents() (the frame): raylib keeps
++    // input as state, read once a frame, so a release of one of these waits
++    // for the next frame, or a press and its release would cancel out
++    // (a quick tap seen by nobody). See HostedTakeEvents().
++    struct { HostedEventType type; int id, code; double time; } recentPress[64];
++    int recentPressCount;
 +} HostedInput;
++
++// The longest a release waits for its press' frame: past it (no frame is
++// being drawn), it goes through rather than leave the button held
++#define HOSTED_RELEASE_HOLD_SECONDS 0.1
 +
 +//----------------------------------------------------------------------------------
 +// Global Variables Definition
@@ -624,6 +634,9 @@ index 0000000..8509cfb
 +// Register all input events: the previous frame's states, then what the host sent
 +void PollInputEvents(void)
 +{
++    // A new frame: the releases waiting for one can go
++    hostedInput.recentPressCount = 0;
++
 +#if SUPPORT_GESTURES_SYSTEM
 +    // NOTE: Gestures update must be called every frame to reset gestures correctly
 +    UpdateGestures();
@@ -969,6 +982,54 @@ index 0000000..8509cfb
 +    CORE.Input.Gamepad.currentButtonState[slot][GAMEPAD_BUTTON_LEFT_FACE_UP] = (hatY < -0.5f);
 +}
 +
++// The press an event makes (true), or the release (false); other events: neither
++static bool HostedPressOf(const HostedEvent *event, bool *press, int *id, int *code)
++{
++    switch (event->type)
++    {
++        case HOSTED_TOUCH: *press = (event->a != RAYLIB_HOSTED_TOUCH_UP); *id = event->b; *code = 0; return (event->a != RAYLIB_HOSTED_TOUCH_MOVE);
++        case HOSTED_KEY: *press = event->b; *id = 0; *code = event->a; return true;
++        case HOSTED_GAMEPAD_BUTTON: *press = event->c; *id = event->a; *code = event->b; return true;
++        default: return false;
++    }
++}
++
++// Under shared.lock: how many of the queued events this frame takes. It stops
++// at the release of something pressed in this frame (a tap shorter than a
++// frame), which the next frame takes, unless it has waited long enough.
++static int HostedTakeEvents(void)
++{
++    const double now = GetTime();
++    int taken = 0;
++    for (; taken < shared.count; taken++)
++    {
++        const HostedEvent *event = &shared.events[(shared.head + taken)%HOSTED_EVENT_QUEUE_SIZE];
++        bool press = false;
++        int id = 0, code = 0;
++        if (!HostedPressOf(event, &press, &id, &code)) continue;
++
++        int recent = -1;
++        for (int i = 0; i < hostedInput.recentPressCount; i++)
++        {
++            if ((hostedInput.recentPress[i].type == event->type) && (hostedInput.recentPress[i].id == id) &&
++                (hostedInput.recentPress[i].code == code)) recent = i;
++        }
++        if (press)
++        {
++            if ((recent < 0) && (hostedInput.recentPressCount < (int)(sizeof(hostedInput.recentPress)/sizeof(hostedInput.recentPress[0]))))
++            {
++                recent = hostedInput.recentPressCount++;
++                hostedInput.recentPress[recent].type = event->type;
++                hostedInput.recentPress[recent].id = id;
++                hostedInput.recentPress[recent].code = code;
++            }
++            if (recent >= 0) hostedInput.recentPress[recent].time = now;
++        }
++        else if ((recent >= 0) && ((now - hostedInput.recentPress[recent].time) < HOSTED_RELEASE_HOLD_SECONDS)) break;
++    }
++    return taken;
++}
++
 +// Render thread: the host's surface changes, then its events, in order
 +static void HostedApply(void)
 +{
@@ -993,9 +1054,11 @@ index 0000000..8509cfb
 +        height = shared.height;
 +        shared.resized = false;
 +    }
-+    for (count = 0; count < shared.count; count++) events[count] = shared.events[(shared.head + count)%HOSTED_EVENT_QUEUE_SIZE];
-+    shared.head = 0;
-+    shared.count = 0;
++    const int taken = HostedTakeEvents();
++    for (count = 0; count < taken; count++) events[count] = shared.events[(shared.head + count)%HOSTED_EVENT_QUEUE_SIZE];
++    shared.head = (shared.head + taken)%HOSTED_EVENT_QUEUE_SIZE;
++    shared.count -= taken;
++    if (shared.count == 0) shared.head = 0;
 +    shared.overflowWarned = false;
 +    pthread_mutex_unlock(&shared.lock);
 +
