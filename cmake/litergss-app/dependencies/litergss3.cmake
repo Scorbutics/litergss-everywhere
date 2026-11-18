@@ -8,12 +8,13 @@
 # LiteRGSS3 fetches nothing: raylib, PhysicsFS and Tracy are the packages
 # raylib.cmake, physfs.cmake and tracy.cmake installed in the staging prefix,
 # found through CMAKE_PREFIX_PATH (and CMAKE_FIND_ROOT_PATH, which the NDK
-# toolchain restricts package searches to). Its install puts libLiteRGSS.a,
-# libLiteCGSS_engine.a and libskalog.a in the staging prefix.
+# toolchain restricts package searches to). Its install puts libLiteRGSS.a and
+# libLiteCGSS_engine.a in the staging prefix (its logging, spdlog, is
+# header-only and compiled out here by CGSS_NO_LOGS).
 
 set(LITERGSS3_VERSION "3.0.0")
 set(LITERGSS3_GIT_URL "https://github.com/Palbolsky/litergss3.git")
-set(LITERGSS3_GIT_TAG "8421a36049da24e7288d21ab1b350f83c2b5add2")  # development
+set(LITERGSS3_GIT_TAG "d7fe1b158c2baff0e5fff2ca397221eae40f60da")  # development
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
 # APP_DEPENDENCIES order). ruby/ruby.h and ruby/config.h are both there.
@@ -74,7 +75,6 @@ set(RGSS_ENGINE_FAT_LIBS
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio-s.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
-            "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libraylib.a"
             "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
             # ruby-physfs gem (Init_physfs), built by ruby-for-android
@@ -103,7 +103,6 @@ set(RGSS_ENGINE_SHARED_LIBS
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-system.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libsfml-audio.${DEP_EXT}"
         "${BUILD_STAGING_DIR}/usr/local/lib/libLiteCGSS_engine.a"
-        "${BUILD_STAGING_DIR}/usr/local/lib/libskalog.a"
         "${BUILD_STAGING_DIR}/usr/local/lib/libraylib.a"
         "${BUILD_STAGING_DIR}/usr/local/lib/libphysfs.a"
         "${BUILD_STAGING_DIR}/usr/local/lib/libogg.${DEP_EXT}"
