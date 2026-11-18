@@ -1,8 +1,8 @@
 # Build directories
 build/
+build-*/
 target/
-target-android-tracy/
-build-kmp-*/
+target-*/
 
 # Symlinks
 /cmake/core
