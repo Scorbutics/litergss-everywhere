@@ -1,5 +1,5 @@
 raudio: loop points for a looping Music, stopping a paused stream, pausing the device,
-unloading a FLAC music
+unloading a FLAC music, a null device without audio hardware
 
 Music gets a loop region, loopStart and loopEnd (frames, end excluded; 0, the
 default: the whole music loops). A looping music decodes up to loopEnd, then
@@ -22,11 +22,49 @@ Android application in the background).
 UnloadMusicStream() of a FLAC music freed its decoder twice: drflac_close()
 frees it already (SUPPORT_FILEFORMAT_FLAC is off by default upstream).
 
+InitAudioDevice() falls back to miniaudio's null backend when the default
+playback device cannot be opened (no sound card: a server, a CI runner):
+the audio API stays usable, sounds and musics played into nothing at their
+own pace, as OpenAL Soft's null output. raylib gave up, IsAudioDeviceReady()
+false, and nothing could be loaded.
+
 diff --git a/src/raudio.c b/src/raudio.c
-index f05567c..9416d08 100644
+index f05567c..43e3c32 100644
 --- a/src/raudio.c
 +++ b/src/raudio.c
-@@ -552,6 +552,19 @@ bool IsAudioDeviceReady(void)
+@@ -474,7 +474,9 @@ void InitAudioDevice(void)
+         return;
+     }
+ 
+-    // Init audio device
++    // Init audio device, else a null one: no audio hardware (a server, a CI
++    // runner) still has the audio API, sounds and musics played into nothing
++    // at their own pace, as OpenAL Soft's null output
+     // NOTE: Using the default device. Format is floating point because it simplifies mixing
+     ma_device_config config = ma_device_config_init(ma_device_type_playback);
+     config.playback.pDeviceID = NULL;  // NULL for the default playback AUDIO.System.device
+@@ -488,6 +490,20 @@ void InitAudioDevice(void)
+     config.noFixedSizedCallback = true;         // raylib does not require fixed sized callback guarantees. This bypasses an internal intermediary buffer
+ 
+     result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
++    if ((result != MA_SUCCESS) && (AUDIO.System.context.backend != ma_backend_null))
++    {
++        TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device, falling back to a null device");
++        ma_context_uninit(&AUDIO.System.context);
++
++        ma_backend nullBackend[1] = { ma_backend_null };
++        result = ma_context_init(nullBackend, 1, &ctxConfig, &AUDIO.System.context);
++        if (result != MA_SUCCESS)
++        {
++            TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize null context");
++            return;
++        }
++        result = ma_device_init(&AUDIO.System.context, &config, &AUDIO.System.device);
++    }
+     if (result != MA_SUCCESS)
+     {
+         TRACELOG(LOG_WARNING, "AUDIO: Failed to initialize playback device");
+@@ -552,6 +568,19 @@ bool IsAudioDeviceReady(void)
      return AUDIO.System.isReady;
  }
  
@@ -46,7 +84,7 @@ index f05567c..9416d08 100644
  // Set master volume (listener)
  void SetMasterVolume(float volume)
  {
-@@ -1782,7 +1795,7 @@ void UnloadMusicStream(Music music)
+@@ -1782,7 +1811,7 @@ void UnloadMusicStream(Music music)
          else if (music.ctxType == MUSIC_AUDIO_QOA) qoaplay_close((qoaplay_desc *)music.ctxData);
  #endif
  #if SUPPORT_FILEFORMAT_FLAC
@@ -55,7 +93,7 @@ index f05567c..9416d08 100644
  #endif
  #if SUPPORT_FILEFORMAT_XM
          else if (music.ctxType == MUSIC_MODULE_XM) jar_xm_free_context((jar_xm_context_t *)music.ctxData);
-@@ -1843,42 +1856,103 @@ void StopMusicStream(Music music)
+@@ -1843,42 +1872,103 @@ void StopMusicStream(Music music)
      }
  }
  
@@ -87,26 +125,23 @@ index f05567c..9416d08 100644
 +    if ((frame < end) || (end <= begin)) return frame;
 +    return begin + (frame - begin)%(end - begin);
 +}
- 
++
 +// Read frames from the decoder of a music, in the format of its stream: the frames read
 +static unsigned int ReadMusicFrames(Music music, void *framesOut, unsigned int frameCount)
 +{
-     switch (music.ctxType)
-     {
- #if SUPPORT_FILEFORMAT_WAV
--        case MUSIC_AUDIO_WAV: drwav_seek_to_pcm_frame((drwav *)music.ctxData, positionInFrames); break;
++    switch (music.ctxType)
++    {
++#if SUPPORT_FILEFORMAT_WAV
 +        case MUSIC_AUDIO_WAV:
 +        {
 +            if (music.stream.sampleSize == 16) return (unsigned int)drwav_read_pcm_frames_s16((drwav *)music.ctxData, frameCount, (short *)framesOut);
 +            else return (unsigned int)drwav_read_pcm_frames_f32((drwav *)music.ctxData, frameCount, (float *)framesOut);
 +        }
- #endif
- #if SUPPORT_FILEFORMAT_OGG
--        case MUSIC_AUDIO_OGG: stb_vorbis_seek_frame((stb_vorbis *)music.ctxData, positionInFrames); break;
++#endif
++#if SUPPORT_FILEFORMAT_OGG
 +        case MUSIC_AUDIO_OGG: return (unsigned int)stb_vorbis_get_samples_short_interleaved((stb_vorbis *)music.ctxData, music.stream.channels, (short *)framesOut, frameCount*music.stream.channels);
- #endif
- #if SUPPORT_FILEFORMAT_MP3
--        case MUSIC_AUDIO_MP3: drmp3_seek_to_pcm_frame((drmp3 *)music.ctxData, positionInFrames); break;
++#endif
++#if SUPPORT_FILEFORMAT_MP3
 +        case MUSIC_AUDIO_MP3: return (unsigned int)drmp3_read_pcm_frames_f32((drmp3 *)music.ctxData, frameCount, (float *)framesOut);
 +#endif
 +#if SUPPORT_FILEFORMAT_QOA
@@ -118,20 +153,23 @@ index f05567c..9416d08 100644
 +        default: return 0;
 +    }
 +}
-+
+ 
 +// Seek the decoder of a music to a frame: the frame reached (QOA seeks to the start of its frames)
 +static unsigned int SeekMusicDecoder(Music music, unsigned int frame)
 +{
-+    switch (music.ctxType)
-+    {
-+#if SUPPORT_FILEFORMAT_WAV
+     switch (music.ctxType)
+     {
+ #if SUPPORT_FILEFORMAT_WAV
+-        case MUSIC_AUDIO_WAV: drwav_seek_to_pcm_frame((drwav *)music.ctxData, positionInFrames); break;
 +        case MUSIC_AUDIO_WAV: drwav_seek_to_pcm_frame((drwav *)music.ctxData, frame); break;
-+#endif
-+#if SUPPORT_FILEFORMAT_OGG
+ #endif
+ #if SUPPORT_FILEFORMAT_OGG
+-        case MUSIC_AUDIO_OGG: stb_vorbis_seek_frame((stb_vorbis *)music.ctxData, positionInFrames); break;
 +        // Sample-exact: stb_vorbis_seek_frame() stops at the start of the vorbis frame
 +        case MUSIC_AUDIO_OGG: stb_vorbis_seek((stb_vorbis *)music.ctxData, frame); break;
-+#endif
-+#if SUPPORT_FILEFORMAT_MP3
+ #endif
+ #if SUPPORT_FILEFORMAT_MP3
+-        case MUSIC_AUDIO_MP3: drmp3_seek_to_pcm_frame((drmp3 *)music.ctxData, positionInFrames); break;
 +        case MUSIC_AUDIO_MP3: drmp3_seek_to_pcm_frame((drmp3 *)music.ctxData, frame); break;
  #endif
  #if SUPPORT_FILEFORMAT_QOA
@@ -173,7 +211,7 @@ index f05567c..9416d08 100644
      music.stream.buffer->framesProcessed = positionInFrames;
      music.stream.buffer->isSubBufferProcessed[0] = true;
      music.stream.buffer->isSubBufferProcessed[1] = true;
-@@ -1936,89 +2010,42 @@ void UpdateMusicStream(Music music)
+@@ -1936,89 +2026,42 @@ void UpdateMusicStream(Music music)
  
          switch (music.ctxType)
          {
@@ -290,7 +328,7 @@ index f05567c..9416d08 100644
          #if SUPPORT_FILEFORMAT_XM
              case MUSIC_MODULE_XM:
              {
-@@ -2108,8 +2135,10 @@ float GetMusicTimePlayed(Music music)
+@@ -2108,8 +2151,10 @@ float GetMusicTimePlayed(Music music)
              int framesInBuffers = framesInFirstBuffer + framesInSecondBuffer;
              if (((unsigned int)framesInBuffers > music.frameCount) && !music.looping) framesInBuffers = music.frameCount;
              int framesSentToMix = music.stream.buffer->frameCursorPos%subBufferSize;
@@ -303,7 +341,7 @@ index f05567c..9416d08 100644
              secondsPlayed = (float)framesPlayed/music.stream.sampleRate;
              ma_mutex_unlock(&AUDIO.System.lock);
          }
-@@ -2709,15 +2738,13 @@ static void StopAudioBufferInLockedState(AudioBuffer *buffer)
+@@ -2709,15 +2754,13 @@ static void StopAudioBufferInLockedState(AudioBuffer *buffer)
  {
      if (buffer != NULL)
      {

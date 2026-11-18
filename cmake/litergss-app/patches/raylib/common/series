@@ -4,5 +4,5 @@
 # raudio: loop points for a looping Music (loopStart / loopEnd), which
 # ruby-raylib-audio sets from the LOOPSTART / LOOPLENGTH tags of PSDK musics;
 # stopping a paused stream; pausing the device (Android in the background);
-# unloading a FLAC music (a double free).
+# unloading a FLAC music (a double free); a null device without audio hardware.
 raudio-loop-points-device-pause.patch
