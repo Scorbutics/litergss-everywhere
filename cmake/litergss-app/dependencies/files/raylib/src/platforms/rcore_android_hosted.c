@@ -831,7 +831,13 @@ static int HostedGamepadSlot(int deviceId, bool allocate)
     return -1;
 }
 
-// Touch points to raylib's touch and mouse state (the first point drives the mouse, as PLATFORM_ANDROID)
+// Touch points to raylib's touch state. Unlike PLATFORM_ANDROID, touches don't
+// drive the mouse (raylib maps currentTouchState to IsMouseButtonDown): a game
+// gets touch events only, as with SFML's Android. A mouse driven by the first
+// finger made every touch a click too, the on-screen gamepad's included (PSDK's
+// menus took the click over its B). Touches as an alternative way to move the
+// mouse, if wanted, belong where they can be told apart: the touch overlay,
+// which forwards the touches outside its buttons to the game.
 static void HostedUpdateTouchState(void)
 {
     CORE.Input.Touch.pointCount = hostedInput.pointCount;
@@ -840,8 +846,6 @@ static void HostedUpdateTouchState(void)
         CORE.Input.Touch.pointId[i] = hostedInput.pointId[i];
         CORE.Input.Touch.position[i] = hostedInput.position[i];
     }
-    CORE.Input.Touch.currentTouchState[MOUSE_BUTTON_LEFT] = (hostedInput.pointCount > 0)? 1 : 0;
-    if (hostedInput.pointCount > 0) CORE.Input.Mouse.currentPosition = hostedInput.position[0];
 }
 
 static void HostedTouch(int phase, int pointerId, float x, float y)
@@ -860,8 +864,6 @@ static void HostedTouch(int phase, int pointerId, float x, float y)
             }
             hostedInput.pointCount--;
         }
-        // The last position stays the mouse's (a click lands where the finger left)
-        CORE.Input.Mouse.currentPosition = (Vector2){ x, y };
     }
     else
     {
