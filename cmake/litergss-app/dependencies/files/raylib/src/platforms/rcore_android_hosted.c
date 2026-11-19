@@ -374,6 +374,23 @@ bool RaylibHostedIsReady(void)
     return ready;
 }
 
+// The focus changes applied, in order, until popped (render thread only).
+// IsWindowFocused() alone loses a trip to the background: the LostFocus and
+// the GainedFocus are both applied before a frame could see it change.
+#define HOSTED_FOCUS_CHANGES 16
+static int focusChanges[HOSTED_FOCUS_CHANGES];
+static int focusChangesHead = 0;
+static int focusChangesCount = 0;
+
+int RaylibHostedPopFocusChange(void)
+{
+    if (focusChangesCount == 0) return -1;
+    const int change = focusChanges[focusChangesHead];
+    focusChangesHead = (focusChangesHead + 1)%HOSTED_FOCUS_CHANGES;
+    focusChangesCount--;
+    return change;
+}
+
 void RaylibHostedPushFocus(bool gained)
 {
     HostedEvent event = { .type = HOSTED_FOCUS, .a = gained };
@@ -1025,6 +1042,10 @@ static void HostedApply(void)
             {
                 if (event->a) FLAG_CLEAR(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
                 else FLAG_SET(CORE.Window.flags, FLAG_WINDOW_UNFOCUSED);
+                // Full: the oldest change goes (a reader that stopped reading)
+                if (focusChangesCount == HOSTED_FOCUS_CHANGES) RaylibHostedPopFocusChange();
+                focusChanges[(focusChangesHead + focusChangesCount)%HOSTED_FOCUS_CHANGES] = event->a? 1 : 0;
+                focusChangesCount++;
             } break;
             case HOSTED_CLOSE: CORE.Window.shouldClose = true; break;
             case HOSTED_TOUCH: HostedTouch(event->a, event->b, event->f[0], event->f[1]); break;

@@ -426,6 +426,7 @@ jobs:
         run: |
           ruby -e 'require "minitest"' 2>/dev/null || sudo gem install --no-document minitest
           ruby ruby/test/test_touch_overlay.rb
+          ruby ruby/test/test_host_lifecycle.rb
 
       - name: Export build outputs
         run: make export

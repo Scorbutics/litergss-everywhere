@@ -47,6 +47,7 @@ void RaylibHostedPushFocus(bool gained);
 void RaylibHostedPushClose(void);                                       // WindowShouldClose() becomes true
 bool RaylibHostedMakeCurrent(bool current);                             // Render thread: the GL context current on the calling thread (true) or released from it (false)
 void RaylibHostedClearClose(void);                                      // Render thread: WindowShouldClose() false again, queued closes dropped (the next window)
+int RaylibHostedPopFocusChange(void);                                   // Render thread: the next focus change applied, in order: 1 gained, 0 lost, -1 none
 
 // Input (host thread). Positions in surface pixels.
 #define RAYLIB_HOSTED_TOUCH_DOWN 0
