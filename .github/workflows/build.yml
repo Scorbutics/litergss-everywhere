@@ -1075,6 +1075,16 @@ jobs:
                 <password>${{ secrets.GITHUB_TOKEN }}</password>
               </server>
             </servers>
+            <!-- Maven Central refuses GitHub's runners now and then (its
+                 plugins "not found": "No plugin found for prefix 'deploy'");
+                 Google's mirror of it serves them -->
+            <mirrors>
+              <mirror>
+                <id>google-maven-central</id>
+                <mirrorOf>central</mirrorOf>
+                <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+              </mirror>
+            </mirrors>
           </settings>
           SETTINGS_EOF
 
@@ -1335,6 +1345,16 @@ jobs:
                 <password>${{ secrets.GITHUB_TOKEN }}</password>
               </server>
             </servers>
+            <!-- Maven Central refuses GitHub's runners now and then (its
+                 plugins "not found": "No plugin found for prefix 'deploy'");
+                 Google's mirror of it serves them -->
+            <mirrors>
+              <mirror>
+                <id>google-maven-central</id>
+                <mirrorOf>central</mirrorOf>
+                <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+              </mirror>
+            </mirrors>
           </settings>
           SETTINGS_EOF
 
