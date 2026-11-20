@@ -20,7 +20,7 @@ if(NOT DEFINED LITERGSS3_GIT_URL)
     set(LITERGSS3_GIT_URL "https://github.com/PokemonWorkshop/litergss3.git")
 endif()
 if(NOT DEFINED LITERGSS3_GIT_TAG)
-    set(LITERGSS3_GIT_TAG "2a4624588fa6b614ed0c45d30193fd3114cb3a24")  # development
+    set(LITERGSS3_GIT_TAG "cc15d7bd8c641138bbde8e03b85d3d6f2066ebe5")  # development
 endif()
 
 # RUBY_MINOR_VERSION: ruby-for-android.cmake (loaded earlier per
